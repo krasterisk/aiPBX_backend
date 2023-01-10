@@ -12,7 +12,7 @@ export class Context extends Model<Context, ContextsCreationAttrs> {
     @Column({type: DataType.INTEGER, unique: true, primaryKey: true, autoIncrement: true})
     id: number
     @ApiProperty({example: 'sip-out', description: "Наименование контектса"})
-    @Column({type: DataType.STRING})
+    @Column({type: DataType.STRING, unique: true, allowNull: false})
     name: string
     @ApiProperty({example: 'sip-out-mg,sip-out-city', description: "Список других контекстов, включенных в текущий"})
     @Column({type: DataType.STRING})

@@ -21,7 +21,7 @@ export class UsersService {
             user.roles = [role]
             return user
         }
-        throw new HttpException({message: 'Пользователь или роль не найдены'}, HttpStatus.NOT_FOUND)
+        throw new HttpException({message: 'User or Role not found'}, HttpStatus.NOT_FOUND)
     }
 
     async getAllUsers() {
@@ -37,7 +37,7 @@ export class UsersService {
     async getUserById(id: number) {
         const user = await this.usersRepository.findOne({where: {id}, include: {all: true}})
         if(!user) {
-            throw new HttpException('Пользователь не найден', HttpStatus.NOT_FOUND)
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND)
         } else {
             return user
         }
@@ -50,7 +50,7 @@ export class UsersService {
             await user.$add('role', role.id)
             return user.reload()
         }
-        throw new HttpException('Пользователь или роль не найдены', HttpStatus.NOT_FOUND)
+        throw new HttpException('User or Role not found', HttpStatus.NOT_FOUND)
     }
 
     async removeRole(dto: AddRoleDto) {
@@ -60,13 +60,13 @@ export class UsersService {
             await user.$remove('role', role.id)
             return user.reload()
         }
-        throw new HttpException('Пользователь или роль не найдены', HttpStatus.NOT_FOUND)
+        throw new HttpException('User or Role not found', HttpStatus.NOT_FOUND)
     }
 
     async banUser(dto: BanUserDto) {
         const user = await this.usersRepository.findByPk(dto.userId)
         if (!user) {
-            throw new HttpException('Пользователь не найдены', HttpStatus.NOT_FOUND)
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND)
         }
         user.banned = true
         user.banReason = dto.banReason
@@ -77,7 +77,7 @@ export class UsersService {
     async updateUser(updates: Partial<User>) {
         const user = await this.usersRepository.findByPk(updates.id)
         if (!user) {
-            throw new HttpException('Пользователь не найден', HttpStatus.NOT_FOUND)
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND)
         }
         await user.update(updates)
         return user
@@ -86,9 +86,9 @@ export class UsersService {
     async deleteUser(ids: number[]) {
         const deleted = await this.usersRepository.destroy({where: { id: ids } })
         if(deleted === 0) {
-            throw new HttpException('Пользователь не найден', HttpStatus.NOT_FOUND)
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND)
         } else {
-            return {message: 'Пользователь удалён успешно', statusCode: HttpStatus.OK}
+            return {message: 'User deleted successfully', statusCode: HttpStatus.OK}
         }
     }
 

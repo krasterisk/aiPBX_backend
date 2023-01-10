@@ -1,10 +1,11 @@
-import {Body, Controller, Delete, Get, Post, Put, UseGuards} from '@nestjs/common';
+import {Body, Controller, Delete, Get, Param, Post, Put, UseGuards} from '@nestjs/common';
 import {ContextsService} from "./contexts.service";
 import {ApiOperation, ApiResponse} from "@nestjs/swagger";
 import {Roles} from "../auth/roles-auth.decorator";
 import {RolesGuard} from "../auth/roles.guard";
 import {Context} from "./contexts.model";
 import {ContextsDto} from "./dto/contexts.dto";
+import {User} from "../users/users.model";
 
 @Controller('contexts')
 export class ContextsController {
@@ -21,9 +22,18 @@ export class ContextsController {
         return this.ContextService.getAll()
     }
 
+    @ApiOperation({summary: "Get context by id"})
+    @ApiResponse({status: 200, type: [User]})
+    @Roles('ADMIN','USER')
+    @UseGuards(RolesGuard)
+    @Get('/:id')
+    getOne(@Param('id') id: number) {
+        return this.ContextService.getContextById(id)
+    }
+
     @ApiOperation({summary: "Создание кабинета пользователя"})
     @ApiResponse({status: 200, type: Context})
-    @Roles('VPBX_ADMIN')
+    @Roles('ADMIN')
     @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()

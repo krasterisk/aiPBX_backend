@@ -12,31 +12,31 @@ interface EndpointCreationAttrs {
 export class Endpoint extends Model<Endpoint, EndpointCreationAttrs> {
     @Column({type: DataType.INTEGER, unique: true, primaryKey: true, autoIncrement: true})
     id: number
-    @ApiProperty({example: 'WorkSoftPhone', description: "Наименование устройства"})
+    @ApiProperty({example: 'WorkSoftPhone', description: "Endpoint name"})
     @Column({type: DataType.STRING, unique: true})
     endpoint_id: string
-    @ApiProperty({example: 'WorkSoftPhone', description: "Имя пользователя"})
+    @ApiProperty({example: 'WorkSoftPhone', description: "Endpoint username"})
     @Column({type: DataType.STRING})
     username: string
-    @ApiProperty({example: 'WorkSoftPhone', description: "Пароль"})
+    @ApiProperty({example: 'WorkSoftPhone', description: "Password"})
     @Column({type: DataType.STRING})
     password: string
-    @ApiProperty({example: 'sip-out', description: "Контекст вызовов"})
+    @ApiProperty({example: 'sip-out', description: "Context"})
     @Column({type: DataType.STRING, allowNull: false})
     context: string
-    @ApiProperty({example: 'transport-udp', description: "Используемый транспорт"})
+    @ApiProperty({example: 'transport-udp', description: "Transport protocol"})
     @Column({type: DataType.STRING, allowNull: false})
     transport: string
-    @ApiProperty({example: 'allow', description: "Используемые кодеки"})
+    @ApiProperty({example: 'allow', description: "Codecs"})
     @Column({type: DataType.STRING, allowNull: false})
     allow: string
-    @ApiProperty({example: '2', description: "Ограничение на количество регистраций"})
+    @ApiProperty({example: '2', description: "Registrations limit"})
     @Column({type: DataType.INTEGER})
     max_contacts: number
-    @ApiProperty({example: 'md5,userpass,google_oauth', description: "Тип авторизации"})
+    @ApiProperty({example: 'md5,userpass,google_oauth', description: "Authorization type"})
     @Column({type: DataType.STRING})
     auth_type: string
-    @ApiProperty({example: '4', description: "Идентификатор кабинета ВАТС"})
+    @ApiProperty({example: '4', description: "VPBX cabinet id"})
     @Column({type: DataType.INTEGER, allowNull: false})
     vpbx_user_id: number
 }

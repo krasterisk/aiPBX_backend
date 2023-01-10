@@ -14,7 +14,7 @@ export class UsersController {
 
     constructor(private userService: UsersService) {}
 
-    @ApiOperation({summary: "Создание пользователя"})
+    @ApiOperation({summary: "Create user"})
     @ApiResponse({status: 200, type: User})
 //    @UsePipes(ValidationPipe)
     @Roles('ADMIN')
@@ -24,7 +24,7 @@ export class UsersController {
         return this.userService.createUser(dto)
     }
 
-    @ApiOperation({summary: "Получить всех пользователей"})
+    @ApiOperation({summary: "Get all users"})
     @ApiResponse({status: 200, type: [User]})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -33,7 +33,7 @@ export class UsersController {
         return this.userService.getAllUsers()
     }
 
-    @ApiOperation({summary: "Получить всех пользователей"})
+    @ApiOperation({summary: "Get user by id"})
     @ApiResponse({status: 200, type: [User]})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -42,7 +42,7 @@ export class UsersController {
         return this.userService.getUserById(id)
     }
 
-    @ApiOperation({summary: "Выдать роль"})
+    @ApiOperation({summary: "Add role for user"})
     @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -51,7 +51,7 @@ export class UsersController {
         return this.userService.addRole(dto)
     }
 
-    @ApiOperation({summary: "Забрать роль"})
+    @ApiOperation({summary: "Remove user's role"})
     @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -60,7 +60,7 @@ export class UsersController {
         return this.userService.removeRole(dto)
     }
 
-    @ApiOperation({summary: "Забанить пользователя"})
+    @ApiOperation({summary: "Ban user"})
     @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -69,7 +69,7 @@ export class UsersController {
         return this.userService.banUser(dto)
     }
 
-    @ApiOperation({summary: "Редактировать пользователя"})
+    @ApiOperation({summary: "Edit user"})
     @ApiResponse({status: 200, type: User})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -78,7 +78,7 @@ export class UsersController {
         return this.userService.updateUser(updates)
     }
 
-    @ApiOperation({summary: "Удаление пользователей"})
+    @ApiOperation({summary: "Delete user by id's"})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Delete()

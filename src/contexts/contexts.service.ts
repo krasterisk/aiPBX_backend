@@ -13,14 +13,17 @@ export class ContextsService {
             const context = await this.contextsRepository.create(contextDto)
             return context
         } catch (e) {
-            throw new HttpException('Ошибка ввода данных в модуле contexts' +e, HttpStatus.BAD_REQUEST)
+            if (e.name === 'SequelizeUniqueConstraintError') {
+                throw new HttpException('Context already exists', HttpStatus.BAD_REQUEST)
+            }
+            throw new HttpException('[Contexts]:  Request error' +e, HttpStatus.BAD_REQUEST)
         }
     }
 
     async update(updates: Partial<Context>) {
         const context = await this.contextsRepository.findByPk(updates.id)
         if (!context) {
-            throw new HttpException('Контекст не найден', HttpStatus.NOT_FOUND)
+            throw new HttpException('Context not found', HttpStatus.NOT_FOUND)
         }
         await context.update(updates)
         return context
@@ -29,9 +32,9 @@ export class ContextsService {
     async delete(ids: number[]) {
         const deleted = await this.contextsRepository.destroy({where: { id: ids } })
         if(deleted === 0) {
-            throw new HttpException('Контекст не найден', HttpStatus.NOT_FOUND)
+            throw new HttpException('Context not found', HttpStatus.NOT_FOUND)
         } else {
-            return {message: 'Контекст удалён успешно', statusCode: HttpStatus.OK}
+            return {message: 'Context deleted successfully', statusCode: HttpStatus.OK}
         }
     }
 
@@ -43,7 +46,16 @@ export class ContextsService {
             }
 
         } catch (e) {
-            throw new HttpException({message: 'Ошибка в запросе в модуле Context: '} +e, HttpStatus.BAD_REQUEST)
+            throw new HttpException({message: '[Contexts]:  Request error'} +e, HttpStatus.BAD_REQUEST)
+        }
+    }
+
+    async getContextById(id: number) {
+        const context = await this.contextsRepository.findOne({where: {id}})
+        if(!context) {
+            throw new HttpException('Context not found', HttpStatus.NOT_FOUND)
+        } else {
+            return context
         }
     }
 

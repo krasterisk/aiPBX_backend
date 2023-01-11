@@ -6,8 +6,9 @@ export class AriController {
     constructor(private readonly ariService: AriService) {}
 
     @Get('/endpoints')
-    getAll() {
-        return this.ariService.getEndpoints()
+     getAll() {
+        const endpoints = this.ariService.getEndpoints()
+        return endpoints
     }
 
 }

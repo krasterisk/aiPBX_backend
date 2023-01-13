@@ -3,7 +3,7 @@ import {EndpointsService} from "./endpoints.service";
 import {EndpointsController} from "./endpoints.controller";
 import {SequelizeModule} from "@nestjs/sequelize";
 import {Endpoint} from "./endpoints.model";
-import {AuthModule} from "../auth/auth.module";
+import {AuthModule} from "../../auth/auth.module";
 
 @Module({
     providers: [EndpointsService],

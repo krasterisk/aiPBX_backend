@@ -2,7 +2,7 @@ import {BelongsToMany, Column, DataType, HasMany, Model, Table} from "sequelize-
 import {ApiProperty} from "@nestjs/swagger";
 import {Role} from "../roles/roles.model";
 import {UserRoles} from "../roles/user-roles.model";
-import {Endpoint} from "../endpoints/endpoints.model";
+import {Endpoint} from "../pbx/endpoints/endpoints.model";
 import {User} from "../users/users.model";
 
 interface VpbxUserCreationAttrs {

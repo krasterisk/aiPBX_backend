@@ -13,15 +13,14 @@ import {Post} from "./posts/posts.model";
 import {ServeStaticModule} from "@nestjs/serve-static";
 import { AmiModule } from './ami/ami.module';
 import * as path from 'path';
-import { EndpointsModule } from './endpoints/endpoints.module';
-import {Endpoint} from "./endpoints/endpoints.model";
-import {UserEndpoints} from "./endpoints/user-endpoints.model";
+import { EndpointsModule } from './pbx/endpoints/endpoints.module';
+import {Endpoint} from "./pbx/endpoints/endpoints.model";
+import {UserEndpoints} from "./pbx/endpoints/user-endpoints.model";
 import { VpbxUsersModule } from './vpbx_users/vpbx_users.module';
 import {VpbxUser} from "./vpbx_users/vpbx_users.model";
-import { ContextsModule } from './contexts/contexts.module';
-import { RoutesModule } from './routes/routes.module';
+import { ContextsModule } from './pbx/contexts/contexts.module';
 import { AriModule } from './ari/ari.module';
-
+import { RoutesModule } from './pbx/routes/routes.module';
 
 @Module({
     imports: [
@@ -56,4 +55,5 @@ import { AriModule } from './ari/ari.module';
     ],
 
 })
+
 export class AppModule {}

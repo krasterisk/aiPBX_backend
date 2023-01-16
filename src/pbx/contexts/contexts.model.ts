@@ -1,4 +1,4 @@
-import {Column, DataType, Model, Table} from "sequelize-typescript";
+import {Column, DataType, HasOne, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 
 interface ContextsCreationAttrs {
@@ -8,16 +8,16 @@ interface ContextsCreationAttrs {
 
 @Table({tableName: 'custom_contexts'})
 export class Context extends Model<Context, ContextsCreationAttrs> {
-    @ApiProperty({example: '1', description: "Уникальный идентификатор"})
+    @ApiProperty({example: '1', description: "Unique id"})
     @Column({type: DataType.INTEGER, unique: true, primaryKey: true, autoIncrement: true})
     id: number
-    @ApiProperty({example: 'sip-out', description: "Наименование контектса"})
+    @ApiProperty({example: 'sip-out', description: "Context name"})
     @Column({type: DataType.STRING, unique: true, allowNull: false})
     name: string
-    @ApiProperty({example: 'sip-out-mg,sip-out-city', description: "Список других контекстов, включенных в текущий"})
+    @ApiProperty({example: 'sip-out-mg,sip-out-city', description: "Included contexts"})
     @Column({type: DataType.STRING})
     includes: string
-    @ApiProperty({example: 'Контекст для исходящих звонков', description: "Описание контекста"})
+    @ApiProperty({example: 'Outgoing context', description: "Context description"})
     @Column({type: DataType.STRING})
     description: string
 }

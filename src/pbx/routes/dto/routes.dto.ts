@@ -1,9 +1,11 @@
-import {IsNumber, IsString} from "class-validator";
+import {IsArray, IsNumber, IsString} from "class-validator";
 
 export class RoutesDto {
-    @IsString({message: 'Должно быть строкой'})
+    @IsString({message: 'Must be a string'})
     readonly name: string
-    @IsString({message: 'Должно быть строкой'})
+    //@IsNumber({},{message: 'Must be integer'})
+    readonly extensions: []
+    @IsNumber({allowNaN: false, allowInfinity: false},{message: 'Must be integer'})
     readonly vpbx_user_id: number
 
 }

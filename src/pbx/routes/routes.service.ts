@@ -2,16 +2,34 @@ import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
 import {Route} from "./routes.model";
 import {RoutesDto} from "../routes/dto/routes.dto";
+import {ExtensionDto} from "../extensions/dto/extension.dtp";
+import {ExtensionsService} from "../extensions/extensions.service";
 
 @Injectable()
 export class RoutesService {
 
-    constructor(@InjectModel(Route) private routesRepository: typeof Route) {}
+    constructor(@InjectModel(Route) private routesRepository: typeof Route,
+                private extenService: ExtensionsService) {}
 
     async create(dto: RoutesDto) {
         try {
-            const route = await this.routesRepository.create(RoutesDto)
+            const route = await this.routesRepository.create(dto)
+            if(!route) {
+                throw new HttpException('[Routes]:  Request error', HttpStatus.BAD_REQUEST)
+            }
+            if(dto.extensions) {
+                dto.extensions.map(async (extension:ExtensionDto) => {
+                    const exten = await this.extenService.create(extension)
+                    if(!exten) {
+                        throw new HttpException('[ExtensionsRoutes]:  Request error', HttpStatus.BAD_REQUEST)
+                    }
+                    await route.$set('extensions', [exten.id])
+                    route.extensions = [exten]
+                    }
+                )
+            }
             return route
+
         } catch (e) {
             if (e.name === 'SequelizeUniqueConstraintError') {
                 throw new HttpException('Route already exists', HttpStatus.BAD_REQUEST)
@@ -40,7 +58,7 @@ export class RoutesService {
 
     async getAll() {
         try {
-            const route = await this.routesRepository.findAll()
+            const route = await this.routesRepository.findAll({include: {all: true}})
             if (route) {
                 return route
             }
@@ -51,7 +69,7 @@ export class RoutesService {
     }
 
     async getRouteById(id: number) {
-        const route = await this.routesRepository.findOne({where: {id}})
+        const route = await this.routesRepository.findOne({where: {id}, include: {all: true}})
         if(!route) {
             throw new HttpException('Route not found', HttpStatus.NOT_FOUND)
         } else {

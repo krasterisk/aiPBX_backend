@@ -1,5 +1,7 @@
-import {Column, DataType, Model, Table} from "sequelize-typescript";
+import {BelongsToMany, Column, DataType, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
+import {RouteExtensions} from "../extensions/routes-extensions.model";
+import {Extensions} from "../extensions/extensions.model";
 
 
 interface CreateRouteAttr {
@@ -10,7 +12,7 @@ interface CreateRouteAttr {
 }
 
 @Table({tableName: 'pbx_routes'})
-export class Route extends Model<CreateRouteAttr> {
+export class Route extends Model<Route, CreateRouteAttr> {
     @ApiProperty({example: '1', description: "Уникальный идентификатор"})
     @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
     id: number
@@ -20,11 +22,12 @@ export class Route extends Model<CreateRouteAttr> {
     @ApiProperty({example: 'City routes', description: "Route name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string
-    @ApiProperty({example: '4', description: "Extensions id"})
-    @Column({type: DataType.INTEGER, allowNull: false})
-    extens_id: number
+
+    @BelongsToMany(() => Extensions, () => RouteExtensions)
+    extensions: Extensions[]
+
     @ApiProperty({example: 'Outbound_routes', description: "Context"})
-    @Column({type: DataType.INTEGER, allowNull: false})
+    @Column({type: DataType.INTEGER, allowNull: true, defaultValue: 0})
     context_id: number
     @ApiProperty({example: 'Records', description: "Records options template"})
     @Column({type: DataType.INTEGER, defaultValue: 0})
@@ -48,7 +51,7 @@ export class Route extends Model<CreateRouteAttr> {
     @Column({type: DataType.INTEGER, defaultValue: 0})
     apps_id: number
     @ApiProperty({example: '1', description: "VPBX cabinet id"})
-    @Column({type: DataType.INTEGER, defaultValue: 0})
+    @Column({type: DataType.INTEGER, allowNull: false})
     vpbx_user_id: number
 
 }

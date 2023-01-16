@@ -11,7 +11,6 @@ export class CreateUserDto {
     @Length(3, 16, {message: 'от 3 до 16 символов'})
     readonly password: string
     @ApiProperty({description: "VPBX id"})
- //   @IsNumber({},{message: "Это числовой тип"})
     @IsNumber({},{message: 'Обязательное поле. Число'})
     readonly vpbx_user_id: number
 }

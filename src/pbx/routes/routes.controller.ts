@@ -45,8 +45,8 @@ export class RoutesController {
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
-    update(@Body() dto: RoutesDto) {
-        return this.RouteService.update(dto)
+    update(@Body() updates: Partial<Route>) {
+        return this.RouteService.update(updates)
     }
 
     @Roles('ADMIN')

@@ -14,7 +14,7 @@ export class RolesService {
             return role
         } catch (e) {
             console.log(e)
-            throw new HttpException('Ошибка ввода данных', HttpStatus.BAD_REQUEST)
+            throw new HttpException('[Roles]: Request error! Role not found!', HttpStatus.BAD_REQUEST)
         }
     }
 
@@ -23,7 +23,7 @@ export class RolesService {
             const role = await this.roleRepository.findOne({where: {value}})
             return role
         } catch (e) {
-            throw new HttpException('Ошибка ввода данных: нет доступных прав', HttpStatus.BAD_REQUEST)
+            throw new HttpException('[Roles]: Request error! Role not found!', HttpStatus.BAD_REQUEST)
         }
     }
 

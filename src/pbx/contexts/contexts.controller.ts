@@ -5,7 +5,6 @@ import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {Context} from "./contexts.model";
 import {ContextsDto} from "./dto/contexts.dto";
-import {User} from "../../users/users.model";
 
 @Controller('contexts')
 export class ContextsController {
@@ -23,7 +22,7 @@ export class ContextsController {
     }
 
     @ApiOperation({summary: "Get context by id"})
-    @ApiResponse({status: 200, type: [User]})
+    @ApiResponse({status: 200, type: [Context]})
     @Roles('ADMIN','USER')
     @UseGuards(RolesGuard)
     @Get('/:id')

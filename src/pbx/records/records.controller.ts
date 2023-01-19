@@ -1,51 +1,50 @@
 import {Body, Controller, Delete, Get, Param, Post, Put, UseGuards} from '@nestjs/common';
+import {RecordsService} from "./records.service";
 import {ApiOperation, ApiResponse} from "@nestjs/swagger";
-import {Route} from "../Routes/Routes.model";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
-import {RoutesService} from "./routes.service";
-import {RoutesDto} from "./dto/routes.dto";
+import {Record} from "./record.model";
+import {RecordDto} from "./dto/record.dto";
 
-@Controller('routes')
-export class RoutesController {
+@Controller('records')
+export class RecordsController {
 
-    constructor(private RouteService: RoutesService) {}
-
+    constructor(private RecordService: RecordsService) {}
 
     @ApiOperation({summary: "Вывести список контекстов"})
-    @ApiResponse({status: 200, type: Route})
+    @ApiResponse({status: 200, type: Record})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Get()
     getAll() {
-        return this.RouteService.getAll()
+        return this.RecordService.getAll()
     }
 
-    @ApiOperation({summary: "Get Route by id"})
-    @ApiResponse({status: 200, type: [Route]})
+    @ApiOperation({summary: "Get Record by id"})
+    @ApiResponse({status: 200, type: [Record]})
     @Roles('ADMIN','USER')
     @UseGuards(RolesGuard)
     @Get('/:id')
     getOne(@Param('id') id: number) {
-        return this.RouteService.getRouteById(id)
+        return this.RecordService.getRecordById(id)
     }
 
     @ApiOperation({summary: "Создание кабинета пользователя"})
-    @ApiResponse({status: 200, type: Route})
+    @ApiResponse({status: 200, type: Record})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()
-    create(@Body() dto: RoutesDto) {
-        return this.RouteService.create(dto)
+    create(@Body() dto: RecordDto) {
+        return this.RecordService.create(dto)
     }
 
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
-    update(@Body() updates: Partial<Route>) {
-        return this.RouteService.update(updates)
+    update(@Body() dto: RecordDto) {
+        return this.RecordService.update(dto)
     }
 
     @Roles('ADMIN')
@@ -53,7 +52,7 @@ export class RoutesController {
     @Delete()
     delete(@Body() body: {ids: number[]}) {
         const { ids } = body
-        return this.RouteService.delete(ids)
+        return this.RecordService.delete(ids)
     }
 
 

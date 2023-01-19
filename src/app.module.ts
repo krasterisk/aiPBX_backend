@@ -25,6 +25,8 @@ import { ExtensionsModule } from './pbx/extensions/extensions.module';
 import {Route} from "./pbx/routes/routes.model";
 import {Extensions} from "./pbx/extensions/extensions.model";
 import {RouteExtensions} from "./pbx/extensions/routes-extensions.model";
+import { RecordsModule } from './pbx/records/records.module';
+import {Record} from "./pbx/records/record.model";
 
 @Module({
     imports: [
@@ -41,7 +43,18 @@ import {RouteExtensions} from "./pbx/extensions/routes-extensions.model";
             username: process.env.MYSQL_USER,
             password: process.env.MYSQL_PASS,
             database: process.env.MYSQL_DB,
-            models: [User, Role, UserRoles, Post, Endpoint, UserEndpoints, VpbxUser, Route, Extensions, RouteExtensions],
+            models: [User,
+                Role,
+                UserRoles,
+                Post,
+                Endpoint,
+                UserEndpoints,
+                VpbxUser,
+                Route,
+                Extensions,
+                RouteExtensions,
+                Record
+            ],
             autoLoadModels: true,
 //            sync: {alter: true}
         }),
@@ -57,6 +70,7 @@ import {RouteExtensions} from "./pbx/extensions/routes-extensions.model";
         RoutesModule,
         AriModule,
         ExtensionsModule,
+        RecordsModule,
     ],
 
 })

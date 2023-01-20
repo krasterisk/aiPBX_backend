@@ -1,7 +1,7 @@
 import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
 import {Extensions} from "./extensions.model";
-import {ExtensionDto} from "./dto/extension.dtp";
+import {ExtensionDto} from "./dto/extension.dto";
 
 @Injectable()
 export class ExtensionsService {

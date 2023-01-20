@@ -6,7 +6,7 @@ interface ContextsCreationAttrs {
     vpbx_user_id: number
 }
 
-@Table({tableName: 'custom_contexts'})
+@Table({tableName: 'pbx_custom_contexts'})
 export class Context extends Model<Context, ContextsCreationAttrs> {
     @ApiProperty({example: '1', description: "Unique id"})
     @Column({type: DataType.INTEGER, unique: true, primaryKey: true, autoIncrement: true})

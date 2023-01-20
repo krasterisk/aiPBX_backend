@@ -8,7 +8,7 @@ interface EndpointCreationAttrs {
     vpbx_user_id: number
 }
 
-@Table({tableName: 'endpoints'})
+@Table({tableName: 'pbx_endpoints'})
 export class Endpoint extends Model<Endpoint, EndpointCreationAttrs> {
     @Column({type: DataType.INTEGER, unique: true, primaryKey: true, autoIncrement: true})
     id: number

@@ -2,7 +2,7 @@ import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
 import {Route} from "./routes.model";
 import {RoutesDto} from "../routes/dto/routes.dto";
-import {ExtensionDto} from "../extensions/dto/extension.dtp";
+import {ExtensionDto} from "../extensions/dto/extension.dto";
 import {ExtensionsService} from "../extensions/extensions.service";
 
 @Injectable()

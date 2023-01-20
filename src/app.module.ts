@@ -27,6 +27,16 @@ import {Extensions} from "./pbx/extensions/extensions.model";
 import {RouteExtensions} from "./pbx/extensions/routes-extensions.model";
 import { RecordsModule } from './pbx/records/records.module';
 import {Record} from "./pbx/records/record.model";
+import { PermitsController } from './pbx/permits/permits.controller';
+import { PermitsService } from './pbx/permits/permits.service';
+import { PermitsModule } from './pbx/permits/permits.module';
+import { ListbookModule } from './pbx/listbook/listbook.module';
+import { BlacklistModule } from './pbx/blacklist/blacklist.module';
+import { CallbackService } from './pbx/callback/callback.service';
+import { CallbackModule } from './pbx/callback/callback.module';
+import { AppsController } from './pbx/apps/apps.controller';
+import { AppsService } from './pbx/apps/apps.service';
+import { AppsModule } from './pbx/apps/apps.module';
 
 @Module({
     imports: [
@@ -71,6 +81,11 @@ import {Record} from "./pbx/records/record.model";
         AriModule,
         ExtensionsModule,
         RecordsModule,
+        PermitsModule,
+        ListbookModule,
+        BlacklistModule,
+        CallbackModule,
+        AppsModule,
     ],
 
 })

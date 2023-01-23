@@ -1,11 +1,12 @@
 import {Body, Controller, Delete, Get, Param, Post, Put, UseGuards} from '@nestjs/common';
 import {RecordsService} from "./records.service";
-import {ApiOperation, ApiResponse} from "@nestjs/swagger";
+import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {Record} from "./record.model";
 import {RecordDto} from "./dto/record.dto";
 
+@ApiTags('Records')
 @Controller('records')
 export class RecordsController {
 

@@ -1,23 +1,31 @@
 import {Column, DataType, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 
-interface CreateCallbackModelAttr {
+interface CreateGroupModelAttr {
     name: string
-    phones: string
+    strategy: string
+    timeout: number
+    endpoints: string
     vpbx_user_id: number
 }
 
-@Table({tableName: "pbx_blacklist"})
-export class Callback extends Model<Callback, CreateCallbackModelAttr> {
+@Table({tableName: "pbx_groups"})
+export class Group extends Model<Group, CreateGroupModelAttr> {
     @ApiProperty({example: '1', description: "Autoincrement"})
     @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
     id: number
     @ApiProperty({example: 'Private Person', description: "client name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string
-    @ApiProperty({example: '+1023342334', description: "phone numbers"})
-    @Column({type: DataType.TEXT, allowNull: true})
-    phones: string
+    @ApiProperty({example: 'Ring all', description: "Ring strategy"})
+    @Column({type: DataType.STRING, allowNull: false})
+    strategy: string
+    @ApiProperty({example: 'Ring timeout', description: "Ring timeout"})
+    @Column({type: DataType.INTEGER, allowNull: false})
+    timeout: number
+    @ApiProperty({example: 'Alex PJSIP/100', description: "Endpoints list"})
+    @Column({type: DataType.TEXT, allowNull: false})
+    endpoints: string
     @ApiProperty({example: 'anything', description: "comment"})
     @Column({type: DataType.STRING, allowNull: true})
     comment: string

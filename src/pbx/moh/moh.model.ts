@@ -1,26 +1,23 @@
 import {Column, DataType, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 
-interface CreateCallbackModelAttr {
+interface CreateMohModelAttr {
     name: string
-    phones: string
+    classname: string
     vpbx_user_id: number
 }
 
-@Table({tableName: "pbx_blacklist"})
-export class Callback extends Model<Callback, CreateCallbackModelAttr> {
+@Table({tableName: "pbx_moh"})
+export class Moh extends Model<Moh, CreateMohModelAttr> {
     @ApiProperty({example: '1', description: "Autoincrement"})
     @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
     id: number
-    @ApiProperty({example: 'Private Person', description: "client name"})
+    @ApiProperty({example: 'Main', description: "Music on hold name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string
-    @ApiProperty({example: '+1023342334', description: "phone numbers"})
-    @Column({type: DataType.TEXT, allowNull: true})
-    phones: string
-    @ApiProperty({example: 'anything', description: "comment"})
-    @Column({type: DataType.STRING, allowNull: true})
-    comment: string
+    @ApiProperty({example: 'holidays', description: "MOH class"})
+    @Column({type: DataType.STRING, allowNull: false})
+    classname: string
     @ApiProperty({example: '1', description: "VPBX user id"})
     @Column({type: DataType.INTEGER, allowNull: false})
     vpbx_user_id: number

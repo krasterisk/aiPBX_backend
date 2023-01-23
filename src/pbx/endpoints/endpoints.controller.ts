@@ -3,7 +3,9 @@ import {EndpointsDto} from "./dto/endpoints.dto";
 import {EndpointsService} from "./endpoints.service";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
+import {ApiTags} from "@nestjs/swagger";
 
+@ApiTags('Endpoints')
 @Controller('endpoints')
 export class EndpointsController {
     constructor(private endpointService: EndpointsService) {}

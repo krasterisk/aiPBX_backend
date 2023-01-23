@@ -1,11 +1,12 @@
 import {Body, Controller, Delete, Get, Param, Post, Put, UseGuards} from '@nestjs/common';
 import {BlacklistService} from "./blacklist.service";
-import {ApiOperation, ApiResponse} from "@nestjs/swagger";
+import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {Blacklist} from "./blacklist.model";
 import {BlacklistDto} from "./dto/blacklist.dto";
 
+@ApiTags('Blacklist')
 @Controller('blacklist')
 export class BlacklistController {
     

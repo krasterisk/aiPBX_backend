@@ -1,10 +1,11 @@
 import {Controller, Get, UseGuards} from '@nestjs/common';
-import {ApiOperation, ApiResponse} from "@nestjs/swagger";
+import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {Extensions} from "./extensions.model";
 import {ExtensionsService} from "./extensions.service";
 
+@ApiTags('Extensions')
 @Controller('extensions')
 export class ExtensionsController {
 

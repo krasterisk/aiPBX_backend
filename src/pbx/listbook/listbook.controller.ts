@@ -1,11 +1,12 @@
 import {Body, Controller, Delete, Get, Param, Post, Put, UseGuards} from '@nestjs/common';
 import {ListbookService} from "./listbook.service";
-import {ApiOperation, ApiResponse} from "@nestjs/swagger";
+import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {Listbook} from "./listbook.model";
 import {ListbookDto} from "./dto/listbook.dto";
 
+@ApiTags('Listbook')
 @Controller('listbook')
 export class ListbookController {
     

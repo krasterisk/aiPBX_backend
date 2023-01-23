@@ -1,11 +1,12 @@
 import {Body, Controller, Delete, Get, Param, Post, Put, UseGuards} from '@nestjs/common';
 import {CallbackService} from "./callback.service";
-import {ApiOperation, ApiResponse} from "@nestjs/swagger";
+import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {Callback} from "./callback.model";
 import {CallbackDto} from "./dto/callback.dto";
 
+@ApiTags('Callback')
 @Controller('callback')
 export class CallbackController {
     

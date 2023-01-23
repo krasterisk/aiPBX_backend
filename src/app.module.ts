@@ -37,6 +37,17 @@ import { CallbackModule } from './pbx/callback/callback.module';
 import { AppsController } from './pbx/apps/apps.controller';
 import { AppsService } from './pbx/apps/apps.service';
 import { AppsModule } from './pbx/apps/apps.module';
+import { IvrController } from './pbx/ivr/ivr.controller';
+import { IvrModule } from './pbx/ivr/ivr.module';
+import { QueueService } from './pbx/queue/queue.service';
+import { QueueController } from './pbx/queue/queue.controller';
+import { QueueModule } from './pbx/queue/queue.module';
+import { GroupsModule } from './pbx/groups/groups.module';
+import { PromptService } from './pbx/prompt/prompt.service';
+import { PromptController } from './pbx/prompt/prompt.controller';
+import { PromptModule } from './pbx/prompt/prompt.module';
+import { MohModule } from './pbx/moh/moh.module';
+import { TimegroupModule } from './pbx/timegroup/timegroup.module';
 
 @Module({
     imports: [
@@ -56,14 +67,7 @@ import { AppsModule } from './pbx/apps/apps.module';
             models: [User,
                 Role,
                 UserRoles,
-                Post,
-                Endpoint,
-                UserEndpoints,
                 VpbxUser,
-                Route,
-                Extensions,
-                RouteExtensions,
-                Record
             ],
             autoLoadModels: true,
 //            sync: {alter: true}
@@ -86,6 +90,12 @@ import { AppsModule } from './pbx/apps/apps.module';
         BlacklistModule,
         CallbackModule,
         AppsModule,
+        IvrModule,
+        QueueModule,
+        GroupsModule,
+        PromptModule,
+        MohModule,
+        TimegroupModule,
     ],
 
 })

@@ -42,6 +42,8 @@ export class PermitsController {
         return this.permitService.create(dto)
     }
 
+    @ApiOperation({summary: "Update permit"})
+    @ApiResponse({status: 200, type: Permit})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
@@ -49,6 +51,8 @@ export class PermitsController {
         return this.permitService.update(dto)
     }
 
+    @ApiOperation({summary: "Delete permit"})
+    @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Delete()

@@ -6,7 +6,7 @@ import {RolesGuard} from "../../auth/roles.guard";
 import {Group} from "./group.model";
 import {GroupDto} from "./dto/group.dto";
 
-@ApiTags('call groups')
+@ApiTags('Ring groups')
 @Controller('groups')
 export class GroupsController {
     
@@ -22,7 +22,7 @@ export class GroupsController {
         return this.groupService.getAll()
     }
 
-    @ApiOperation({summary: "Get group by id"})
+    @ApiOperation({summary: "Get ring group by id"})
     @ApiResponse({status: 200, type: [Group]})
     @Roles('ADMIN','USER')
     @UseGuards(RolesGuard)
@@ -31,7 +31,7 @@ export class GroupsController {
         return this.groupService.getGroupById(id)
     }
 
-    @ApiOperation({summary: "Create new group"})
+    @ApiOperation({summary: "Create new ring group"})
     @ApiResponse({status: 200, type: Group})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -41,6 +41,8 @@ export class GroupsController {
         return this.groupService.create(dto)
     }
 
+    @ApiOperation({summary: "Edit ring group"})
+    @ApiResponse({status: 200, type: Group})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
@@ -48,6 +50,8 @@ export class GroupsController {
         return this.groupService.update(dto)
     }
 
+    @ApiOperation({summary: "Ring group delete"})
+    @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Delete()

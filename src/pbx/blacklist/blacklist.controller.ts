@@ -41,6 +41,8 @@ export class BlacklistController {
         return this.blacklistService.create(dto)
     }
 
+    @ApiOperation({summary: "Update blacklist"})
+    @ApiResponse({status: 200, type: Blacklist})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
@@ -48,6 +50,8 @@ export class BlacklistController {
         return this.blacklistService.update(dto)
     }
 
+    @ApiOperation({summary: "Delete blacklist"})
+    @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Delete()

@@ -3,7 +3,9 @@ import {RolesService} from "./roles.service";
 import {CreateRoleDto} from "./dto/create-role.dto";
 import {Roles} from "../auth/roles-auth.decorator";
 import {RolesGuard} from "../auth/roles.guard";
+import {ApiTags} from "@nestjs/swagger";
 
+@ApiTags('Roles')
 @Controller('roles')
 export class RolesController {
 

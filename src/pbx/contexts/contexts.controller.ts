@@ -41,6 +41,8 @@ export class ContextsController {
         return this.ContextService.create(dto)
     }
 
+    @ApiOperation({summary: "Update context"})
+    @ApiResponse({status: 200, type: Context})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
@@ -48,6 +50,8 @@ export class ContextsController {
         return this.ContextService.update(dto)
     }
 
+    @ApiOperation({summary: "Delete context"})
+    @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Delete()

@@ -2,7 +2,9 @@ import {Controller, Get, Query, UseGuards} from '@nestjs/common';
 import {AmiService} from "./ami.service";
 import {RolesGuard} from "../auth/roles.guard";
 import {Roles} from "../auth/roles-auth.decorator";
+import {ApiTags} from "@nestjs/swagger";
 
+@ApiTags('AMI Interface')
 @Controller('ami')
 export class AmiController {
 

@@ -12,7 +12,7 @@ export class ListbookController {
     
     constructor(private listbookService: ListbookService) {}
 
-    @ApiOperation({summary: "Вывести список контекстов"})
+    @ApiOperation({summary: "Get listbook list"})
     @ApiResponse({status: 200, type: Listbook})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -22,7 +22,7 @@ export class ListbookController {
         return this.listbookService.getAll()
     }
 
-    @ApiOperation({summary: "Get Listbook by id"})
+    @ApiOperation({summary: "Get listbook by id"})
     @ApiResponse({status: 200, type: [Listbook]})
     @Roles('ADMIN','USER')
     @UseGuards(RolesGuard)
@@ -31,7 +31,7 @@ export class ListbookController {
         return this.listbookService.getListbookById(id)
     }
 
-    @ApiOperation({summary: "Создание кабинета пользователя"})
+    @ApiOperation({summary: "Create new listbook"})
     @ApiResponse({status: 200, type: Listbook})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -41,6 +41,8 @@ export class ListbookController {
         return this.listbookService.create(dto)
     }
 
+    @ApiOperation({summary: "Update listbook"})
+    @ApiResponse({status: 200, type: Listbook})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
@@ -48,6 +50,8 @@ export class ListbookController {
         return this.listbookService.update(dto)
     }
 
+    @ApiOperation({summary: "Delete listbook"})
+    @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Delete()
@@ -55,7 +59,5 @@ export class ListbookController {
         const { ids } = body
         return this.listbookService.delete(ids)
     }
-
-
 
 }

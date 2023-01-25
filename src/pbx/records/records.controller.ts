@@ -12,7 +12,7 @@ export class RecordsController {
 
     constructor(private RecordService: RecordsService) {}
 
-    @ApiOperation({summary: "Вывести список контекстов"})
+    @ApiOperation({summary: "Get records list"})
     @ApiResponse({status: 200, type: Record})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -31,7 +31,7 @@ export class RecordsController {
         return this.RecordService.getRecordById(id)
     }
 
-    @ApiOperation({summary: "Создание кабинета пользователя"})
+    @ApiOperation({summary: "Create record"})
     @ApiResponse({status: 200, type: Record})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -41,6 +41,8 @@ export class RecordsController {
         return this.RecordService.create(dto)
     }
 
+    @ApiOperation({summary: "Edit record"})
+    @ApiResponse({status: 200, type: Record})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
@@ -48,6 +50,8 @@ export class RecordsController {
         return this.RecordService.update(dto)
     }
 
+    @ApiOperation({summary: "Delete record"})
+    @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Delete()

@@ -13,7 +13,7 @@ export class RoutesController {
     constructor(private RouteService: RoutesService) {}
 
 
-    @ApiOperation({summary: "Вывести список контекстов"})
+    @ApiOperation({summary: "Get routes list"})
     @ApiResponse({status: 200, type: Route})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -32,7 +32,7 @@ export class RoutesController {
         return this.RouteService.getRouteById(id)
     }
 
-    @ApiOperation({summary: "Создание кабинета пользователя"})
+    @ApiOperation({summary: "Create route"})
     @ApiResponse({status: 200, type: Route})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
@@ -42,6 +42,8 @@ export class RoutesController {
         return this.RouteService.create(dto)
     }
 
+    @ApiOperation({summary: "Update route"})
+    @ApiResponse({status: 200, type: Route})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
@@ -49,6 +51,8 @@ export class RoutesController {
         return this.RouteService.update(updates)
     }
 
+    @ApiOperation({summary: "Delete route"})
+    @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Delete()

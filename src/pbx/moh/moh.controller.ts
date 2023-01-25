@@ -41,6 +41,8 @@ export class MohController {
         return this.mohService.create(dto)
     }
 
+    @ApiOperation({summary: "Update moh"})
+    @ApiResponse({status: 200, type: Moh})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
@@ -48,6 +50,8 @@ export class MohController {
         return this.mohService.update(dto)
     }
 
+    @ApiOperation({summary: "Delete moh"})
+    @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Delete()

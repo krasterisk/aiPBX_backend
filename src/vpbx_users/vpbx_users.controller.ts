@@ -1,16 +1,17 @@
 import {Body, Controller, Delete, Get, Post, Put, UseGuards} from '@nestjs/common';
 import {VpbxUser} from "./vpbx_users.model";
-import {ApiOperation, ApiResponse} from "@nestjs/swagger";
+import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {VpbxUsersService} from "./vpbx_users.service";
 import {CreateVpbxuserDto} from "./dto/create-vpbxuser.dto";
 import {Roles} from "../auth/roles-auth.decorator";
 import {RolesGuard} from "../auth/roles.guard";
 
+@ApiTags('VPBX Users')
 @Controller('vpbx-users')
 export class VpbxUsersController {
     constructor(private VpbxUserService: VpbxUsersService) {}
 
-    @ApiOperation({summary: "Вывести список кабинетов"})
+    @ApiOperation({summary: "Get vpbx users list"})
     @ApiResponse({status: 200, type: VpbxUser})
     @Roles('VPBX_ADMIN')
     @UseGuards(RolesGuard)
@@ -20,7 +21,7 @@ export class VpbxUsersController {
         return this.VpbxUserService.getAll()
     }
 
-    @ApiOperation({summary: "Создание кабинета пользователя"})
+    @ApiOperation({summary: "Create vpbx user"})
     @ApiResponse({status: 200, type: VpbxUser})
     @Roles('VPBX_ADMIN')
     @UseGuards(RolesGuard)
@@ -30,7 +31,7 @@ export class VpbxUsersController {
         return this.VpbxUserService.create(dto)
     }
 
-    @ApiOperation({summary: "Редактировать кабинет"})
+    @ApiOperation({summary: "Edit vpbx user"})
     @ApiResponse({status: 200, type: VpbxUser})
     @Roles('VPBX_ADMIN')
     @UseGuards(RolesGuard)
@@ -39,7 +40,7 @@ export class VpbxUsersController {
         return this.VpbxUserService.update(updates)
     }
 
-    @ApiOperation({summary: "Удаление кабинета"})
+    @ApiOperation({summary: "Delete vpbx user"})
     @Roles('VPBX_ADMIN')
     @UseGuards(RolesGuard)
     @Delete()

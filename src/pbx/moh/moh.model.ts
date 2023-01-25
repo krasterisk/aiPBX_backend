@@ -18,6 +18,9 @@ export class Moh extends Model<Moh, CreateMohModelAttr> {
     @ApiProperty({example: 'holidays', description: "MOH class"})
     @Column({type: DataType.STRING, allowNull: false})
     classname: string
+    @ApiProperty({example: 'new year holidays', description: "comment"})
+    @Column({type: DataType.STRING, allowNull: true})
+    comment: string
     @ApiProperty({example: '1', description: "VPBX user id"})
     @Column({type: DataType.INTEGER, allowNull: false})
     vpbx_user_id: number

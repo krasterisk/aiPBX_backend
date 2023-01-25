@@ -41,6 +41,8 @@ export class IvrController {
         return this.ivrService.create(dto)
     }
 
+    @ApiOperation({summary: "Edit ivr"})
+    @ApiResponse({status: 200, type: Ivr})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
@@ -48,6 +50,7 @@ export class IvrController {
         return this.ivrService.update(dto)
     }
 
+    @ApiOperation({summary: "Delete ivr by id"})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Delete()

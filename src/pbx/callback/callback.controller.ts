@@ -41,6 +41,8 @@ export class CallbackController {
         return this.callbackService.create(dto)
     }
 
+    @ApiOperation({summary: "Update callback"})
+    @ApiResponse({status: 200, type: Callback})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
@@ -48,6 +50,8 @@ export class CallbackController {
         return this.callbackService.update(dto)
     }
 
+    @ApiOperation({summary: "Delete callback"})
+    @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Delete()

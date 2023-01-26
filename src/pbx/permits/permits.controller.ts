@@ -3,7 +3,7 @@ import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {PermitsService} from "./permits.service";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
-import {Permit} from "./permin.model";
+import {Permit} from "./permit.model";
 import {PermitDto} from "./dto/permit.dto";
 
 

@@ -1,12 +1,13 @@
 import {Body, Controller, Delete, Get, Param, Post, Put, UseGuards} from '@nestjs/common';
 import {QueueMembersService} from "./queue_members.service";
-import {ApiOperation, ApiResponse} from "@nestjs/swagger";
+import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {QueueMemberDto} from "./dto/queue_member.dto";
 import {QueueMembers} from "./queue_members.model";
 
-@Controller('queue-members')
+@ApiTags('Queue members')
+@Controller('queue-member')
 export class QueueMembersController {
     
     constructor(private queueMembersService: QueueMembersService) {}

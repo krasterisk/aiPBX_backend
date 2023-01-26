@@ -34,8 +34,8 @@ export class PromptController {
 
     @ApiOperation({summary: "Create new prompt"})
     @ApiResponse({status: 200, type: Prompt})
-//    @Roles('ADMIN')
-//    @UseGuards(RolesGuard)
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()
     create(@Body() dto: PromptDto) {

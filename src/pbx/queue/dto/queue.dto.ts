@@ -1,10 +1,12 @@
-import {IsNumber, IsString} from "class-validator";
+import {IsEnum, IsIn, IsNumber, IsString} from "class-validator";
+import {QueueStrategies} from "../queue.model";
 
 export class QueueDto {
     @IsString({message: "Must be a string"})
     readonly name: string
-    @IsString({message: "Must be a string"})
-    readonly strategy: 'ringall' | 'leastrecent' | 'fewestcalls' | 'random' | 'rrmemory' | 'linear' | 'wrandom' | 'rrordered'
+    @IsIn(Object.values(QueueStrategies),
+        {message: "Must be: " + Object.values(QueueStrategies).join(',')})
+    readonly strategy: QueueStrategies
     @IsNumber({},{message: "Must be integer"})
     readonly vpbx_user_id: number
 }

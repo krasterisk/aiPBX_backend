@@ -18,7 +18,7 @@ export class QueueMembersService {
     }
 
     async update(updates: Partial<QueueMembers>) {
-        const queueMember = await this.queueMembersRepository.findByPk(updates.id)
+        const queueMember = await this.queueMembersRepository.findByPk(updates.uniqueid)
         if (!queueMember) {
             throw new HttpException('queueMember not found', HttpStatus.NOT_FOUND)
         }

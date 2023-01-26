@@ -1,9 +1,20 @@
 import {Column, DataType, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 
+export enum QueueStrategies {
+    ringall = 'ringall',
+    leastrecent = 'leastrecent',
+    fewestcalls = 'fewestcalls',
+    random = 'random',
+    rrmemory = 'rrmemory',
+    linear = 'linear',
+    wrandom = 'wrandom',
+    rrordered = 'rrordered'
+}
+
 interface CreateQueueAttr {
     name: string
-    strategy: 'ringall' | 'leastrecent' | 'fewestcalls' | 'random' | 'rrmemory' | 'linear' | 'wrandom' | 'rrordered'
+    strategy: QueueStrategies
     vpbx_user_id: number
 }
 
@@ -154,8 +165,8 @@ export class Queue extends Model<Queue, CreateQueueAttr> {
     @Column({type: DataType.INTEGER, allowNull: true})
     servicelevel: number
     @ApiProperty({example: 'ringall', description: "Queue strategy. Default ringall"})
-    @Column({type: DataType.ENUM('ringall','leastrecent','fewestcalls','random','rrmemory','linear','wrandom','rrordered'), allowNull: true})
-    strategy: 'ringall' | 'leastrecent' | 'fewestcalls' | 'random' | 'rrmemory' | 'linear' | 'wrandom' | 'rrordered'
+    @Column({type: DataType.ENUM(Object.values(QueueStrategies).join(',')), allowNull: true})
+    strategy: QueueStrategies
     @ApiProperty({example: 'no', description: "Join empty queue. Default yes"})
     @Column({type: DataType.STRING, allowNull: true})
     joinempty: string

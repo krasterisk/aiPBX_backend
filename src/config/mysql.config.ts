@@ -18,7 +18,7 @@ export const getMysqlConfig = async (): Promise<SequelizeModuleOptions> => {
             VpbxUser,
         ],
         autoLoadModels: true,
-//            sync: {force: true}
+//        sync: {force: true}
 
     }
 

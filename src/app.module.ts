@@ -29,6 +29,7 @@ import { MohModule } from './pbx/moh/moh.module';
 import { TimegroupModule } from './pbx/timegroup/timegroup.module';
 import {getMysqlConfig} from "./config/mysql.config";
 import { QueueMembersModule } from './pbx/queue_members/queue_members.module';
+import { WebhooksModule } from './pbx/webhooks/webhooks.module';
 
 @Module({
     imports: [
@@ -66,6 +67,7 @@ import { QueueMembersModule } from './pbx/queue_members/queue_members.module';
         MohModule,
         TimegroupModule,
         QueueMembersModule,
+        WebhooksModule,
     ],
 
 })

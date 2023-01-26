@@ -1,11 +1,12 @@
 import {Body, Controller, Delete, Get, Param, Post, Put, UseGuards} from '@nestjs/common';
 import {QueueService} from "./queue.service";
-import {ApiOperation, ApiResponse} from "@nestjs/swagger";
+import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {Queue} from "./queue.model";
 import {QueueDto} from "./dto/queue.dto";
 
+@ApiTags('Queues')
 @Controller('queue')
 export class QueueController {
     
@@ -32,8 +33,8 @@ export class QueueController {
 
     @ApiOperation({summary: "Create new queue"})
     @ApiResponse({status: 200, type: Queue})
-//    @Roles('ADMIN')
-//    @UseGuards(RolesGuard)
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()
     create(@Body() dto: QueueDto) {

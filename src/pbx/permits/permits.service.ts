@@ -1,6 +1,6 @@
 import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
-import {Permit} from "./permin.model";
+import {Permit} from "./permit.model";
 import {PermitDto} from "./dto/permit.dto";
 
 

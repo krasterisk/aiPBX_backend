@@ -18,7 +18,7 @@ interface CreateQueueAttr {
     vpbx_user_id: number
 }
 
-@Table({tableName: "pbx_queues"})
+@Table({tableName: "pbx_queues", createdAt: false, updatedAt: false})
 export class Queue extends Model<Queue, CreateQueueAttr> {
     @ApiProperty({example: '1', description: "Autoincrement primary key"})
     @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})

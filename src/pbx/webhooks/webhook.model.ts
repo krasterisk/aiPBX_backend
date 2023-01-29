@@ -4,7 +4,7 @@ import {ApiProperty, ApiTags} from "@nestjs/swagger";
 export interface CreateWebhookAttr {
     name: string,
     url: string,
-    events: string[],
+    events: string,
     vpbx_user_id: number
 }
 
@@ -18,7 +18,7 @@ export class Webhook extends Model<Webhook, CreateWebhookAttr> {
     name: string
     @ApiProperty({example: 'OnAnswer', description: "Webhook events"})
     @Column({type: DataType.STRING, allowNull: false})
-    events: string[]
+    events: string
     @ApiProperty({example: '1', description: "VPBX user id"})
     @Column({type: DataType.STRING, allowNull: false})
     vpbx_user_id: number

@@ -3,6 +3,12 @@ import {InjectModel} from "@nestjs/sequelize";
 import {Webhook} from "./webhook.model";
 import {WebhookDto} from "./dto/webhook.dto";
 
+class leak {
+
+}
+
+const leaks = []
+
 @Injectable()
 export class WebhooksService {
     
@@ -27,6 +33,7 @@ export class WebhooksService {
     }
 
     async getAll() {
+        leaks.push(new leak())
         try {
             const webhook = await this.webhookRepository.findAll()
             if (webhook) {

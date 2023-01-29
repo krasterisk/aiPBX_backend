@@ -6,7 +6,7 @@ interface CreateQueueMembersAttr {
     interface: string
 }
 
-@Table({tableName: "pbx_queue_members"})
+@Table({tableName: "pbx_queue_members", createdAt: false, updatedAt: false})
 export class QueueMembers extends Model<QueueMembers, CreateQueueMembersAttr> {
 //    @ApiProperty({example: '1', description: "Autoincrement primary key"})
     @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})

@@ -33,8 +33,8 @@ export class WebhooksController {
 
     @ApiOperation({summary: "Create new webhook"})
     @ApiResponse({status: 200, type: Webhook})
-    @Roles('ADMIN')
-    @UseGuards(RolesGuard)
+    //   @Roles('ADMIN')
+//    @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()
     create(@Body() dto: WebhookDto) {
@@ -52,8 +52,8 @@ export class WebhooksController {
 
     @ApiOperation({summary: "Delete webhook"})
     @ApiResponse({status: 200})
-    @Roles('ADMIN')
-    @UseGuards(RolesGuard)
+ //   @Roles('ADMIN')
+ //   @UseGuards(RolesGuard)
     @Delete()
     delete(@Body() body: {ids: number[]}) {
         const { ids } = body

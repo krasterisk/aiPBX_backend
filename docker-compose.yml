@@ -1,0 +1,11 @@
+version: '3'
+services:
+  simplePBX:
+    image: pbx:latest
+    container_name: simplePBX
+    restart: always
+    ports:
+      - 3000:3000
+    volumes:
+      - ./.production.env:/opt/app/.production.env
+

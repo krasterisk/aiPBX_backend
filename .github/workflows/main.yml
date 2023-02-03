@@ -12,8 +12,8 @@ jobs:
       - name: Publish to Registry
         uses: elgohr/Publish-Docker-Github-Action@v5
         with:
-          registry: https://ghcr.io
-          name: https://ghcr.io/krasterisk/simplePBX/pbx:1:0
+          registry: ghcr.io
+          name: ghcr.io/krasterisk/simplePBX/simplePBX
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
           tags: "prod"

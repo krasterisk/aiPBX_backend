@@ -1,10 +1,10 @@
 import {Body, Controller, Delete, Get, Param, Post, Put, UseGuards} from '@nestjs/common';
 import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
-import {Route} from "../Routes/Routes.model";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {RoutesService} from "./routes.service";
 import {RoutesDto} from "./dto/routes.dto";
+import {Route} from "./routes.model";
 
 @ApiTags('Routes')
 @Controller('routes')

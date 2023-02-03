@@ -10,10 +10,10 @@ jobs:
     steps:
       - uses: actions/checkout@master
       - name: Publish to Registry
-        uses: elgohr/Publish-Docker-Github-Action@v4
+        uses: elgohr/Publish-Docker-Github-Action@v5
         with:
           registry: https://ghcr.io
-          name: https://ghcr.io/phanatic/app:1.0.0/krasterisk/simplePBX/pbx:1:0
+          name: https://ghcr.io/krasterisk/simplePBX/pbx:1:0
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-          tags: "production"
+          tags: "prod"

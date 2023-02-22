@@ -24,8 +24,12 @@ export class UsersService {
     }
 
     async getAllUsers() {
-        const user = await this.usersRepository.findAll({include: {all: true}})
-        return user
+        try {
+            const user = await this.usersRepository.findAll({include: {all: true}})
+            return user
+        } catch (e) {
+            throw new HttpException('Users not found', HttpStatus.NOT_FOUND)
+        }
     }
 
     async getUserByEmail(email: string, vpbx_user_id: number) {

@@ -7,12 +7,14 @@ import {Roles} from "../auth/roles-auth.decorator";
 import {RolesGuard} from "../auth/roles.guard";
 import {AddRoleDto} from "./dto/add-role.dto";
 import {BanUserDto} from "./dto/ban-user.dto";
+import {AuthService} from "../auth/auth.service";
 
 @ApiTags('Users')
 @Controller('users')
 export class UsersController {
 
-    constructor(private userService: UsersService) {}
+    constructor(private userService: UsersService,
+                private authService: AuthService) {}
 
     @ApiOperation({summary: "Create user"})
     @ApiResponse({status: 200, type: User})
@@ -21,7 +23,7 @@ export class UsersController {
     @UseGuards(RolesGuard)
     @Post()
     create(@Body() dto: CreateUserDto) {
-        return this.userService.createUser(dto)
+        return this.authService.registration(dto)
     }
 
     @ApiOperation({summary: "Get all users"})

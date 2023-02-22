@@ -34,7 +34,7 @@ export class VpbxGuard implements CanActivate {
             const token = authHeader.split(' ')[1]
 
             if (bearer !== 'Bearer' || !token) {
-                throw new UnauthorizedException({message: 'Пользователь не авторизован!'})
+                throw new UnauthorizedException({message: 'User not authorized!'})
             }
 
             const user = this.jwtService.verify(token)
@@ -44,7 +44,7 @@ export class VpbxGuard implements CanActivate {
             }
         } catch (e) {
             console.log(e)
-            throw new HttpException('Нет доступа!', HttpStatus.FORBIDDEN)
+            throw new HttpException('Access denied!', HttpStatus.FORBIDDEN)
         }
     }
 

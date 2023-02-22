@@ -12,15 +12,21 @@ export class UsersService {
     constructor(@InjectModel(User) private usersRepository: typeof User,
                 private roleService: RolesService) {}
 
-    async createUser(dto: CreateUserDto) {
-        const user = await this.usersRepository.create(dto)
-        const role = await this.roleService.getRoleByValue("ADMIN")
-        if (role && user) {
-            await user.$set('roles', [role.id])
-            user.roles = [role]
-            return user
+    async create(dto: CreateUserDto) {
+        try {
+            const user = await this.usersRepository.create(dto)
+            const role = await this.roleService.getRoleByValue("ADMIN")
+            if (role && user) {
+                await user.$set('roles', [role.id])
+                user.roles = [role]
+                return user
+            }
+            throw new HttpException({message: 'User or Role not found'}, HttpStatus.NOT_FOUND)
+        } catch (e) {
+
+            throw new HttpException({message: 'User or Role not found'}, HttpStatus.NOT_FOUND)
+
         }
-        throw new HttpException({message: 'User or Role not found'}, HttpStatus.NOT_FOUND)
     }
 
     async getAllUsers() {
@@ -35,6 +41,16 @@ export class UsersService {
     async getUserByEmail(email: string, vpbx_user_id: number) {
         const user = await this.usersRepository.findOne({where: {email, vpbx_user_id}, include: {all: true}})
         return user
+    }
+
+    async getUserByUsername(username: string, vpbx_user_id: number) {
+        try {
+            const user = await this.usersRepository.findOne({where: {username, vpbx_user_id}, include: {all: true}})
+            return user
+
+        } catch (e) {
+            throw new HttpException('User not found' + e, HttpStatus.NOT_FOUND)
+        }
     }
 
     async getUserById(id: number) {

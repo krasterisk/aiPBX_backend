@@ -38,14 +38,14 @@ export class UsersService {
         }
     }
 
-    async getUserByEmail(email: string, vpbx_user_id: number) {
-        const user = await this.usersRepository.findOne({where: {email, vpbx_user_id}, include: {all: true}})
+    async getUserByEmail(email: string) {
+        const user = await this.usersRepository.findOne({where: {email}, include: {all: true}})
         return user
     }
 
-    async getUserByUsername(username: string, vpbx_user_id: number) {
+    async getUserByUsername(username: string) {
         try {
-            const user = await this.usersRepository.findOne({where: {username, vpbx_user_id}, include: {all: true}})
+            const user = await this.usersRepository.findOne({where: {username}, include: {all: true}})
             return user
 
         } catch (e) {

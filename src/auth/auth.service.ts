@@ -15,12 +15,11 @@ export class AuthService {
     async login(userDto: CreateUserDto) {
         const user = await this.validateUser(userDto)
         return this.generateToken(user)
-
     }
 
     async registration(userDto: CreateUserDto) {
         try {
-            const candidate = await this.userService.getUserByUsername(userDto.username, userDto.vpbx_user_id)
+            const candidate = await this.userService.getUserByUsername(userDto.username)
             if (candidate) {
                 throw new HttpException('Username already exist!', HttpStatus.BAD_REQUEST)
             }
@@ -42,7 +41,7 @@ export class AuthService {
     }
 
     private async validateUser(userDto: CreateUserDto) {
-        const user = await this.userService.getUserByUsername(userDto.username, userDto.vpbx_user_id)
+        const user = await this.userService.getUserByUsername(userDto.username)
         if (!user) {
             throw new UnauthorizedException({message: 'Username or password is wrong!'})
         }

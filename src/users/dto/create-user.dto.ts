@@ -1,19 +1,17 @@
 import {ApiProperty} from "@nestjs/swagger";
-import {IsEmail, IsNumber, IsString, Length} from "class-validator";
+import {IsString, Length} from "class-validator";
 
 export class CreateUserDto {
-    @IsString({message: 'должно быть строкой'})
-    @Length(3,20)
+    @ApiProperty({example: 'Username', description: "Username"})
+    @IsString({message: 'Must be a string!'})
+    @Length(3,20, {message: 'from 3 to 20 characters!'})
     readonly username: string
-    @ApiProperty({example: 'user@domain.com', description: "Адрес эл. почты"})
-    @IsString({message: 'должно быть строкой'})
-    @IsEmail({},{message: 'Некоректный email'})
-    readonly email: string
-    @ApiProperty({example: '12345', description: "пароль"})
-    @IsString({message: 'должно быть строкой'})
-    @Length(3, 16, {message: 'от 3 до 16 символов'})
+    @ApiProperty({example: 'user@domain.com', description: "E-mail address"})
+//    @IsString({message: 'Must be a string'})
+//    @IsEmail({},{message: 'Incorrect email!'})
+    readonly email?: string
+    @ApiProperty({example: '12345', description: "Password"})
+    @IsString({message: 'Must be a string!'})
+    @Length(3, 50, {message: 'from 3 to 50 characters'})
     readonly password: string
-    @ApiProperty({description: "VPBX id"})
-    @IsNumber({},{message: 'Обязательное поле. Число'})
-    readonly vpbx_user_id: number
 }

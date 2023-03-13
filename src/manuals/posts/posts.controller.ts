@@ -13,8 +13,8 @@ import {CreatePostDto} from "./dto/create-post.dto";
 import {PostsService} from "./posts.service";
 import {FileInterceptor} from "@nestjs/platform-express";
 import {ApiOperation, ApiResponse} from "@nestjs/swagger";
-import {Roles} from "../auth/roles-auth.decorator";
-import {RolesGuard} from "../auth/roles.guard";
+import {Roles} from "../../auth/roles-auth.decorator";
+import {RolesGuard} from "../../auth/roles.guard";
 
 @Controller('posts')
 export class PostsController {

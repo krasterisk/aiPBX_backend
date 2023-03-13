@@ -35,6 +35,24 @@ export class UsersController {
         return this.userService.getAllUsers()
     }
 
+    @ApiOperation({summary: "Get profile"})
+    @ApiResponse({status: 200, type: [User]})
+//    @Roles('ADMIN')
+//    @UseGuards(RolesGuard)
+    @Get('/profile')
+    getUserProfile() {
+        return this.userService.getUserProfile()
+    }
+
+    @ApiOperation({summary: "Update"})
+    @ApiResponse({status: 200, type: [User]})
+//    @Roles('ADMIN')
+//    @UseGuards(RolesGuard)
+    @Put('/profile')
+    updateUserProfile(@Body() updates: Partial<User>) {
+        return this.userService.updateUserProfile(updates)
+    }
+
     @ApiOperation({summary: "Get user by id"})
     @ApiResponse({status: 200, type: [User]})
     @Roles('ADMIN')

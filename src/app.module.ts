@@ -4,7 +4,7 @@ import { UsersModule } from './users/users.module';
 import {ConfigModule} from "@nestjs/config";
 import { RolesModule } from './roles/roles.module';
 import { AuthModule } from './auth/auth.module';
-import { PostsModule } from './posts/posts.module';
+import { PostsModule } from './manuals/posts/posts.module';
 import { FilesModule } from './files/files.module';
 import {ServeStaticModule} from "@nestjs/serve-static";
 import { AmiModule } from './ami/ami.module';
@@ -27,7 +27,7 @@ import { GroupsModule } from './pbx/groups/groups.module';
 import { PromptModule } from './pbx/prompt/prompt.module';
 import { MohModule } from './pbx/moh/moh.module';
 import { TimegroupModule } from './pbx/timegroup/timegroup.module';
-import {getMysqlConfig} from "./config/mysql.config";
+import { getMysqlConfig } from "./config/mysql.config";
 import { QueueMembersModule } from './pbx/queue_members/queue_members.module';
 import { WebhooksModule } from './pbx/webhooks/webhooks.module';
 
@@ -68,8 +68,7 @@ import { WebhooksModule } from './pbx/webhooks/webhooks.module';
         TimegroupModule,
         QueueMembersModule,
         WebhooksModule,
-    ],
-
+    ]
 })
 
 export class AppModule {}

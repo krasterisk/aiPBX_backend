@@ -2,7 +2,7 @@ import {CreatePostDto} from "./dto/create-post.dto";
 import {Post} from "./posts.model";
 import {InjectModel} from "@nestjs/sequelize";
 import {HttpException, HttpStatus, Injectable} from "@nestjs/common";
-import {FilesService} from "../files/files.service";
+import {FilesService} from "../../files/files.service";
 
 @Injectable()
 export class PostsService {
@@ -16,6 +16,11 @@ export class PostsService {
 //            const filename = await this.fileService.createFile(image)
 //            const post = await this.postRepository.create({...dto, image: filename})
             const post = await this.postRepository.create(dto)
+            if(post) {
+                console.log(dto.blocks)
+                    await post.$set('blocks', dto.blocks)
+                    post.blocks = dto.blocks
+                }
             return post
 
         } catch (e) {
@@ -34,7 +39,7 @@ export class PostsService {
 
     async getAll() {
         try {
-            const post = await this.postRepository.findAll()
+            const post = await this.postRepository.findAll({include: {all: true}})
             if (post) {
                 return post
             }

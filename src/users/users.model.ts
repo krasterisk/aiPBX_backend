@@ -18,9 +18,27 @@ export class User extends Model<User, UserCreationAttrs> {
     @ApiProperty({example: 'Username', description: "Username. Required"})
     @Column({type: DataType.STRING, unique: true, allowNull: false})
     username: string
+    @ApiProperty({example: 'Ivan', description: "User firstname"})
+    @Column({type: DataType.STRING, unique: true, allowNull: true})
+    firstname: string
+    @ApiProperty({example: 'Ivanov', description: "User lastname"})
+    @Column({type: DataType.STRING, unique: true, allowNull: true})
+    lastname: string
+    @ApiProperty({example: '22', description: "User Age"})
+    @Column({type: DataType.INTEGER, unique: true, allowNull: true})
+    age: number
+    @ApiProperty({example: 'Russia', description: "User Country"})
+    @Column({type: DataType.STRING, unique: true, allowNull: true})
+    country: number
     @ApiProperty({example: 'name@domain.com', description: "E-mail address"})
     @Column({type: DataType.STRING, unique: true, allowNull: true})
     email: string
+    @ApiProperty({example: 'RUB', description: "User currency"})
+    @Column({type: DataType.STRING, unique: true, allowNull: true})
+    currency: string
+    @ApiProperty({example: 'profile.png', description: "User avatar"})
+    @Column({type: DataType.STRING, unique: true, allowNull: true})
+    avatar: string
     @ApiProperty({example: '12345', description: "Password. Required"})
     @Column({type: DataType.STRING, unique: false, allowNull: false})
     password: string

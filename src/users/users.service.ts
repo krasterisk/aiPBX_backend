@@ -43,6 +43,24 @@ export class UsersService {
         return user
     }
 
+    async getUserProfile() {
+        try {
+            const user = await this.usersRepository.findAll()
+            return user[0]
+        } catch (e) {
+            throw new HttpException('Users not found' + e, HttpStatus.NOT_FOUND)
+        }
+    }
+
+    async updateUserProfile(updates: Partial<User>) {
+        const user = await this.usersRepository.findByPk(updates.id)
+        if (!user) {
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND)
+        }
+        await user.update(updates)
+        return user
+    }
+
     async getUserByUsername(username: string) {
         try {
             const user = await this.usersRepository.findOne({where: {username}, include: {all: true}})
@@ -66,7 +84,7 @@ export class UsersService {
         const user = await this.usersRepository.findOne({where: {id: dto.userId}, include: {all: true}})
         const role = await this.roleService.getRoleByValue(dto.value)
         if (role && user) {
-            await user.$add('role', role.id)
+            await user.$add('roles', role.id)
             return user.reload()
         }
         throw new HttpException('User or Role not found', HttpStatus.NOT_FOUND)
@@ -76,7 +94,7 @@ export class UsersService {
         const user = await this.usersRepository.findOne({where: {id: dto.userId}, include: {all: true}})
         const role = await this.roleService.getRoleByValue(dto.value)
         if (role && user) {
-            await user.$remove('role', role.id)
+            await user.$remove('roles', role.id)
             return user.reload()
         }
         throw new HttpException('User or Role not found', HttpStatus.NOT_FOUND)

@@ -9,7 +9,7 @@ import {
     UseGuards,
     UseInterceptors
 } from '@nestjs/common';
-import {CreatePostDto} from "./dto/create-post.dto";
+import {ManualDto} from "./dto/create-post.dto";
 import {PostsService} from "./posts.service";
 import {FileInterceptor} from "@nestjs/platform-express";
 import {ApiOperation, ApiResponse} from "@nestjs/swagger";
@@ -29,14 +29,14 @@ export class PostsController {
     @UseInterceptors(FileInterceptor('image'))
     // create(@Body() dto: CreatePostDto,
     //            @UploadedFile() image) {
-    create(@Body() dto: CreatePostDto) {
+    create(@Body() dto: ManualDto) {
     return this.postService.create(dto)
     }
 
     @ApiOperation({summary: "Get Posts by id"})
     @ApiResponse({status: 200, type: [Post]})
-    @Roles('ADMIN','USER')
-    @UseGuards(RolesGuard)
+    // @Roles('ADMIN','USER')
+    // @UseGuards(RolesGuard)
     @Get('/:id')
     getOne(@Param('id') id: number) {
         return this.postService.getPostById(id)
@@ -56,7 +56,7 @@ export class PostsController {
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
-    update(@Body() dto: CreatePostDto) {
+    update(@Body() dto: ManualDto) {
         return this.postService.update(dto)
     }
 

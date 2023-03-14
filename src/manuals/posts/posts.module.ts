@@ -6,15 +6,21 @@ import {PostsController} from "./posts.controller";
 import {Post} from "./posts.model";
 import {FilesModule} from "../../files/files.module";
 import {AuthModule} from "../../auth/auth.module";
-import {Block} from "./blocks.model";
+import {BlockImageModule} from "../block-image/block-image.module";
+import {BlockCodeService} from "../block-code/block-code.service";
+import {BlockTextModule} from "../block-text/block-text.module";
+import {BlockCodeModule} from "../block-code/block-code.module";
 
 @Module({
     providers: [PostsService],
     controllers: [PostsController],
     imports: [
-        SequelizeModule.forFeature([User, Post, Block]),
+        BlockImageModule,
+        BlockCodeModule,
+        BlockTextModule,
         FilesModule,
+        SequelizeModule.forFeature([User, Post]),
         forwardRef(() => AuthModule)
-    ]
+    ],
 })
 export class PostsModule {}

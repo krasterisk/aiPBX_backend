@@ -1,7 +1,7 @@
 import {Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
-import {Image} from "./images.model";
-import {Code} from "./codes.model";
-import {Text} from "./texts.model";
+import {Image} from "../block-image/block-image.model";
+import {Code} from "../block-code/block-code.model";
+import {Text} from "../block-text/block-text.model";
 import {ApiProperty} from "@nestjs/swagger";
 import {Post} from "./posts.model";
 

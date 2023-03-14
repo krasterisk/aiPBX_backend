@@ -8,16 +8,10 @@ import {
 } from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 import {User} from "../../users/users.model";
-import {Image} from "./images.model";
-import {Block} from "./blocks.model";
+import {ManualHashtags} from "./dto/create-post.dto";
 
 interface PostCreationAttrs {
     title: string
-    subtitle: string
-    image: string
-    views: number
-    hashtags: string
-    blocks: Block[]
 }
 
 @Table({tableName: 'posts'})
@@ -36,14 +30,10 @@ export class Post extends Model<Post, PostCreationAttrs> {
     image: string
     @ApiProperty({example: 'Hashtag', description: "Post hashtag"})
     @Column({type: DataType.STRING})
-    hashtags: string
+    hashtags: ManualHashtags[]
     @ApiProperty({example: 'Subtitle', description: "Post Subtitle"})
     @Column({type: DataType.INTEGER})
     views: number
-
-    @HasMany(() => Block)
-    blocks: Block[]
-
     @ForeignKey(() => User)
     @Column({type: DataType.INTEGER})
     userId: number

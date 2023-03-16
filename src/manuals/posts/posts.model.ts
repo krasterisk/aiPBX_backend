@@ -8,7 +8,10 @@ import {
 } from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 import {User} from "../../users/users.model";
-import {ManualHashtags} from "./dto/create-post.dto";
+import {ManualBlock, ManualCodeBlock, ManualHashtags, ManualImageBlock, ManualTextBlock} from "./dto/create-post.dto";
+import {Image} from "../block-image/block-image.model";
+import {Code} from "../block-code/block-code.model";
+import {Text} from "../block-text/block-text.model";
 
 interface PostCreationAttrs {
     title: string
@@ -34,11 +37,17 @@ export class Post extends Model<Post, PostCreationAttrs> {
     @ApiProperty({example: 'Subtitle', description: "Post Subtitle"})
     @Column({type: DataType.INTEGER})
     views: number
+
     @ForeignKey(() => User)
     @Column({type: DataType.INTEGER})
     userId: number
-
     @BelongsTo(() => User)
     author: User
-
+    @HasMany(() => Text)
+    blockTexts: ManualTextBlock[]
+    @HasMany(() => Image)
+    blockImages: ManualImageBlock[]
+    @HasMany(() => Code)
+    blockCodes: ManualCodeBlock[]
+    blocks?: ManualBlock[]
 }

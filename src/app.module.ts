@@ -31,6 +31,7 @@ import { getMysqlConfig } from "./config/mysql.config";
 import { QueueMembersModule } from './pbx/queue_members/queue_members.module';
 import { WebhooksModule } from './pbx/webhooks/webhooks.module';
 import { BlockImageModule } from './manuals/block-image/block-image.module';
+import {ParagraphModule} from "./manuals/block-text/paragraph/paragraph.module";
 
 @Module({
     imports: [
@@ -69,7 +70,8 @@ import { BlockImageModule } from './manuals/block-image/block-image.module';
         TimegroupModule,
         QueueMembersModule,
         WebhooksModule,
-        BlockImageModule
+        BlockImageModule,
+        ParagraphModule
     ]
 })
 

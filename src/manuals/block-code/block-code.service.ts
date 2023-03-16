@@ -16,4 +16,13 @@ export class BlockCodeService {
 
         }
     }
+
+    async getAllById(id) {
+        try {
+            const code = await this.blockCodeRepository.findAll({where: id})
+            return code
+        } catch (e) {
+            throw new HttpException({message: '[blockCode]:  Request error'} + e, HttpStatus.BAD_REQUEST)
+        }
+    }
 }

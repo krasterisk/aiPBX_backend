@@ -17,4 +17,14 @@ export class BlockImageService {
 
         }
     }
+
+    async getAllById(id) {
+        try {
+            const image = await this.blockImageRepository.findAll({where: id})
+            return image
+        } catch (e) {
+            throw new HttpException({message: '[blockImage]:  Request error'} + e, HttpStatus.BAD_REQUEST)
+        }
+    }
+
 }

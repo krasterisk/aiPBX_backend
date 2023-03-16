@@ -10,6 +10,7 @@ import {BlockImageModule} from "../block-image/block-image.module";
 import {BlockCodeService} from "../block-code/block-code.service";
 import {BlockTextModule} from "../block-text/block-text.module";
 import {BlockCodeModule} from "../block-code/block-code.module";
+import {ParagraphModule} from "../block-text/paragraph/paragraph.module";
 
 @Module({
     providers: [PostsService],
@@ -18,6 +19,7 @@ import {BlockCodeModule} from "../block-code/block-code.module";
         BlockImageModule,
         BlockCodeModule,
         BlockTextModule,
+        ParagraphModule,
         FilesModule,
         SequelizeModule.forFeature([User, Post]),
         forwardRef(() => AuthModule)

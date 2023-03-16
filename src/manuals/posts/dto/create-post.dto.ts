@@ -1,5 +1,5 @@
-import {IS_URL, IsNumber, IsString, IsUrl} from "class-validator";
-import {IsNull} from "sequelize-typescript";
+import {IsNumber, IsString, IsUrl} from "class-validator";
+import {Paragraph} from "../../block-text/paragraph/paragraph.model";
 
 export enum ManualBlockTypes {
     TEXT = 'TEXT',
@@ -9,8 +9,8 @@ export enum ManualBlockTypes {
 }
 
 export interface ManualBlockBase {
-    id: string
     type: ManualBlockTypes
+    postId: number
 }
 
 export interface ManualCodeBlock extends ManualBlockBase {
@@ -25,9 +25,10 @@ export interface ManualImageBlock extends ManualBlockBase {
 }
 
 export interface ManualTextBlock extends ManualBlockBase {
+    id: number
     type: ManualBlockTypes.TEXT
     title?: string
-    paragraphs: string
+    paragraphs: string[]
 }
 
 export type ManualBlock = ManualCodeBlock | ManualImageBlock | ManualTextBlock
@@ -41,7 +42,6 @@ export enum ManualHashtags {
 }
 
 export class ManualDto {
-    id: number
     @IsString({message: 'Must be a string!'})
     title: string
     @IsString({message: 'Must be a string!'})
@@ -55,6 +55,7 @@ export class ManualDto {
     image?: string
     @IsNumber({allowNaN: false},{message: 'Must be a integer!'})
     views?: number
+    paragraphs?: string[]
     hashtags?: ManualHashtags[]
     blocks: ManualBlock[]
 }

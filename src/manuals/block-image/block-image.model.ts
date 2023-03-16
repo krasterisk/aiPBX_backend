@@ -15,7 +15,7 @@ export class Image extends Model<Image, ImageCreationAttrs> {
     @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
     id: number
     @ApiProperty({example: 'Title', description: "Image title"})
-    @Column({type: DataType.STRING, allowNull: false})
+    @Column({type: DataType.STRING})
     title: string
     @ApiProperty({example: 'Type', description: "IMAGE"})
     @Column({type: DataType.STRING, allowNull: false})

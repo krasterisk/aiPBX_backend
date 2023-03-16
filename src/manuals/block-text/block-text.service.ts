@@ -17,4 +17,13 @@ export class BlockTextService {
 
         }
     }
+
+    async getAllById(id) {
+        try {
+            const text = await this.blockTextRepository.findAll({where: id})
+            return text
+        } catch (e) {
+            throw new HttpException({message: '[blockText]:  Request error'} + e, HttpStatus.BAD_REQUEST)
+        }
+    }
 }

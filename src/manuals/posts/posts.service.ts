@@ -5,6 +5,8 @@ import {HttpException, HttpStatus, Injectable} from "@nestjs/common";
 import {BlockCodeService} from "../block-code/block-code.service";
 import {BlockImageService} from "../block-image/block-image.service";
 import {BlockTextService} from "../block-text/block-text.service";
+import {ParagraphService} from "../block-text/paragraph/paragraph.service";
+import {Paragraph} from "../block-text/paragraph/paragraph.model";
 
 @Injectable()
 export class PostsService {
@@ -13,7 +15,8 @@ export class PostsService {
                 //                private fileService: FilesService,
                 private blockImageService: BlockImageService,
                 private blockCodeService: BlockCodeService,
-                private blockTextService: BlockTextService
+                private blockTextService: BlockTextService,
+                private paragraphService: ParagraphService
     ) {
     }
 
@@ -21,31 +24,43 @@ export class PostsService {
     async create(dto: ManualDto) {
         try {
             const post = await this.postRepository.create(dto)
-            if (post && dto) {
+            if (!post) {
+                throw new HttpException({message: '[Post]:  Create error'}, HttpStatus.BAD_REQUEST)
+            }
+            if (post && dto.blocks) {
                 Object.values(dto.blocks).map(async (block: ManualBlock) => {
                     if (block.type == ManualBlockTypes.CODE) {
-                        const code = await this.blockCodeService.create(block)
-                        if(!code) {
+                        const code = await this.blockCodeService.create({...block, postId: post.id})
+                        if (!code) {
                             throw new HttpException({message: '[blockText]:  Create error'}, HttpStatus.BAD_REQUEST)
                         }
-
                     }
                     if (block.type == ManualBlockTypes.IMAGE) {
-                        const image = await this.blockImageService.create(block)
-                        if(!image) {
+                        const image = await this.blockImageService.create({...block, postId: post.id})
+                        if (!image) {
                             throw new HttpException({message: '[blockText]:  Create error'}, HttpStatus.BAD_REQUEST)
                         }
                     }
                     if (block.type == ManualBlockTypes.TEXT) {
-                        const text = await this.blockTextService.create(block)
-                        if(!text) {
+                        const text = await this.blockTextService.create({...block, postId: post.id})
+                        if (!text) {
                             throw new HttpException({message: '[blockText]:  Create error'}, HttpStatus.BAD_REQUEST)
+                        }
+                        if (block.paragraphs.length) {
+                            block.paragraphs.map(async (par) => {
+                                const paragraph = await this.paragraphService.create({
+                                    paragraph: par,
+                                    blockTextId: text.id
+                                })
+                                if (!paragraph) {
+                                    throw new HttpException({message: '[blockTextParagraph]:  Create error'}, HttpStatus.BAD_REQUEST)
+                                }
+                            })
                         }
                     }
                 })
+                return post
             }
-            return post
-
         } catch (e) {
             throw new HttpException({message: '[post]:  Create error'} + e, HttpStatus.BAD_REQUEST)
         }
@@ -62,11 +77,42 @@ export class PostsService {
 
     async getAll() {
         try {
-            const post = await this.postRepository.findAll({include: {all: true}})
-            if (post) {
-                return post
-            }
+            const allPosts = []
+            const posts = await this.postRepository.findAll({include: {all: true}})
+            posts.map((p) => {
+                const blocks = []
+                const post = p.dataValues
+                if (post.blockTexts.length) {
+                    post.blockTexts.map(async text => {
+                        // const paragraphs = await this.paragraphService.getAllByTextId(text.id)
+                        // const pars = []
+                        // if (paragraphs.length) {
+                        //     paragraphs.map(par => {
+                        //        if(par) {
+                        //            pars.push(par.paragraph)
+                        //        }
+                        //     })
+                        //     text.paragraphs = pars
+                        // }
+                        blocks.push(text)
+                    })
+                }
+                if (post.blockImages.length) {
+                    post.blockImages.map(image => blocks.push(image))
+                }
+                if (post.blockCodes.length) {
+                    post.blockCodes.map(code => blocks.push(code))
+                }
+                delete post.blockTexts
+                delete post.blockImages
+                delete post.blockCodes
 
+                post.blocks = blocks
+                console.log(blocks)
+
+                allPosts.push(post)
+            })
+            return allPosts
         } catch (e) {
             throw new HttpException({message: '[post]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }

@@ -1,12 +1,14 @@
-import {Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
+import {BelongsTo, Column, DataType, ForeignKey, HasMany, HasOne, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 import {Post} from "../posts/posts.model";
 import {ManualBlockTypes} from "../posts/dto/create-post.dto";
+import {Code} from "../block-code/block-code.model";
+import {Paragraph} from "./paragraph/paragraph.model";
 
 interface TextCreationAttrs {
     type: ManualBlockTypes.TEXT
     title: string
-    paragraphs: string
+    postId: number
 }
 
 @Table({tableName: 'post_texts'})
@@ -20,10 +22,9 @@ export class Text extends Model<Text, TextCreationAttrs> {
     @ApiProperty({example: 'Type', description: "TEXT"})
     @Column({type: DataType.STRING, allowNull: false})
     type: string
-    @ApiProperty({example: 'Paragraphs', description: "Post paragraphs"})
-    @Column({type: DataType.TEXT, allowNull: false})
-    paragraphs: string
     @ForeignKey(() => Post)
     @Column({type: DataType.INTEGER})
     postId: number
+    @HasMany(() => Paragraph)
+    paragraph: Paragraph
 }

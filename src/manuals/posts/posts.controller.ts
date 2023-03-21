@@ -16,20 +16,21 @@ import {ApiOperation, ApiResponse} from "@nestjs/swagger";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 
-@Controller('posts')
+@Controller('manuals')
 export class PostsController {
 
     constructor(private postService: PostsService) {}
 
     @ApiOperation({summary: "Create Post"})
     @ApiResponse({status: 200, type: [Post]})
-    @Roles('ADMIN','USER')
-    @UseGuards(RolesGuard)
+    // @Roles('ADMIN','USER')
+    // @UseGuards(RolesGuard)
     @Post()
     @UseInterceptors(FileInterceptor('image'))
     // create(@Body() dto: CreatePostDto,
     //            @UploadedFile() image) {
     create(@Body() dto: ManualDto) {
+        console.log('create post1')
     return this.postService.create(dto)
     }
 
@@ -43,8 +44,8 @@ export class PostsController {
     }
     @ApiOperation({summary: "Get posts list"})
     @ApiResponse({status: 200, type: Post})
-    @Roles('ADMIN')
-    @UseGuards(RolesGuard)
+    // @Roles('ADMIN')
+    // @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Get()
     getAll() {

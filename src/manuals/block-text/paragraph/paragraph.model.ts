@@ -1,4 +1,4 @@
-import {Column, DataType, ForeignKey, HasMany, Model, Table} from "sequelize-typescript";
+import {BelongsTo, Column, DataType, ForeignKey, HasMany, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 import {Text} from "../block-text.model";
 
@@ -17,4 +17,7 @@ export class Paragraph extends Model<Paragraph, ParagraphCreationAttrs> {
     @ForeignKey(() => Text)
     @Column({type: DataType.INTEGER})
     blockTextId: number
+    @BelongsTo(() => Text)
+    blockText: Text
+
 }

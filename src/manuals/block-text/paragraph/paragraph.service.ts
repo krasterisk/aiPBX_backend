@@ -19,10 +19,20 @@ export class ParagraphService {
 
     async getAllByTextId(id) {
         try {
-            const paragraph = await this.paragraphRepository.findAll({where: {blockTextId: id}})
+            const paragraph = await this.paragraphRepository.findAll({where: {blockTextId: id}, include: {all: true}})
             return paragraph
         } catch (e) {
-            throw new HttpException({message: '[textParagraph]:  Request error'} + e, HttpStatus.BAD_REQUEST)
+            throw new HttpException({message: '[textParagraphGetByTextId]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }
     }
+
+    async getAll() {
+        try {
+            const paragraph = await this.paragraphRepository.findAll({include: {all: true}})
+            return paragraph
+        } catch (e) {
+            throw new HttpException({message: '[textParagraphGetAll]:  Request error'} + e, HttpStatus.BAD_REQUEST)
+        }
+    }
+
 }

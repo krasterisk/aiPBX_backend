@@ -25,6 +25,8 @@ export class Text extends Model<Text, TextCreationAttrs> {
     @ForeignKey(() => Post)
     @Column({type: DataType.INTEGER})
     postId: number
+    @BelongsTo(() => Post)
+    post: Post
     @HasMany(() => Paragraph)
-    paragraph: Paragraph
+    paragraphs: Paragraph[]
 }

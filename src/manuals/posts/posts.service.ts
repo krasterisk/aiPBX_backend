@@ -1,4 +1,4 @@
-import {ManualBlock, ManualBlockTypes, ManualDto} from "./dto/create-post.dto";
+import {ManualBlock, ManualBlockTypes, ManualDto, ManualTextBlock} from "./dto/create-post.dto";
 import {Post} from "./posts.model";
 import {InjectModel} from "@nestjs/sequelize";
 import {HttpException, HttpStatus, Injectable} from "@nestjs/common";
@@ -7,6 +7,7 @@ import {BlockImageService} from "../block-image/block-image.service";
 import {BlockTextService} from "../block-text/block-text.service";
 import {ParagraphService} from "../block-text/paragraph/paragraph.service";
 import {Paragraph} from "../block-text/paragraph/paragraph.model";
+import {Text} from "../block-text/block-text.model";
 
 @Injectable()
 export class PostsService {
@@ -77,42 +78,15 @@ export class PostsService {
 
     async getAll() {
         try {
-            const allPosts = []
-            const posts = await this.postRepository.findAll({include: {all: true}})
-            posts.map((p) => {
-                const blocks = []
-                const post = p.dataValues
-                if (post.blockTexts.length) {
-                    post.blockTexts.map(async text => {
-                        // const paragraphs = await this.paragraphService.getAllByTextId(text.id)
-                        // const pars = []
-                        // if (paragraphs.length) {
-                        //     paragraphs.map(par => {
-                        //        if(par) {
-                        //            pars.push(par.paragraph)
-                        //        }
-                        //     })
-                        //     text.paragraphs = pars
-                        // }
-                        blocks.push(text)
-                    })
-                }
-                if (post.blockImages.length) {
-                    post.blockImages.map(image => blocks.push(image))
-                }
-                if (post.blockCodes.length) {
-                    post.blockCodes.map(code => blocks.push(code))
-                }
-                delete post.blockTexts
-                delete post.blockImages
-                delete post.blockCodes
-
-                post.blocks = blocks
-                console.log(blocks)
-
-                allPosts.push(post)
+            const posts = await this.postRepository.findAll({
+                include: [
+                    {
+                        model: Text,
+                        include: [Paragraph],
+                    },
+                ],
             })
-            return allPosts
+            return posts
         } catch (e) {
             throw new HttpException({message: '[post]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }
@@ -128,11 +102,38 @@ export class PostsService {
     }
 
     async getPostById(id: number) {
-        const post = await this.postRepository.findOne({where: {id}})
+        const post = await this.postRepository.findOne({where: {id},
+            include: [
+                {
+                    model: Text,
+                    include: [Paragraph],
+                },
+                {
+                    all: true
+                }
+            ],
+        })
         if (!post) {
             throw new HttpException('post not found', HttpStatus.NOT_FOUND)
-        } else {
-            return post
         }
+        const blocks = []
+        const post_data = post.dataValues
+        if (post_data.blockTexts) {
+            post_data.blockTexts.map(text => blocks.push(text))
+        }
+        if (post_data.blockImages) {
+            post_data.blockImages.map(image => blocks.push(image))
+        }
+        if (post_data.blockCodes) {
+            post_data.blockCodes.map(code => blocks.push(code))
+        }
+
+        delete post_data.blockTexts
+        delete post_data.blockImages
+        delete post_data.blockCodes
+
+        post_data.blocks = blocks
+
+        return post_data
     }
 }

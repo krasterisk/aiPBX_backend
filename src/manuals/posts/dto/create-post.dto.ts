@@ -1,5 +1,4 @@
 import {IsNumber, IsString, IsUrl} from "class-validator";
-import {Paragraph} from "../../block-text/paragraph/paragraph.model";
 
 export enum ManualBlockTypes {
     TEXT = 'TEXT',

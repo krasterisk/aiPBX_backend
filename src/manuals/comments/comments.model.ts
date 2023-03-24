@@ -1,21 +1,22 @@
-import {Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
+import {BelongsTo, Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
+import {Post} from "../posts/posts.model";
 import {User} from "../../users/users.model";
-import {Post} from "./posts.model";
 
 interface CommentCreationAttrs {
-    body: string
+    title: string
+    userId: number
+    postId: number
 }
 
 @Table({tableName: 'post_comments'})
-export class Comment extends Model<Comment, CommentCreationAttrs> {
+export class Comments extends Model<Comments, CommentCreationAttrs> {
     @ApiProperty({example: '1', description: "Comment id"})
     @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
     id: number
-    @ApiProperty({example: 'Body', description: "Body comment"})
+    @ApiProperty({example: 'Text comment', description: "Text comment"})
     @Column({type: DataType.STRING, allowNull: false})
-    body: string
-
+    text: string
     @ForeignKey(() => Post)
     @Column({type: DataType.INTEGER})
     postId: number
@@ -23,5 +24,6 @@ export class Comment extends Model<Comment, CommentCreationAttrs> {
     @ForeignKey(() => User)
     @Column({type: DataType.INTEGER})
     userId: number
-
+    @BelongsTo(() => User)
+    user: User
 }

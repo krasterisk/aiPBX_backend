@@ -30,7 +30,6 @@ export class PostsController {
     // create(@Body() dto: CreatePostDto,
     //            @UploadedFile() image) {
     create(@Body() dto: ManualDto) {
-        console.log('create post1')
     return this.postService.create(dto)
     }
 
@@ -42,6 +41,7 @@ export class PostsController {
     getOne(@Param('id') id: number) {
         return this.postService.getPostById(id)
     }
+
     @ApiOperation({summary: "Get posts list"})
     @ApiResponse({status: 200, type: Post})
     // @Roles('ADMIN')

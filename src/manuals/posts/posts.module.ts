@@ -11,6 +11,7 @@ import {BlockCodeService} from "../block-code/block-code.service";
 import {BlockTextModule} from "../block-text/block-text.module";
 import {BlockCodeModule} from "../block-code/block-code.module";
 import {ParagraphModule} from "../block-text/paragraph/paragraph.module";
+import {CommentsModule} from "../comments/comments.module";
 
 @Module({
     providers: [PostsService],
@@ -21,6 +22,7 @@ import {ParagraphModule} from "../block-text/paragraph/paragraph.module";
         BlockTextModule,
         ParagraphModule,
         FilesModule,
+        CommentsModule,
         SequelizeModule.forFeature([User, Post]),
         forwardRef(() => AuthModule)
     ],

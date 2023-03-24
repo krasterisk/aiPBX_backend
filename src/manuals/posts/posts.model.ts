@@ -1,17 +1,11 @@
-import {
-    BelongsTo,
-    Column,
-    DataType,
-    ForeignKey, HasMany,
-    Model,
-    Table
-} from "sequelize-typescript";
+import {BelongsTo, Column, DataType, ForeignKey, HasMany, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 import {User} from "../../users/users.model";
 import {ManualBlock, ManualCodeBlock, ManualHashtags, ManualImageBlock, ManualTextBlock} from "./dto/create-post.dto";
 import {Image} from "../block-image/block-image.model";
 import {Code} from "../block-code/block-code.model";
 import {Text} from "../block-text/block-text.model";
+import {Comments} from "../comments/comments.model";
 
 interface PostCreationAttrs {
     title: string
@@ -49,5 +43,7 @@ export class Post extends Model<Post, PostCreationAttrs> {
     blockImages: ManualImageBlock[]
     @HasMany(() => Code)
     blockCodes: ManualCodeBlock[]
+    @HasMany(() => Comments)
+    comments: Comments[]
     blocks?: ManualBlock[]
 }

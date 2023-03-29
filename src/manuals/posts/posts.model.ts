@@ -1,11 +1,12 @@
 import {BelongsTo, Column, DataType, ForeignKey, HasMany, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 import {User} from "../../users/users.model";
-import {ManualBlock, ManualCodeBlock, ManualHashtags, ManualImageBlock, ManualTextBlock} from "./dto/create-post.dto";
+import {ManualBlock, ManualCodeBlock, ManualImageBlock, ManualTextBlock} from "./dto/create-post.dto";
 import {Image} from "../block-image/block-image.model";
 import {Code} from "../block-code/block-code.model";
 import {Text} from "../block-text/block-text.model";
 import {Comments} from "../comments/comments.model";
+import {Hashtags} from "../hashtags/hashtags.model";
 
 interface PostCreationAttrs {
     title: string
@@ -25,9 +26,6 @@ export class Post extends Model<Post, PostCreationAttrs> {
     @ApiProperty({example: 'Image', description: "Image link"})
     @Column({type: DataType.STRING})
     image: string
-    @ApiProperty({example: 'Hashtag', description: "Post hashtag"})
-    @Column({type: DataType.STRING})
-    hashtags: ManualHashtags[]
     @ApiProperty({example: 'Subtitle', description: "Post Subtitle"})
     @Column({type: DataType.INTEGER})
     views: number
@@ -36,7 +34,7 @@ export class Post extends Model<Post, PostCreationAttrs> {
     @Column({type: DataType.INTEGER})
     userId: number
     @BelongsTo(() => User)
-    author: User
+    user: User
     @HasMany(() => Text)
     blockTexts: ManualTextBlock[]
     @HasMany(() => Image)
@@ -45,5 +43,9 @@ export class Post extends Model<Post, PostCreationAttrs> {
     blockCodes: ManualCodeBlock[]
     @HasMany(() => Comments)
     comments: Comments[]
+    @ApiProperty({example: 'Hashtag', description: "Post hashtag"})
+    @HasMany(() => Hashtags)
+    hashtags: string[]
+
     blocks?: ManualBlock[]
 }

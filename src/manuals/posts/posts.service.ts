@@ -1,4 +1,4 @@
-import {ManualBlock, ManualBlockTypes, ManualDto, ManualTextBlock} from "./dto/create-post.dto";
+import {ManualBlock, ManualBlockTypes, ManualDto} from "./dto/create-post.dto";
 import {Post} from "./posts.model";
 import {InjectModel} from "@nestjs/sequelize";
 import {HttpException, HttpStatus, Injectable} from "@nestjs/common";
@@ -8,6 +8,7 @@ import {BlockTextService} from "../block-text/block-text.service";
 import {ParagraphService} from "../block-text/paragraph/paragraph.service";
 import {Paragraph} from "../block-text/paragraph/paragraph.model";
 import {Text} from "../block-text/block-text.model";
+import {HashtagsService} from "../hashtags/hashtags.service";
 
 @Injectable()
 export class PostsService {
@@ -17,7 +18,8 @@ export class PostsService {
                 private blockImageService: BlockImageService,
                 private blockCodeService: BlockCodeService,
                 private blockTextService: BlockTextService,
-                private paragraphService: ParagraphService
+                private paragraphService: ParagraphService,
+                private hashtagsService: HashtagsService
     ) {
     }
 
@@ -27,6 +29,11 @@ export class PostsService {
             const post = await this.postRepository.create(dto)
             if (!post) {
                 throw new HttpException({message: '[Post]:  Create error'}, HttpStatus.BAD_REQUEST)
+            }
+            if (dto.hashtags.length > 0) {
+                dto.hashtags.map(async (hashtag) => {
+                    await this.hashtagsService.create({title: hashtag, postId: post.id})
+                })
             }
             if (post && dto.blocks) {
                 Object.values(dto.blocks).map(async (block: ManualBlock) => {
@@ -84,9 +91,35 @@ export class PostsService {
                         model: Text,
                         include: [Paragraph],
                     },
+                    {
+                        all: true
+                    }
                 ],
             })
-            return posts
+            if (posts.length > 0) {
+                const all_posts = []
+                posts.map((post) => {
+                    const blocks = []
+                    const post_data = post.dataValues
+                    if (post_data.blockTexts) {
+                        post_data.blockTexts.map(text => blocks.push(text))
+                    }
+                    if (post_data.blockImages) {
+                        post_data.blockImages.map(image => blocks.push(image))
+                    }
+                    if (post_data.blockCodes) {
+                        post_data.blockCodes.map(code => blocks.push(code))
+                    }
+
+                    delete post_data.blockTexts
+                    delete post_data.blockImages
+                    delete post_data.blockCodes
+
+                    post_data.blocks = blocks
+                    all_posts.push(post_data)
+                })
+                return all_posts
+            }
         } catch (e) {
             throw new HttpException({message: '[post]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }
@@ -102,7 +135,8 @@ export class PostsService {
     }
 
     async getPostById(id: number) {
-        const post = await this.postRepository.findOne({where: {id},
+        const post = await this.postRepository.findOne({
+            where: {id},
             include: [
                 {
                     model: Text,

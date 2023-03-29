@@ -14,5 +14,4 @@ import {ParagraphModule} from './paragraph/paragraph.module';
     exports: [BlockTextService]
 })
 
-export class BlockTextModule {
-}
+export class BlockTextModule {}

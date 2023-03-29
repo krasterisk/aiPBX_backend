@@ -4,7 +4,7 @@ import {Post} from "../posts/posts.model";
 import {User} from "../../users/users.model";
 
 interface CommentCreationAttrs {
-    title: string
+    text: string
     userId: number
     postId: number
 }

@@ -31,6 +31,7 @@ import {WebhooksModule} from './pbx/webhooks/webhooks.module';
 import {BlockImageModule} from './manuals/block-image/block-image.module';
 import {ParagraphModule} from "./manuals/block-text/paragraph/paragraph.module";
 import {CommentsModule} from './manuals/comments/comments.module';
+import {HashtagsModule} from './manuals/hashtags/hashtags.module';
 
 @Module({
     imports: [
@@ -71,8 +72,9 @@ import {CommentsModule} from './manuals/comments/comments.module';
         WebhooksModule,
         BlockImageModule,
         ParagraphModule,
-        CommentsModule
-    ]
+        CommentsModule,
+        HashtagsModule
+    ],
 })
 
 export class AppModule {}

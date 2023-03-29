@@ -62,6 +62,16 @@ export class UsersController {
         return this.userService.getUserById(id)
     }
 
+    @ApiOperation({summary: "Get profile by id"})
+    @ApiResponse({status: 200, type: [User]})
+    // @Roles('ADMIN')
+    // @UseGuards(RolesGuard)
+    @Get('/profile/:id')
+    getProfileById(@Param('id') id: number) {
+        return this.userService.getUserById(id)
+    }
+
+
     @ApiOperation({summary: "Add role for user"})
     @ApiResponse({status: 200})
     @Roles('ADMIN')

@@ -12,6 +12,7 @@ import {BlockTextModule} from "../block-text/block-text.module";
 import {BlockCodeModule} from "../block-code/block-code.module";
 import {ParagraphModule} from "../block-text/paragraph/paragraph.module";
 import {CommentsModule} from "../comments/comments.module";
+import {HashtagsModule} from "../hashtags/hashtags.module";
 
 @Module({
     providers: [PostsService],
@@ -21,6 +22,7 @@ import {CommentsModule} from "../comments/comments.module";
         BlockCodeModule,
         BlockTextModule,
         ParagraphModule,
+        HashtagsModule,
         FilesModule,
         CommentsModule,
         SequelizeModule.forFeature([User, Post]),

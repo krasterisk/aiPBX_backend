@@ -32,14 +32,6 @@ export interface ManualTextBlock extends ManualBlockBase {
 
 export type ManualBlock = ManualCodeBlock | ManualImageBlock | ManualTextBlock
 
-export enum ManualHashtags {
-    IT = 'IT',
-    INBOUND_CALL_CENTER = 'INBOUND_CALL_CENTER',
-    PBX = 'PBX',
-    OUTBOUND_CALL_CENTER = 'OUTBOUND_CALL_CENTER',
-    IP_PHONES = 'IP_PHONES'
-}
-
 export class ManualDto {
     @IsString({message: 'Must be a string!'})
     title: string
@@ -55,6 +47,6 @@ export class ManualDto {
     @IsNumber({allowNaN: false},{message: 'Must be a integer!'})
     views?: number
     paragraphs?: string[]
-    hashtags?: ManualHashtags[]
+    hashtags?: string[]
     blocks: ManualBlock[]
 }

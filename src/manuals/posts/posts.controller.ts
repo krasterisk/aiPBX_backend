@@ -5,9 +5,10 @@ import {
     Get,
     Param,
     Post,
-    Put,
+    Put, Query,
     UseGuards,
-    UseInterceptors
+    UseInterceptors,
+    Logger
 } from '@nestjs/common';
 import {ManualDto} from "./dto/create-post.dto";
 import {PostsService} from "./posts.service";
@@ -15,6 +16,7 @@ import {FileInterceptor} from "@nestjs/platform-express";
 import {ApiOperation, ApiResponse} from "@nestjs/swagger";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
+import {GetPostDto} from "./dto/get-post.dto";
 
 @Controller('manuals')
 export class PostsController {
@@ -42,14 +44,20 @@ export class PostsController {
         return this.postService.getPostById(id)
     }
 
-    @ApiOperation({summary: "Get posts list"})
-    @ApiResponse({status: 200, type: Post})
+//    @ApiOperation({summary: "Get posts list"})
+//    @ApiResponse({status: 200, type: Post})
     // @Roles('ADMIN')
     // @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Get()
-    getAll() {
-        return this.postService.getAll()
+    getAll(
+        @Query() query: GetPostDto
+    ) {
+        try {
+            return this.postService.getAll(query)
+        } catch (e) {
+            throw e;
+        }
     }
 
     @ApiOperation({summary: "Update post"})

@@ -9,6 +9,9 @@ import {ParagraphService} from "../block-text/paragraph/paragraph.service";
 import {Paragraph} from "../block-text/paragraph/paragraph.model";
 import {Text} from "../block-text/block-text.model";
 import {HashtagsService} from "../hashtags/hashtags.service";
+import {GetPostDto} from "./dto/get-post.dto";
+import sequelize from "sequelize";
+import {Hashtags} from "../hashtags/hashtags.model";
 
 @Injectable()
 export class PostsService {
@@ -83,19 +86,53 @@ export class PostsService {
         return post
     }
 
-    async getAll() {
+    async getAll(query: GetPostDto) {
         try {
+            const page = Number(query.page)
+            const limit = Number(query.limit)
+            const sort = query.sort
+            const order = query.order
+            const search = query.search
+            const hashtag = query.hashtag || ''
+            const offset = (page - 1) * limit
+
+            const filterHashtag = hashtag === ''
+                ? {
+                    model: Hashtags,
+                }
+                :
+                {
+                    model: Hashtags,
+                    where: {
+                        title: {
+                            [sequelize.Op.in]: [hashtag]
+                        }
+                    }
+                }
+
             const posts = await this.postRepository.findAll({
+                offset,
+                limit,
                 include: [
                     {
                         model: Text,
                         include: [Paragraph],
                     },
+                    filterHashtag,
                     {
                         all: true
                     }
                 ],
+                order: [
+                    [sort, order],
+                ],
+                where: {
+                    title: {
+                        [sequelize.Op.like]: `%${search}%`
+                    }
+                },
             })
+
             if (posts.length > 0) {
                 const all_posts = []
                 posts.map((post) => {
@@ -119,6 +156,9 @@ export class PostsService {
                     all_posts.push(post_data)
                 })
                 return all_posts
+//                const count = await this.postRepository.count();
+//                const totalPages = Math.ceil(count / limit);
+//                return { all_posts, totalPages, page }
             }
         } catch (e) {
             throw new HttpException({message: '[post]:  Request error'} + e, HttpStatus.BAD_REQUEST)

@@ -8,7 +8,7 @@ import {
     Put, Query,
     UseGuards,
     UseInterceptors,
-    Logger
+    Req
 } from '@nestjs/common';
 import {ManualDto} from "./dto/create-post.dto";
 import {PostsService} from "./posts.service";
@@ -35,17 +35,8 @@ export class PostsController {
     return this.postService.create(dto)
     }
 
-    @ApiOperation({summary: "Get Posts by id"})
-    @ApiResponse({status: 200, type: [Post]})
-    // @Roles('ADMIN','USER')
-    // @UseGuards(RolesGuard)
-    @Get('/:id')
-    getOne(@Param('id') id: number) {
-        return this.postService.getPostById(id)
-    }
-
-//    @ApiOperation({summary: "Get posts list"})
-//    @ApiResponse({status: 200, type: Post})
+    @ApiOperation({summary: "Get posts list"})
+    @ApiResponse({status: 200, type: Post})
     // @Roles('ADMIN')
     // @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
@@ -58,6 +49,27 @@ export class PostsController {
         } catch (e) {
             throw e;
         }
+    }
+
+    @ApiOperation({summary: "Get posts recommendations list"})
+    @ApiResponse({status: 200, type: Post})
+    @Get('recommendations')
+    getRecommendations()
+    {
+        try {
+            return this.postService.getRecommendations()
+        } catch (e) {
+            throw e;
+        }
+    }
+
+    @ApiOperation({summary: "Get Posts by id"})
+    @ApiResponse({status: 200, type: [Post]})
+    // @Roles('ADMIN','USER')
+    // @UseGuards(RolesGuard)
+    @Get('/:id')
+    getOne(@Param('id') id: number) {
+        return this.postService.getPostById(id)
     }
 
     @ApiOperation({summary: "Update post"})

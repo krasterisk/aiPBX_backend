@@ -97,7 +97,8 @@ export class PostsService {
             const offset = (page - 1) * limit
 
             const filterHashtag = hashtag === ''
-                ? {
+                ?
+                {
                     model: Hashtags,
                 }
                 :
@@ -164,6 +165,60 @@ export class PostsService {
             throw new HttpException({message: '[post]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }
     }
+
+    async getRecommendations() {
+        try {
+            var randomnumber = Math.floor(Math.random() * (10 - 1 + 1)) + 1;
+            const page = randomnumber
+            const limit = 5
+            const offset = (page - 1) * limit
+
+            const posts = await this.postRepository.findAll({
+                offset,
+                limit,
+                include: [
+                    {
+                        model: Text,
+                        include: [Paragraph],
+                    },
+                    {
+                        all: true
+                    }
+                ],
+            })
+
+            if (posts.length > 0) {
+                const all_posts = []
+                posts.map((post) => {
+                    const blocks = []
+                    const post_data = post.dataValues
+                    if (post_data.blockTexts) {
+                        post_data.blockTexts.map(text => blocks.push(text))
+                    }
+                    if (post_data.blockImages) {
+                        post_data.blockImages.map(image => blocks.push(image))
+                    }
+                    if (post_data.blockCodes) {
+                        post_data.blockCodes.map(code => blocks.push(code))
+                    }
+
+                    delete post_data.blockTexts
+                    delete post_data.blockImages
+                    delete post_data.blockCodes
+
+                    post_data.blocks = blocks
+                    all_posts.push(post_data)
+                })
+                return all_posts
+//                const count = await this.postRepository.count();
+//                const totalPages = Math.ceil(count / limit);
+//                return { all_posts, totalPages, page }
+            }
+        } catch (e) {
+            throw new HttpException({message: '[post]:  Request error'} + e, HttpStatus.BAD_REQUEST)
+        }
+    }
+
 
     async delete(ids: number[]) {
         const deleted = await this.postRepository.destroy({where: {id: ids}})

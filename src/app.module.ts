@@ -32,6 +32,7 @@ import {BlockImageModule} from './manuals/block-image/block-image.module';
 import {ParagraphModule} from "./manuals/block-text/paragraph/paragraph.module";
 import {CommentsModule} from './manuals/comments/comments.module';
 import {HashtagsModule} from './manuals/hashtags/hashtags.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
     imports: [
@@ -73,7 +74,8 @@ import {HashtagsModule} from './manuals/hashtags/hashtags.module';
         BlockImageModule,
         ParagraphModule,
         CommentsModule,
-        HashtagsModule
+        HashtagsModule,
+        NotificationsModule
     ],
 })
 

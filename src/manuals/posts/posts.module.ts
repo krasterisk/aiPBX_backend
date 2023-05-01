@@ -7,12 +7,12 @@ import {Post} from "./posts.model";
 import {FilesModule} from "../../files/files.module";
 import {AuthModule} from "../../auth/auth.module";
 import {BlockImageModule} from "../block-image/block-image.module";
-import {BlockCodeService} from "../block-code/block-code.service";
 import {BlockTextModule} from "../block-text/block-text.module";
 import {BlockCodeModule} from "../block-code/block-code.module";
 import {ParagraphModule} from "../block-text/paragraph/paragraph.module";
 import {CommentsModule} from "../comments/comments.module";
 import {HashtagsModule} from "../hashtags/hashtags.module";
+import {RatingModule} from "../rating/rating.module";
 
 @Module({
     providers: [PostsService],

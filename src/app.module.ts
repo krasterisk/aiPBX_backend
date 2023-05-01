@@ -33,6 +33,8 @@ import {ParagraphModule} from "./manuals/block-text/paragraph/paragraph.module";
 import {CommentsModule} from './manuals/comments/comments.module';
 import {HashtagsModule} from './manuals/hashtags/hashtags.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { RatingController } from './manuals/rating/rating.controller';
+import { RatingModule } from './manuals/rating/rating.module';
 
 @Module({
     imports: [
@@ -75,7 +77,8 @@ import { NotificationsModule } from './notifications/notifications.module';
         ParagraphModule,
         CommentsModule,
         HashtagsModule,
-        NotificationsModule
+        NotificationsModule,
+        RatingModule
     ],
 })
 

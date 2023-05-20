@@ -10,7 +10,8 @@ import {Post} from "../posts/posts.model";
   controllers: [RatingController],
   imports: [
     SequelizeModule.forFeature([Rating, Post])
-  ]
+  ],
+  exports: [RatingService]
 })
 
 export class RatingModule {}

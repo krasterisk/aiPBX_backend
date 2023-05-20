@@ -83,8 +83,8 @@ export class PostsController {
 
     @ApiOperation({summary: "Delete post"})
     @ApiResponse({status: 200})
-    @Roles('ADMIN')
-    @UseGuards(RolesGuard)
+//    @Roles('ADMIN')
+//    @UseGuards(RolesGuard)
     @Delete()
     delete(@Body() body: {ids: number[]}) {
         const { ids } = body

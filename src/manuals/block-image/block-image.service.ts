@@ -18,6 +18,15 @@ export class BlockImageService {
         }
     }
 
+    async delete(ids: number[]) {
+        try {
+            await this.blockImageRepository.destroy({where: {id: ids}})
+        } catch (e) {
+            throw new HttpException({message: '[blockImage]:  Delete error'} +e, HttpStatus.BAD_REQUEST)
+
+        }
+    }
+
     async getAllById(id) {
         try {
             const image = await this.blockImageRepository.findAll({where: id})

@@ -12,6 +12,8 @@ import {HashtagsService} from "../hashtags/hashtags.service";
 import {GetPostDto} from "./dto/get-post.dto";
 import sequelize from "sequelize";
 import {Hashtags} from "../hashtags/hashtags.model";
+import {CommentsService} from "../comments/comments.service";
+import {RatingService} from "../rating/rating.service";
 
 @Injectable()
 export class PostsService {
@@ -22,7 +24,9 @@ export class PostsService {
                 private blockCodeService: BlockCodeService,
                 private blockTextService: BlockTextService,
                 private paragraphService: ParagraphService,
-                private hashtagsService: HashtagsService
+                private hashtagsService: HashtagsService,
+                private commentService: CommentsService,
+                private ratingService: RatingService
     ) {
     }
 
@@ -168,8 +172,8 @@ export class PostsService {
 
     async getRecommendations() {
         try {
-            var randomnumber = Math.floor(Math.random() * (10 - 1 + 1)) + 1;
-            const page = randomnumber
+            let randomNumber = Math.floor(Math.random() * (10 - 1 + 1)) + 1;
+            const page = randomNumber
             const limit = 5
             const offset = (page - 1) * limit
 
@@ -221,6 +225,13 @@ export class PostsService {
 
 
     async delete(ids: number[]) {
+        await this.blockImageService.delete(ids)
+        await this.blockCodeService.delete(ids)
+        await this.blockTextService.delete(ids)
+        await this.hashtagsService.delete(ids)
+        await this.commentService.delete(ids)
+        await this.ratingService.delete(ids)
+
         const deleted = await this.postRepository.destroy({where: {id: ids}})
         if (deleted === 0) {
             throw new HttpException('post not found', HttpStatus.NOT_FOUND)

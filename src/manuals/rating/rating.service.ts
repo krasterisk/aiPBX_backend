@@ -50,4 +50,14 @@ export class RatingService {
             throw new HttpException({message: '[ManualRating]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }
     }
+
+    async delete(ids: number[]) {
+        try {
+            await this.ratingRepository.destroy({where: {postId: ids}})
+        } catch (e) {
+            throw new HttpException({message: '[PostRating]:  Delete error'} +e, HttpStatus.BAD_REQUEST)
+
+        }
+    }
+
 }

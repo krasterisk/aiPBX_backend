@@ -35,4 +35,14 @@ export class ParagraphService {
         }
     }
 
+    async delete(ids: number[]) {
+        try {
+            await this.paragraphRepository.destroy({where: {blockTextId: ids}})
+        } catch (e) {
+            throw new HttpException({message: '[blockParagraph]:  Delete error'} +e, HttpStatus.BAD_REQUEST)
+
+        }
+    }
+
+
 }

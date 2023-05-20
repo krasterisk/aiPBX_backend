@@ -36,4 +36,14 @@ export class CommentsService {
             throw new HttpException({message: '[ManualComments]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }
     }
+
+    async delete(ids: number[]) {
+        try {
+            await this.commentsRepository.destroy({where: {postId: ids}})
+        } catch (e) {
+            throw new HttpException({message: '[PostComments]:  Delete error'} +e, HttpStatus.BAD_REQUEST)
+
+        }
+    }
+
 }

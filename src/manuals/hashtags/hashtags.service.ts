@@ -17,4 +17,14 @@ export class HashtagsService {
 
         }
     }
+
+    async delete(ids: number[]) {
+        try {
+            await this.hashtagRepository.destroy({where: {postId: ids}})
+        } catch (e) {
+            throw new HttpException({message: '[blockHashtag]:  Delete error'} +e, HttpStatus.BAD_REQUEST)
+
+        }
+    }
+
 }

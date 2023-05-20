@@ -25,4 +25,14 @@ export class BlockCodeService {
             throw new HttpException({message: '[blockCode]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }
     }
+
+    async delete(ids: number[]) {
+        try {
+            await this.blockCodeRepository.destroy({where: {postId: ids}})
+        } catch (e) {
+            throw new HttpException({message: '[blockCode]:  Delete error'} +e, HttpStatus.BAD_REQUEST)
+
+        }
+    }
+
 }

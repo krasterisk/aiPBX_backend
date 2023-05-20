@@ -25,6 +25,7 @@ import {RatingModule} from "../rating/rating.module";
         HashtagsModule,
         FilesModule,
         CommentsModule,
+        RatingModule,
         SequelizeModule.forFeature([User, Post]),
         forwardRef(() => AuthModule)
     ],

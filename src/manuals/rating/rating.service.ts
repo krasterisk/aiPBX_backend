@@ -2,9 +2,6 @@ import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
 import {Rating} from "./rating.model";
 import {RatingDto} from "./dto/rating.dto";
-import {User} from "../../users/users.model";
-import {Sequelize} from "sequelize-typescript";
-import {getRatingDto} from "./dto/get-rating.dto";
 
 
 @Injectable()

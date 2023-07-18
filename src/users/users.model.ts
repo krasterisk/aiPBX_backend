@@ -1,7 +1,8 @@
-import {BelongsToMany, Column, DataType, Model, Table} from "sequelize-typescript";
+import {BelongsToMany, Column, DataType, HasMany, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 import {Role} from "../roles/roles.model";
 import {UserRoles} from "../roles/user-roles.model";
+
 
 interface UserCreationAttrs {
     email: string
@@ -36,6 +37,9 @@ export class User extends Model<User, UserCreationAttrs> {
     @ApiProperty({example: 'RUB', description: "User currency"})
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     currency: string
+    @ApiProperty({example: '0', description: "feature flag"})
+    @Column({type: DataType.BOOLEAN, unique: false, allowNull: true})
+    designed: boolean
     @ApiProperty({example: 'profile.png', description: "User avatar"})
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     avatar: string

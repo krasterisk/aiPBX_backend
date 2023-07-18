@@ -5,7 +5,6 @@ import {CreateUserDto} from "./dto/create-user.dto";
 import {RolesService} from "../roles/roles.service";
 import {AddRoleDto} from "./dto/add-role.dto";
 import {BanUserDto} from "./dto/ban-user.dto";
-import {CommentsService} from "../manuals/comments/comments.service";
 
 @Injectable()
 export class UsersService {

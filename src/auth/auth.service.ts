@@ -37,7 +37,7 @@ export class AuthService {
         const payload = {username: user.username, email: user.email, id: user.id, avatar: user.avatar, designed: user.designed, vpbx_user_id: user.vpbx_user_id, roles: user.roles}
         return {
             token: this.jwtService.sign(payload),
-            // user
+            user
         }
     }
 

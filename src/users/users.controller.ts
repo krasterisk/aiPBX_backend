@@ -101,8 +101,8 @@ export class UsersController {
 
     @ApiOperation({summary: "Edit user"})
     @ApiResponse({status: 200, type: User})
-    @Roles('ADMIN')
-    @UseGuards(RolesGuard)
+    // @Roles('ADMIN')
+    // @UseGuards(RolesGuard)
     @Put()
     UpdateUser(@Body() updates: Partial<User>) {
         return this.userService.updateUser(updates)

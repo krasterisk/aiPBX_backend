@@ -11,21 +11,38 @@ export class EndpointsService {
                 private directRepository: Sequelize) {
     }
 
-    async create(endpointDto: EndpointsDto) {
+    async getAll() {
         try {
-            const endpoint = await this.endpointRepository.create(endpointDto)
-            if (endpoint) {
-                await this.directRepository.query(`INSERT INTO ps_endpoints (id,transport,aors,auth,context,disallow,allow) VALUES ('${endpoint.endpoint_id}', 'transport-udp', '${endpoint.endpoint_id}', '${endpoint.endpoint_id}', 'sip-out0', 'all', 'alaw')`)
-                await this.directRepository.query(`INSERT INTO ps_aors (id,max_contacts) VALUES ('${endpoint.endpoint_id}', '2')`)
-                await this.directRepository.query(`INSERT INTO ps_auths (id,auth_type,username,password) VALUES ('${endpoint.endpoint_id}', 'userpass', '${endpoint.username}', '${endpoint.password}')`)
+            const endpoints = await this.endpointRepository.findAll()
+            if (endpoints) {
+                return endpoints
             }
-            return endpoint
+
         } catch (e) {
-            if (e.name === 'SequelizeUniqueConstraintError') {
-                throw new HttpException('Endpoint already exists', HttpStatus.BAD_REQUEST)
-            }
-            throw new HttpException('[Endpoint]: Request error' + e, HttpStatus.BAD_REQUEST)
+            throw new HttpException({message: '[Endpoints]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }
+    }
+
+    async create(endpointDto: EndpointsDto[]) {
+         endpointDto.map(
+            async (point) => {
+                try {
+                    const endpoint = await this.endpointRepository.create(point)
+                    if (endpoint) {
+                        await this.directRepository.query(`INSERT INTO ps_endpoints (id,transport,aors,auth,context,disallow,allow) VALUES ('${endpoint.endpoint_id}', 'transport-udp', '${endpoint.endpoint_id}', '${endpoint.endpoint_id}', 'sip-out0', 'all', 'alaw')`)
+                        await this.directRepository.query(`INSERT INTO ps_aors (id,max_contacts) VALUES ('${endpoint.endpoint_id}', '2')`)
+                        await this.directRepository.query(`INSERT INTO ps_auths (id,auth_type,username,password) VALUES ('${endpoint.endpoint_id}', 'userpass', '${endpoint.username}', '${endpoint.password}')`)
+                    }
+                    return endpoint
+                } catch (e) {
+                    if (e.name === 'SequelizeUniqueConstraintError') {
+                        throw new HttpException('Endpoint already exists', HttpStatus.BAD_REQUEST)
+                    }
+                    throw new HttpException('[Endpoint]: Request error' + e, HttpStatus.BAD_REQUEST)
+                }
+
+            }
+        )
     }
 
     async update(updates: Partial<EndpointsDto>) {

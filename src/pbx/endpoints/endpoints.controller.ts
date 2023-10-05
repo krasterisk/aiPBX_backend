@@ -1,4 +1,4 @@
-import {Body, Controller, Delete, Post, Put, UseGuards} from '@nestjs/common';
+import {Body, Controller, Delete, Get, Post, Put, UseGuards} from '@nestjs/common';
 import {EndpointsDto} from "./dto/endpoints.dto";
 import {EndpointsService} from "./endpoints.service";
 import {Roles} from "../../auth/roles-auth.decorator";
@@ -11,13 +11,21 @@ import {Endpoint} from "./endpoints.model";
 export class EndpointsController {
     constructor(private endpointService: EndpointsService) {}
 
+    @ApiOperation({summary: "Get All PJSIP endpoints"})
+    @ApiResponse({status: 200, type: [Endpoint]})
+    // @Roles('ADMIN')
+    // @UseGuards(RolesGuard)
+    @Get()
+    getAll() {
+        return this.endpointService.getAll()
+    }
 
     @ApiOperation({summary: "Create PJSIP endpoint"})
     @ApiResponse({status: 200, type: [Endpoint]})
-    @Roles('ADMIN')
-    @UseGuards(RolesGuard)
+    // @Roles('ADMIN')
+    // @UseGuards(RolesGuard)
     @Post()
-    create(@Body() dto: EndpointsDto) {
+    create(@Body() dto: EndpointsDto[]) {
         return this.endpointService.create(dto)
     }
 

@@ -24,7 +24,7 @@ export class UsersService {
             throw new HttpException({message: 'User or Role not found'}, HttpStatus.NOT_FOUND)
         } catch (e) {
 
-            throw new HttpException({message: 'User or Role not found'}, HttpStatus.NOT_FOUND)
+            throw new HttpException({message: e+'User or Role not found'}, HttpStatus.NOT_FOUND)
 
         }
     }

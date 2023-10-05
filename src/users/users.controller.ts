@@ -19,8 +19,8 @@ export class UsersController {
     @ApiOperation({summary: "Create user"})
     @ApiResponse({status: 200, type: User})
 //    @UsePipes(ValidationPipe)
-    @Roles('ADMIN')
-    @UseGuards(RolesGuard)
+//     @Roles('ADMIN')
+//     @UseGuards(RolesGuard)
     @Post()
     create(@Body() dto: CreateUserDto) {
         return this.authService.registration(dto)

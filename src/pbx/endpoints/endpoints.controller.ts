@@ -1,4 +1,4 @@
-import {Body, Controller, Delete, Get, Post, Put, UseGuards} from '@nestjs/common';
+import {Body, Controller, Delete, Get, HttpException, HttpStatus, Post, Put, UseGuards} from '@nestjs/common';
 import {EndpointsDto} from "./dto/endpoints.dto";
 import {EndpointsService} from "./endpoints.service";
 import {Roles} from "../../auth/roles-auth.decorator";
@@ -26,8 +26,9 @@ export class EndpointsController {
     // @UseGuards(RolesGuard)
     @Post()
     create(@Body() dto: EndpointsDto[]) {
-        return this.endpointService.create(dto)
+           return this.endpointService.create(dto)
     }
+
 
     @ApiOperation({summary: "Update PJSIP endpoint"})
     @ApiResponse({status: 200, type: [Endpoint]})
@@ -46,4 +47,15 @@ export class EndpointsController {
     delete(@Body() endpoint: Partial<EndpointsDto>) {
         return this.endpointService.delete(endpoint.endpoint_id)
     }
+
+    @ApiOperation({summary: "Delete ALL PJSIP endpoint"})
+    @ApiResponse({status: 200})
+//    @Roles('ADMIN')
+//    @UseGuards(RolesGuard)
+    @Delete('/erase')
+    deleteAll() {
+        return this.endpointService.deleteAll()
+    }
+
+
 }

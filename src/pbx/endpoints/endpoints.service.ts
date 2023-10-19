@@ -23,26 +23,26 @@ export class EndpointsService {
         }
     }
 
-    async create(endpointDto: EndpointsDto[]) {
-         endpointDto.map(
-            async (point) => {
-                try {
-                    const endpoint = await this.endpointRepository.create(point)
-                    if (endpoint) {
+    async create(dtos: EndpointsDto[]) {
+        try {
+            const endpoints = []
+            for (const endpoint of dtos) {
+                    const point = await this.endpointRepository.create(endpoint)
+                    if (point) {
                         await this.directRepository.query(`INSERT INTO ps_endpoints (id,transport,aors,auth,context,disallow,allow) VALUES ('${endpoint.endpoint_id}', 'transport-udp', '${endpoint.endpoint_id}', '${endpoint.endpoint_id}', 'sip-out0', 'all', 'alaw')`)
                         await this.directRepository.query(`INSERT INTO ps_aors (id,max_contacts) VALUES ('${endpoint.endpoint_id}', '2')`)
                         await this.directRepository.query(`INSERT INTO ps_auths (id,auth_type,username,password) VALUES ('${endpoint.endpoint_id}', 'userpass', '${endpoint.username}', '${endpoint.password}')`)
                     }
-                    return endpoint
-                } catch (e) {
-                    if (e.name === 'SequelizeUniqueConstraintError') {
-                        throw new HttpException('Endpoint already exists', HttpStatus.BAD_REQUEST)
-                    }
-                    throw new HttpException('[Endpoint]: Request error' + e, HttpStatus.BAD_REQUEST)
+                    endpoints.push(endpoint)
                 }
-
+            console.log(endpoints)
+            return endpoints
+        } catch (e) {
+            if (e.name === 'SequelizeUniqueConstraintError') {
+                throw new HttpException({ message: 'Endpoint already exist' }, HttpStatus.BAD_REQUEST)
             }
-        )
+            throw new HttpException({message: '[Endpoints]:  Create failed' }, HttpStatus.BAD_REQUEST)
+        }
     }
 
     async update(updates: Partial<EndpointsDto>) {
@@ -53,6 +53,7 @@ export class EndpointsService {
                     vpbx_user_id: updates.vpbx_user_id
                 }
             })
+
             if (!endpoint) {
                 throw new HttpException('Endpoint not found', HttpStatus.NOT_FOUND)
             }
@@ -81,4 +82,15 @@ export class EndpointsService {
         }
     }
 
+    async deleteAll() {
+        try {
+            const deleted = await this.endpointRepository.destroy({truncate: true})
+            await this.directRepository.query(`DELETE FROM ps_endpoints`)
+            await this.directRepository.query(`DELETE FROM ps_aors`)
+            await this.directRepository.query(`DELETE FROM ps_auths`)
+            return {message: 'Endpoints deleted successfully', statusCode: HttpStatus.OK}
+        } catch (e) {
+            throw new HttpException({message: '[Endpoint]: Request error', error: e, statusCode: HttpStatus.BAD_REQUEST }, HttpStatus.BAD_REQUEST)
+        }
+    }
 }

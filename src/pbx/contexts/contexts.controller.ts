@@ -1,4 +1,4 @@
-import {Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards} from '@nestjs/common';
+import {Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards, UsePipes} from '@nestjs/common';
 import {ContextsService} from "./contexts.service";
 import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {Roles} from "../../auth/roles-auth.decorator";
@@ -18,8 +18,8 @@ export class ContextsController {
 //    @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Get()
-    getAll(@Query('vpbx_user_id') vpbx_user_id: string) {
-        return this.ContextService.getAll(vpbx_user_id)
+    getAll() {
+        return this.ContextService.getAll()
     }
 
     @ApiOperation({summary: "Get context by id"})

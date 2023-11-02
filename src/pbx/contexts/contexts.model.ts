@@ -20,7 +20,7 @@ export class Context extends Model<Context, ContextsCreationAttrs> {
     @ApiProperty({example: 'Outgoing context', description: "Context description"})
     @Column({type: DataType.STRING})
     description: string
-    @ApiProperty({example: 'vpbx_user_id', description: "Context id"})
+    @ApiProperty({example: 'vpbx_user_id', description: "pbx user id"})
     @Column({type: DataType.INTEGER})
     vpbx_user_id: number
 

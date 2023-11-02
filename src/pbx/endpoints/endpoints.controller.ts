@@ -13,8 +13,8 @@ export class EndpointsController {
 
     @ApiOperation({summary: "Get All PJSIP endpoints"})
     @ApiResponse({status: 200, type: [Endpoint]})
-    // @Roles('ADMIN')
-    // @UseGuards(RolesGuard)
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
     @Get()
     getAll() {
         return this.endpointService.getAll()

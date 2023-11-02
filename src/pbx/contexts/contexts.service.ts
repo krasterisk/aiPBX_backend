@@ -38,7 +38,19 @@ export class ContextsService {
         }
     }
 
-    async getAll(vpbx_user_id: string) {
+    async getAll() {
+        try {
+            const context = await this.contextsRepository.findAll()
+            if (context) {
+                return context
+            }
+
+        } catch (e) {
+            throw new HttpException({message: '[Contexts]:  Request error'} + e, HttpStatus.BAD_REQUEST)
+        }
+    }
+
+    async getAllById(vpbx_user_id: string) {
         try {
             if(!vpbx_user_id) {
                 throw new HttpException({message: '[Contexts]:  vpbx_user_id must be set'}, HttpStatus.BAD_REQUEST)

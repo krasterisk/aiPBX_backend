@@ -37,8 +37,8 @@ export class UsersController {
 
     @ApiOperation({summary: "Get profile"})
     @ApiResponse({status: 200, type: [User]})
-//    @Roles('ADMIN')
-//    @UseGuards(RolesGuard)
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
     @Get('/profile')
     getUserProfile() {
         return this.userService.getUserProfile()
@@ -64,8 +64,8 @@ export class UsersController {
 
     @ApiOperation({summary: "Get profile by id"})
     @ApiResponse({status: 200, type: [User]})
-    // @Roles('ADMIN')
-    // @UseGuards(RolesGuard)
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
     @Get('/profile/:id')
     getProfileById(@Param('id') id: number) {
         return this.userService.getUserById(id)

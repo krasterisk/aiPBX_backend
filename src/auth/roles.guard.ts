@@ -30,7 +30,6 @@ export class RolesGuard implements CanActivate {
             }
             const req = context.switchToHttp().getRequest()
             const authHeader = req.headers.authorization;
-            console.log(authHeader)
             const bearer = authHeader.split(' ')[0]
             const token = authHeader.split(' ')[1]
 
@@ -43,6 +42,9 @@ export class RolesGuard implements CanActivate {
             return user.roles.some(role => requiredRoles.includes(role.value))
 
         } catch (e) {
+            if (e == 'TokenExpiredError: jwt expired') {
+                throw new HttpException({ message: 'TokenExpiredError' }, HttpStatus.FORBIDDEN)
+            }
             throw new HttpException('Access denied!' +e, HttpStatus.FORBIDDEN)
         }
     }

@@ -8,10 +8,14 @@ export class ContextsService {
 
     constructor(@InjectModel(Context) private contextsRepository: typeof Context) {}
 
-    async create(contextDto: ContextsDto) {
+    async create(dtos: ContextsDto[]) {
         try {
-            const context = await this.contextsRepository.create(contextDto)
-            return context
+            const contexts = []
+            for (const context of dtos) {
+                const result = await this.contextsRepository.create(context)
+                contexts.push(result)
+            }
+            return contexts
         } catch (e) {
             if (e.name === 'SequelizeUniqueConstraintError') {
                 throw new HttpException('Context already exists', HttpStatus.BAD_REQUEST)
@@ -38,9 +42,12 @@ export class ContextsService {
         }
     }
 
-    async getAll() {
+    async getAll(vpbx_user_id: string) {
         try {
-            const context = await this.contextsRepository.findAll()
+            if(!vpbx_user_id) {
+                throw new HttpException({message: '[Contexts]:  vpbx_user_id must be set'}, HttpStatus.BAD_REQUEST)
+            }
+            const context = await this.contextsRepository.findAll({where: {vpbx_user_id}})
             if (context) {
                 return context
             }

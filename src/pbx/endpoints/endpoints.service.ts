@@ -23,6 +23,15 @@ export class EndpointsService {
         }
     }
 
+    async getById(id: string) {
+        const endpoint = await this.endpointRepository.findOne({where: {id}})
+        if(!endpoint) {
+            throw new HttpException('Endpoint not found', HttpStatus.NOT_FOUND)
+        } else {
+            return endpoint
+        }
+    }
+
     async create(dtos: EndpointsDto[]) {
         try {
             const endpoints = []

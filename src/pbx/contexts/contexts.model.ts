@@ -1,4 +1,4 @@
-import {Column, DataType, HasOne, Model, Table} from "sequelize-typescript";
+import {Column, DataType, Index, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 
 interface ContextsCreationAttrs {
@@ -12,7 +12,7 @@ export class Context extends Model<Context, ContextsCreationAttrs> {
     @Column({type: DataType.INTEGER, unique: true, primaryKey: true, autoIncrement: true})
     id: number
     @ApiProperty({example: 'sip-out', description: "Context name"})
-    @Column({type: DataType.STRING, allowNull: false})
+    @Column({type: DataType.STRING, allowNull: false, unique: 'context_name_vpbx'})
     name: string
     @ApiProperty({example: 'sip-out-mg,sip-out-city', description: "Included contexts"})
     @Column({type: DataType.STRING})
@@ -21,10 +21,6 @@ export class Context extends Model<Context, ContextsCreationAttrs> {
     @Column({type: DataType.STRING})
     description: string
     @ApiProperty({example: 'vpbx_user_id', description: "pbx user id"})
-    @Column({type: DataType.INTEGER})
+    @Column({type: DataType.INTEGER, unique: 'context_name_vpbx'})
     vpbx_user_id: number
-
 }
-
-
-

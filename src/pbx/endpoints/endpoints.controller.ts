@@ -1,10 +1,11 @@
-import {Body, Controller, Delete, Get, HttpException, HttpStatus, Post, Put, UseGuards} from '@nestjs/common';
+import {Body, Controller, Delete, Get, HttpException, HttpStatus, Param, Post, Put, UseGuards} from '@nestjs/common';
 import {EndpointsDto} from "./dto/endpoints.dto";
 import {EndpointsService} from "./endpoints.service";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {Endpoint} from "./endpoints.model";
+import {Context} from "../contexts/contexts.model";
 
 @ApiTags('Endpoints')
 @Controller('endpoints')
@@ -13,11 +14,20 @@ export class EndpointsController {
 
     @ApiOperation({summary: "Get All PJSIP endpoints"})
     @ApiResponse({status: 200, type: [Endpoint]})
-    @Roles('ADMIN')
+    @Roles('ADMIN','USER')
     @UseGuards(RolesGuard)
     @Get()
     getAll() {
         return this.endpointService.getAll()
+    }
+
+    @ApiOperation({summary: "Get endpoint by id"})
+    @ApiResponse({status: 200, type: [Endpoint]})
+    @Roles('ADMIN','USER')
+    @UseGuards(RolesGuard)
+    @Get('/:id')
+    getOne(@Param('id') id: string) {
+        return this.endpointService.getById(id)
     }
 
     @ApiOperation({summary: "Create PJSIP endpoint"})

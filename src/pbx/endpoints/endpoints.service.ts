@@ -42,9 +42,8 @@ export class EndpointsService {
                         await this.directRepository.query(`INSERT INTO ps_aors (id,max_contacts) VALUES ('${endpoint.endpoint_id}', '2')`)
                         await this.directRepository.query(`INSERT INTO ps_auths (id,auth_type,username,password) VALUES ('${endpoint.endpoint_id}', 'userpass', '${endpoint.username}', '${endpoint.password}')`)
                     }
-                    endpoints.push(endpoint)
+                    endpoints.push(point)
                 }
-            console.log(endpoints)
             return endpoints
         } catch (e) {
             if (e.name === 'SequelizeUniqueConstraintError') {
@@ -58,7 +57,7 @@ export class EndpointsService {
         try {
             const endpoint = await this.endpointRepository.findOne({
                 where: {
-                    endpoint_id: updates.endpoint_id,
+                    id: updates.id,
                     vpbx_user_id: updates.vpbx_user_id
                 }
             })
@@ -69,7 +68,7 @@ export class EndpointsService {
             await this.directRepository.query(`UPDATE ps_endpoints  SET id='${updates.endpoint_id}',transport='${updates.transport}',aors='${updates.endpoint_id}',auth='${updates.endpoint_id}',context='${updates.context}',disallow='all',allow='${updates.allow}' WHERE id='${endpoint.endpoint_id}'`)
             await this.directRepository.query(`UPDATE ps_aors SET id='${updates.endpoint_id}', max_contacts='${updates.max_contacts}' WHERE id='${endpoint.endpoint_id}'`)
             await this.directRepository.query(`UPDATE ps_auths SET id='${updates.endpoint_id}',auth_type='${updates.auth_type}',username='${updates.username}',password='${updates.password}' WHERE id='${endpoint.endpoint_id}'`)
-            await endpoint.update(updates, {where: {vpbx_user_id: endpoint.vpbx_user_id}})
+            await endpoint.update(updates, {where: {vpbx_user_id: endpoint.vpbx_user_id, id: updates.id}})
             return endpoint
         } catch (e) {
             if (e.name === 'SequelizeUniqueConstraintError') {
@@ -79,15 +78,19 @@ export class EndpointsService {
         }
     }
 
-    async delete(endpoint_id: string) {
-        const deleted = await this.endpointRepository.destroy({where: {endpoint_id: endpoint_id}})
-        if (deleted === 0) {
-            throw new HttpException('Endpoint not found', HttpStatus.NOT_FOUND)
-        } else {
-            await this.directRepository.query(`DELETE FROM ps_endpoints WHERE id='${endpoint_id}'`)
-            await this.directRepository.query(`DELETE FROM ps_aors WHERE id='${endpoint_id}'`)
-            await this.directRepository.query(`DELETE FROM ps_auths WHERE id='${endpoint_id}'`)
-            return {message: 'Endpoint deleted successfully', statusCode: HttpStatus.OK}
+    async delete(id: string) {
+        try {
+            const endpoint = await this.endpointRepository.findByPk(id)
+            if (!endpoint) {
+                throw new HttpException('[Endpoints]: Endpoint not found!', HttpStatus.NOT_FOUND)
+            }
+            await this.directRepository.query(`DELETE FROM ps_endpoints WHERE id='${endpoint.endpoint_id}'`)
+            await this.directRepository.query(`DELETE FROM ps_aors WHERE id='${endpoint.endpoint_id}'`)
+            await this.directRepository.query(`DELETE FROM ps_auths WHERE id='${endpoint.endpoint_id}'`)
+            await endpoint.destroy()
+            return {message: '[Endpoints]: Endpoint deleted successfully', statusCode: HttpStatus.OK}
+        } catch (e) {
+            throw new HttpException('[Endpoints]: Endpoint delete error!', HttpStatus.NOT_FOUND)
         }
     }
 

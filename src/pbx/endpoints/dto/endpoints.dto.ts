@@ -2,6 +2,8 @@ import {IsNumber, IsString} from "class-validator";
 
 export class EndpointsDto {
     @IsString({message: 'Должно быть строкой'})
+    readonly id: number
+    @IsString({message: 'Должно быть строкой'})
     readonly endpoint_id: string
     @IsString({message: 'Должно быть строкой'})
     readonly username: string

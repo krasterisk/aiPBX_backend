@@ -79,6 +79,4 @@ export class EndpointsController {
     deleteAll() {
         return this.endpointService.deleteAll()
     }
-
-
 }

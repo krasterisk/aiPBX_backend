@@ -33,12 +33,13 @@ export class ContextsService {
         return context
     }
 
-    async delete(ids: number[]) {
-        const deleted = await this.contextsRepository.destroy({where: { id: ids } })
-        if(deleted === 0) {
-            throw new HttpException('Context not found', HttpStatus.NOT_FOUND)
-        } else {
+    async delete(id: string) {
+        try {
+            await this.contextsRepository.destroy({where: { id } })
             return {message: 'Context deleted successfully', statusCode: HttpStatus.OK}
+
+        } catch (e) {
+            throw new HttpException('[Contexts] Context delete error!' + e, HttpStatus.BAD_REQUEST)
         }
     }
 

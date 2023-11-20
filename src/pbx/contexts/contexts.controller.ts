@@ -1,4 +1,4 @@
-import {Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards} from '@nestjs/common';
+import {Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards} from '@nestjs/common';
 import {ContextsService} from "./contexts.service";
 import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {Roles} from "../../auth/roles-auth.decorator";
@@ -33,8 +33,8 @@ export class ContextsController {
 
     @ApiOperation({summary: "Create context"})
     @ApiResponse({status: 200, type: Context})
-//    @Roles('ADMIN')
-//    @UseGuards(RolesGuard)
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()
     create(@Body() dto: ContextsDto[]) {
@@ -45,19 +45,18 @@ export class ContextsController {
     @ApiResponse({status: 200, type: Context})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
-    @Put()
+    @Patch()
     update(@Body() dto: ContextsDto) {
         return this.ContextService.update(dto)
     }
 
     @ApiOperation({summary: "Delete context"})
     @ApiResponse({status: 200})
-    @Roles('ADMIN')
+    @Roles('ADMIN','USER')
     @UseGuards(RolesGuard)
-    @Delete()
-    delete(@Body() body: {ids: number[]}) {
-        const { ids } = body
-        return this.ContextService.delete(ids)
+    @Delete('/:id')
+    delete(@Param('id') id: string) {
+        return this.ContextService.delete(id)
     }
 
 }

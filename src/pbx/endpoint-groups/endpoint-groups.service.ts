@@ -1,19 +1,17 @@
 import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
-import {Sequelize} from "sequelize-typescript";
 import {EndpointGroups} from "./endpoint-groups.model";
-import {EndpointsDto} from "../endpoints/dto/endpoints.dto";
 import {EndpointGroupsDto} from "./dto/endpoint-groups.dto";
 
 
 @Injectable()
 export class EndpointGroupsService {
 
-    constructor(@InjectModel(EndpointGroups) private endpointRepository: typeof EndpointGroups) {}
+    constructor(@InjectModel(EndpointGroups) private endpointGroupsRepository: typeof EndpointGroups) {}
 
     async getAll() {
         try {
-            const endpointsGroup = await this.endpointRepository.findAll()
+            const endpointsGroup = await this.endpointGroupsRepository.findAll()
             if (endpointsGroup) {
                 return endpointsGroup
             }
@@ -24,7 +22,7 @@ export class EndpointGroupsService {
     }
 
     async getById(id: string) {
-        const endpoint = await this.endpointRepository.findOne({where: {id}})
+        const endpoint = await this.endpointGroupsRepository.findOne({where: {id}})
         if(!endpoint) {
             throw new HttpException('Endpoint not found', HttpStatus.NOT_FOUND)
         } else {
@@ -34,8 +32,12 @@ export class EndpointGroupsService {
 
     async create(endpointsGroup: EndpointGroupsDto[]) {
         try {
-                const group = await this.endpointRepository.create(endpointsGroup)
-            return group
+            const endpointGroups = []
+            for (const point of endpointsGroup) {
+                const group = await this.endpointGroupsRepository.create(point)
+                endpointGroups.push(group)
+            }
+            return endpointGroups
         } catch (e) {
             if (e.name === 'SequelizeUniqueConstraintError') {
                 throw new HttpException({ message: 'Endpoints group already exist' }, HttpStatus.BAD_REQUEST)
@@ -46,12 +48,11 @@ export class EndpointGroupsService {
 
     async update(updates: Partial<EndpointGroupsDto>) {
         try {
-            const group = await this.endpointRepository.findOne({
-                where: {
-                    id: updates.id,
-                    vpbx_user_id: updates.vpbx_user_id
-                }
-            })
+            const group = await this.endpointGroupsRepository.findByPk(updates.id)
+            if(!group) {
+                throw new HttpException('Endpoint group not found', HttpStatus.BAD_REQUEST)
+            }
+            await group.update(updates)
             return group
         } catch (e) {
             if (e.name === 'SequelizeUniqueConstraintError') {
@@ -63,7 +64,7 @@ export class EndpointGroupsService {
 
     async delete(id: string) {
         try {
-            const endpoint = await this.endpointRepository.destroy({where: {id}})
+            await this.endpointGroupsRepository.destroy({where: {id}})
             return {message: '[Endpoints]: Endpoints group deleted successfully', statusCode: HttpStatus.OK}
         } catch (e) {
             throw new HttpException('[EndpointsGroup: Endpoints group delete error!', HttpStatus.BAD_REQUEST)
@@ -72,7 +73,7 @@ export class EndpointGroupsService {
 
     async deleteAll() {
         try {
-            const deleted = await this.endpointRepository.destroy({truncate: true})
+            await this.endpointGroupsRepository.destroy({truncate: true})
             return {message: 'Endpoints group deleted successfully', statusCode: HttpStatus.OK}
         } catch (e) {
             throw new HttpException({message: '[EndpointsGroup]: Request error', error: e, statusCode: HttpStatus.BAD_REQUEST }, HttpStatus.BAD_REQUEST)

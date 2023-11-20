@@ -1,10 +1,8 @@
 import {Body, Controller, Delete, Get, Param, Patch, Post, UseGuards} from '@nestjs/common';
 import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {EndpointGroupsService} from "./endpoint-groups.service";
-import {Endpoint} from "../endpoints/endpoints.model";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
-import {EndpointsDto} from "../endpoints/dto/endpoints.dto";
 import {EndpointGroups} from "./endpoint-groups.model";
 import {EndpointGroupsDto} from "./dto/endpoint-groups.dto";
 
@@ -40,7 +38,6 @@ export class EndpointGroupsController {
     create(@Body() dto: EndpointGroupsDto[]) {
         return this.endpointGroupsService.create(dto)
     }
-
 
     @ApiOperation({summary: "Update endpoints group"})
     @ApiResponse({status: 200, type: [EndpointGroups]})

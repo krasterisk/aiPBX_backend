@@ -2,6 +2,8 @@ import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
 import {Context} from "./contexts.model";
 import {ContextsDto} from "./dto/contexts.dto";
+import {GetContextsDto} from "./dto/getContexts.dto";
+import sequelize from "sequelize";
 
 @Injectable()
 export class ContextsService {
@@ -53,6 +55,55 @@ export class ContextsService {
                 return context
             }
 
+        } catch (e) {
+            throw new HttpException({message: '[Contexts]:  Request error'} + e, HttpStatus.BAD_REQUEST)
+        }
+    }
+
+    async get(query: GetContextsDto) {
+        try {
+            const page = Number(query.page)
+            const limit = Number(query.limit)
+            const vpbx_user_id = query.vpbx_user_id
+            const sort = query.sort
+            const order = query.order
+            const search = query.search
+            const offset = (page - 1) * limit
+
+            if(!vpbx_user_id) {
+                throw new HttpException({message: '[Contexts]:  vpbx_user_id must be set'}, HttpStatus.BAD_REQUEST)
+            }
+            const contexts = await this.contextsRepository.findAndCountAll({
+                    offset,
+                    limit,
+                    order: [
+                        [sort, order],
+                    ],
+                    where:
+                        {
+                            [sequelize.Op.and]: [
+                                {
+                                    [sequelize.Op.or]: [
+                                        {
+                                            name: {
+                                                [sequelize.Op.like]: `%${search}%`
+                                            }
+                                        },
+                                        {
+                                            description: {
+                                                [sequelize.Op.like]: `%${search}%`
+                                            }
+                                        }
+                                    ]
+                                },
+                            ],
+                            vpbx_user_id
+                        },
+                }
+            )
+            if (contexts) {
+                return contexts
+            }
         } catch (e) {
             throw new HttpException({message: '[Contexts]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }

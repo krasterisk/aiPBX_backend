@@ -8,7 +8,7 @@ import {
     Put, Query,
     UseGuards,
     UseInterceptors,
-    Req
+    Req, HttpException, HttpStatus
 } from '@nestjs/common';
 import {ManualDto} from "./dto/create-post.dto";
 import {PostsService} from "./posts.service";
@@ -47,7 +47,7 @@ export class PostsController {
         try {
             return this.postService.getAll(query)
         } catch (e) {
-            throw e;
+            throw new HttpException({message: '[Endpoints]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }
     }
 

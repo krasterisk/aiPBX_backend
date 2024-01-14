@@ -3,6 +3,8 @@ import {InjectModel} from "@nestjs/sequelize";
 import {Endpoint} from "./endpoints.model";
 import {EndpointsDto} from "./dto/endpoints.dto";
 import {Sequelize} from "sequelize-typescript";
+import {GetEndpointsDto} from "./dto/getEndpoins.dto";
+import sequelize from "sequelize";
 
 @Injectable()
 export class EndpointsService {
@@ -11,9 +13,44 @@ export class EndpointsService {
                 private directRepository: Sequelize) {
     }
 
-    async getAll() {
+    async getAll(query: GetEndpointsDto) {
         try {
-            const endpoints = await this.endpointRepository.findAll()
+            const page = Number(query.page)
+            const limit = Number(query.limit)
+            const sort = query.sort
+            const order = query.order
+            const search = query.search
+            const group = query.group || ''
+            const offset = (page - 1) * limit
+
+            const endpoints = await this.endpointRepository.findAndCountAll({
+                    offset,
+                    limit,
+                    order: [
+                        [sort, order],
+                    ],
+                    where:
+                        {
+                            [sequelize.Op.and]: [
+                                {
+                                    [sequelize.Op.or]: [
+                                        {
+                                            endpoint_id: {
+                                                [sequelize.Op.like]: `%${search}%`
+                                            }
+                                        },
+                                        {
+                                            username: {
+                                                [sequelize.Op.like]: `%${search}%`
+                                            }
+                                        }
+                                    ]
+                                },
+                            ],
+                            groupId: group
+                        },
+                }
+            )
             if (endpoints) {
                 return endpoints
             }
@@ -25,7 +62,7 @@ export class EndpointsService {
 
     async getById(id: string) {
         const endpoint = await this.endpointRepository.findOne({where: {id}})
-        if(!endpoint) {
+        if (!endpoint) {
             throw new HttpException('Endpoint not found', HttpStatus.NOT_FOUND)
         } else {
             return endpoint
@@ -36,20 +73,20 @@ export class EndpointsService {
         try {
             const endpoints = []
             for (const endpoint of dtos) {
-                    const point = await this.endpointRepository.create(endpoint)
-                    if (point) {
-                        await this.directRepository.query(`INSERT INTO ps_endpoints (id,transport,aors,auth,context,disallow,allow) VALUES ('${endpoint.endpoint_id}', 'transport-udp', '${endpoint.endpoint_id}', '${endpoint.endpoint_id}', 'sip-out0', 'all', 'alaw')`)
-                        await this.directRepository.query(`INSERT INTO ps_aors (id,max_contacts) VALUES ('${endpoint.endpoint_id}', '2')`)
-                        await this.directRepository.query(`INSERT INTO ps_auths (id,auth_type,username,password) VALUES ('${endpoint.endpoint_id}', 'userpass', '${endpoint.username}', '${endpoint.password}')`)
-                    }
-                    endpoints.push(point)
+                const point = await this.endpointRepository.create(endpoint)
+                if (point) {
+                    await this.directRepository.query(`INSERT INTO ps_endpoints (id,transport,aors,auth,context,disallow,allow) VALUES ('${endpoint.endpoint_id}', 'transport-udp', '${endpoint.endpoint_id}', '${endpoint.endpoint_id}', 'sip-out0', 'all', 'alaw')`)
+                    await this.directRepository.query(`INSERT INTO ps_aors (id,max_contacts) VALUES ('${endpoint.endpoint_id}', '2')`)
+                    await this.directRepository.query(`INSERT INTO ps_auths (id,auth_type,username,password) VALUES ('${endpoint.endpoint_id}', 'userpass', '${endpoint.username}', '${endpoint.password}')`)
                 }
+                endpoints.push(point)
+            }
             return endpoints
         } catch (e) {
             if (e.name === 'SequelizeUniqueConstraintError') {
-                throw new HttpException({ message: 'Endpoint already exist' }, HttpStatus.BAD_REQUEST)
+                throw new HttpException({message: 'Endpoint already exist'}, HttpStatus.BAD_REQUEST)
             }
-            throw new HttpException({message: '[Endpoints]:  Create failed' }, HttpStatus.BAD_REQUEST)
+            throw new HttpException({message: '[Endpoints]:  Create failed'} + e, HttpStatus.BAD_REQUEST)
         }
     }
 
@@ -96,13 +133,17 @@ export class EndpointsService {
 
     async deleteAll() {
         try {
-            const deleted = await this.endpointRepository.destroy({truncate: true})
+            await this.endpointRepository.destroy({truncate: true})
             await this.directRepository.query(`DELETE FROM ps_endpoints`)
             await this.directRepository.query(`DELETE FROM ps_aors`)
             await this.directRepository.query(`DELETE FROM ps_auths`)
             return {message: 'Endpoints deleted successfully', statusCode: HttpStatus.OK}
         } catch (e) {
-            throw new HttpException({message: '[Endpoint]: Request error', error: e, statusCode: HttpStatus.BAD_REQUEST }, HttpStatus.BAD_REQUEST)
+            throw new HttpException({
+                message: '[Endpoint]: Request error',
+                error: e,
+                statusCode: HttpStatus.BAD_REQUEST
+            }, HttpStatus.BAD_REQUEST)
         }
     }
 }

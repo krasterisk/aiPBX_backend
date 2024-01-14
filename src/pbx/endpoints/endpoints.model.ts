@@ -5,6 +5,7 @@ interface EndpointCreationAttrs {
     endpoint_id: string
     username: string
     password: string
+    groupId: number
     vpbx_user_id: number
 }
 
@@ -36,6 +37,9 @@ export class Endpoint extends Model<Endpoint, EndpointCreationAttrs> {
     @ApiProperty({example: 'md5,userpass,google_oauth', description: "Authorization type"})
     @Column({type: DataType.STRING})
     auth_type: string
+    @ApiProperty({example: '4', description: "Endpoint group id"})
+    @Column({type: DataType.INTEGER, allowNull: true})
+    groupId: number
     @ApiProperty({example: '4', description: "VPBX cabinet id"})
     @Column({type: DataType.INTEGER, allowNull: false})
     vpbx_user_id: number

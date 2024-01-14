@@ -5,6 +5,8 @@ import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {Context} from "./contexts.model";
 import {ContextsDto} from "./dto/contexts.dto";
+import {GetEndpointsDto} from "../endpoints/dto/getEndpoins.dto";
+import {GetContextsDto} from "./dto/getContexts.dto";
 
 @ApiTags('Context')
 @Controller('contexts')
@@ -12,7 +14,7 @@ export class ContextsController {
 
     constructor(private ContextService: ContextsService) {}
 
-    @ApiOperation({summary: "Contexts list"})
+    @ApiOperation({summary: "All Contexts list"})
     @ApiResponse({status: 200, type: Context})
     @Roles('ADMIN','USER')
     @UseGuards(RolesGuard)
@@ -20,6 +22,21 @@ export class ContextsController {
     @Get()
     getAll(@Query('vpbx_user_id') vpbx_user_id: string) {
         return this.ContextService.getAll(vpbx_user_id)
+    }
+
+    @ApiOperation({summary: "All Contexts list"})
+    @ApiResponse({status: 200, type: Context})
+    @Roles('ADMIN','USER')
+    @UseGuards(RolesGuard)
+//    @UsePipes(ValidationPipe)
+    @Get('pages')
+    get(@Query() query: GetContextsDto ) {
+        try {
+            return this.ContextService.get(query)
+
+        } catch (e) {
+
+        }
     }
 
     @ApiOperation({summary: "Get context by id"})

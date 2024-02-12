@@ -24,12 +24,12 @@ export class ContextsController {
         return this.ContextService.getAll(vpbx_user_id)
     }
 
-    @ApiOperation({summary: "All Contexts list"})
+    @ApiOperation({summary: "Contexts list page"})
     @ApiResponse({status: 200, type: Context})
     @Roles('ADMIN','USER')
     @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
-    @Get('pages')
+    @Get('page')
     get(@Query() query: GetContextsDto ) {
         try {
             return this.ContextService.get(query)

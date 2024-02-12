@@ -1,10 +1,10 @@
-import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
+import {HttpException, HttpStatus } from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
 import {Prompt} from "./prompt.model";
 import {PromptDto} from "./dto/prompt.dto";
 
 export class PromptService {
-    
+
     constructor(@InjectModel(Prompt) private promptRepository: typeof Prompt) {}
 
     async create(dto: PromptDto) {

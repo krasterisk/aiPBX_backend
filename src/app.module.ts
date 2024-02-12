@@ -35,6 +35,7 @@ import {HashtagsModule} from './manuals/hashtags/hashtags.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { RatingModule } from './manuals/rating/rating.module';
 import { EndpointGroupsModule } from './pbx/endpoint-groups/endpoint-groups.module';
+import { ProvisioningModule } from './pbx/provisioning/provisioning.module';
 
 @Module({
     imports: [
@@ -79,7 +80,8 @@ import { EndpointGroupsModule } from './pbx/endpoint-groups/endpoint-groups.modu
         HashtagsModule,
         NotificationsModule,
         RatingModule,
-        EndpointGroupsModule
+        EndpointGroupsModule,
+        ProvisioningModule
     ],
 })
 

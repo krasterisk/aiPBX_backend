@@ -1,10 +1,11 @@
-import {Body, Controller, Delete, Get, Param, Patch, Post, UseGuards} from '@nestjs/common';
+import {Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards} from '@nestjs/common';
 import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {EndpointGroupsService} from "./endpoint-groups.service";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {EndpointGroups} from "./endpoint-groups.model";
 import {EndpointGroupsDto} from "./dto/endpoint-groups.dto";
+import {GetContextsDto} from "../contexts/dto/getContexts.dto";
 
 @ApiTags('Endpoints')
 @Controller('endpoints-groups')
@@ -20,6 +21,20 @@ export class EndpointGroupsController {
     getAll() {
         return this.endpointGroupsService.getAll()
     }
+
+    @ApiOperation({summary: "Get all endpoints groups"})
+    @ApiResponse({status: 200, type: [EndpointGroups]})
+    @Roles('ADMIN','USER')
+    @UseGuards(RolesGuard)
+    @Get('page')
+    get(@Query() query: GetContextsDto ) {
+        try {
+            return this.endpointGroupsService.getPage(query)
+        } catch (e) {
+
+        }
+    }
+
 
     @ApiOperation({summary: "Get endpoints group by id"})
     @ApiResponse({status: 200, type: [EndpointGroups]})

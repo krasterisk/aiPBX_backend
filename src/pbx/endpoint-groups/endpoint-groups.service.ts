@@ -2,6 +2,8 @@ import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
 import {EndpointGroups} from "./endpoint-groups.model";
 import {EndpointGroupsDto} from "./dto/endpoint-groups.dto";
+import {GetEndpointGroupsDto} from "./dto/getEndpointGroups.dto";
+import sequelize from "sequelize";
 
 
 @Injectable()
@@ -12,6 +14,56 @@ export class EndpointGroupsService {
     async getAll() {
         try {
             const endpointsGroup = await this.endpointGroupsRepository.findAll()
+            if (endpointsGroup) {
+                return endpointsGroup
+            }
+
+        } catch (e) {
+            throw new HttpException({message: '[endpointsGroup]:  Request error'} + e, HttpStatus.BAD_REQUEST)
+        }
+    }
+
+    async getPage(query: GetEndpointGroupsDto) {
+        try {
+            const page = Number(query.page)
+            const limit = Number(query.limit)
+            const vpbx_user_id = query.vpbx_user_id
+            const sort = query.sort
+            const order = query.order
+            const search = query.search
+            const offset = (page - 1) * limit
+
+            if(!vpbx_user_id) {
+                throw new HttpException({message: '[EndpointGroups]:  vpbx_user_id must be set'}, HttpStatus.BAD_REQUEST)
+            }
+            const endpointsGroup = await this.endpointGroupsRepository.findAndCountAll({
+                    offset,
+                    limit,
+                    order: [
+                        [sort, order],
+                    ],
+                    where:
+                        {
+                            [sequelize.Op.and]: [
+                                {
+                                    [sequelize.Op.or]: [
+                                        {
+                                            name: {
+                                                [sequelize.Op.like]: `%${search}%`
+                                            }
+                                        },
+                                        {
+                                            description: {
+                                                [sequelize.Op.like]: `%${search}%`
+                                            }
+                                        }
+                                    ]
+                                },
+                            ],
+                            vpbx_user_id
+                        },
+                }
+            )
             if (endpointsGroup) {
                 return endpointsGroup
             }

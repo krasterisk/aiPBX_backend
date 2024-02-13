@@ -5,7 +5,7 @@ import {
     Get,
     HttpException,
     HttpStatus,
-    Param,
+    Param, Patch,
     Post,
     Put,
     Query,
@@ -19,7 +19,6 @@ import {Provisioning} from "./provisioning.model";
 import {ProvisioningDto} from "./dto/provisioning.dto";
 import {Context} from "../contexts/contexts.model";
 import {GetProvisioningDto} from "./dto/getProvisioning.dto";
-
 
 @ApiTags('Provisioning')
 @Controller('provisioning')
@@ -53,7 +52,6 @@ export class ProvisioningController {
         }
     }
 
-
     @ApiOperation({summary: "Get provisioning by id"})
     @ApiResponse({status: 200, type: [Provisioning]})
     @Roles('ADMIN','USER')
@@ -77,7 +75,7 @@ export class ProvisioningController {
     @ApiResponse({status: 200, type: Provisioning})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
-    @Put()
+    @Patch()
     update(@Body() dto: ProvisioningDto) {
         return this.provisioningService.update(dto)
     }

@@ -90,6 +90,7 @@ export class ProvisioningService {
                 }
             )
             if (templates) {
+                console.log(templates)
                 return templates
             }
         } catch (e) {

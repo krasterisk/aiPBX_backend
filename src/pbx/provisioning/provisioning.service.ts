@@ -12,14 +12,19 @@ import sequelize from "sequelize";
 
 export class ProvisioningService {
 
-    constructor(@InjectModel(Provisioning) private provisioningRepository: typeof Provisioning) {}
+    constructor(@InjectModel(Provisioning) private provisioningRepository: typeof Provisioning) {
+    }
 
-    async create(dto: ProvisioningDto) {
+    async create(dtos: ProvisioningDto[]) {
         try {
-            const provisioning = await this.provisioningRepository.create(dto)
+            const provisioning = []
+            for (const template of dtos) {
+                const result = await this.provisioningRepository.create(template)
+                provisioning.push(result)
+            }
             return provisioning
         } catch (e) {
-            throw new HttpException('[provisioning]:  Request error' +e, HttpStatus.BAD_REQUEST)
+            throw new HttpException('[provisioning]:  Request error' + e, HttpStatus.BAD_REQUEST)
         }
     }
 
@@ -34,7 +39,7 @@ export class ProvisioningService {
 
     async getAll(vpbx_user_id: string) {
         try {
-            if(!vpbx_user_id) {
+            if (!vpbx_user_id) {
                 throw new HttpException({message: '[Provisioning]:  vpbx_user_id must be set'}, HttpStatus.BAD_REQUEST)
 
             }
@@ -44,7 +49,7 @@ export class ProvisioningService {
             }
 
         } catch (e) {
-            throw new HttpException({message: '[provisioning]:  Request error'} +e, HttpStatus.BAD_REQUEST)
+            throw new HttpException({message: '[provisioning]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }
     }
 
@@ -58,7 +63,7 @@ export class ProvisioningService {
             const search = query.search
             const offset = (page - 1) * limit
 
-            if(!vpbx_user_id) {
+            if (!vpbx_user_id) {
                 throw new HttpException({message: '[Provisioning]:  vpbx_user_id must be set'}, HttpStatus.BAD_REQUEST)
             }
             const templates = await this.provisioningRepository.findAndCountAll({
@@ -90,7 +95,6 @@ export class ProvisioningService {
                 }
             )
             if (templates) {
-                console.log(templates)
                 return templates
             }
         } catch (e) {
@@ -99,8 +103,8 @@ export class ProvisioningService {
     }
 
     async delete(ids: number[]) {
-        const deleted = await this.provisioningRepository.destroy({where: { id: ids } })
-        if(deleted === 0) {
+        const deleted = await this.provisioningRepository.destroy({where: {id: ids}})
+        if (deleted === 0) {
             throw new HttpException('provisioning template not found', HttpStatus.NOT_FOUND)
         } else {
             return {message: 'provisioning template deleted successfully', statusCode: HttpStatus.OK}
@@ -109,7 +113,7 @@ export class ProvisioningService {
 
     async getProvisioningById(id: number) {
         const provisioning = await this.provisioningRepository.findOne({where: {id}})
-        if(!provisioning) {
+        if (!provisioning) {
             throw new HttpException('provisioning template not found', HttpStatus.NOT_FOUND)
         } else {
             return provisioning

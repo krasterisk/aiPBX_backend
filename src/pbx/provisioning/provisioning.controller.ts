@@ -67,7 +67,7 @@ export class ProvisioningController {
     @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()
-    create(@Body() dto: ProvisioningDto) {
+    create(@Body() dto: ProvisioningDto[]) {
         return this.provisioningService.create(dto)
     }
 

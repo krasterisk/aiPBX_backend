@@ -102,12 +102,13 @@ export class ProvisioningService {
         }
     }
 
-    async delete(ids: number[]) {
-        const deleted = await this.provisioningRepository.destroy({where: {id: ids}})
-        if (deleted === 0) {
-            throw new HttpException('provisioning template not found', HttpStatus.NOT_FOUND)
-        } else {
-            return {message: 'provisioning template deleted successfully', statusCode: HttpStatus.OK}
+    async delete(id: string) {
+        try {
+            await this.provisioningRepository.destroy({where: { id } })
+            return {message: 'Template deleted successfully', statusCode: HttpStatus.OK}
+
+        } catch (e) {
+            throw new HttpException('[Provisioning] Template delete error!' + e, HttpStatus.BAD_REQUEST)
         }
     }
 

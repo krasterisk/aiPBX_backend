@@ -84,9 +84,8 @@ export class ProvisioningController {
     @ApiResponse({status: 200})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
-    @Delete()
-    delete(@Body() body: {ids: number[]}) {
-        const { ids } = body
-        return this.provisioningService.delete(ids)
+    @Delete('/:id')
+    delete(@Param('id') id: string) {
+        return this.provisioningService.delete(id)
     }
 }

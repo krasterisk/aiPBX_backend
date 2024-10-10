@@ -36,6 +36,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { RatingModule } from './manuals/rating/rating.module';
 import { EndpointGroupsModule } from './pbx/endpoint-groups/endpoint-groups.module';
 import { ProvisioningModule } from './pbx/provisioning/provisioning.module';
+import { PsModule } from './ps/ps.module';
 
 @Module({
     imports: [

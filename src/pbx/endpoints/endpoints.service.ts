@@ -23,34 +23,37 @@ export class EndpointsService {
             const group = query.group || ''
             const offset = (page - 1) * limit
 
+            const whereClause: any = {
+                [sequelize.Op.and]: [
+                    {
+                        [sequelize.Op.or]: [
+                            {
+                                endpoint_id: {
+                                    [sequelize.Op.like]: `%${search}%`
+                                }
+                            },
+                            {
+                                username: {
+                                    [sequelize.Op.like]: `%${search}%`
+                                }
+                            }
+                        ]
+                    }
+                ]
+            };
+
+            if (group) {
+                whereClause.groupId = group;
+            }
+
             const endpoints = await this.endpointRepository.findAndCountAll({
-                    offset,
-                    limit,
-                    order: [
-                        [sort, order],
-                    ],
-                    where:
-                        {
-                            [sequelize.Op.and]: [
-                                {
-                                    [sequelize.Op.or]: [
-                                        {
-                                            endpoint_id: {
-                                                [sequelize.Op.like]: `%${search}%`
-                                            }
-                                        },
-                                        {
-                                            username: {
-                                                [sequelize.Op.like]: `%${search}%`
-                                            }
-                                        }
-                                    ]
-                                },
-                            ],
-                            groupId: group
-                        },
-                }
-            )
+                offset,
+                limit,
+                order: [
+                    [sort, order],
+                ],
+                where: whereClause,
+            });
             if (endpoints) {
                 return endpoints
             }

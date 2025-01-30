@@ -36,7 +36,9 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { RatingModule } from './manuals/rating/rating.module';
 import { EndpointGroupsModule } from './pbx/endpoint-groups/endpoint-groups.module';
 import { ProvisioningModule } from './pbx/provisioning/provisioning.module';
-import { PsModule } from './ps/ps.module';
+import { PsModule } from './pbx/ps/ps.module';
+import { OpenAiController } from './open-ai/open-ai.controller';
+import { OpenAiModule } from './open-ai/open-ai.module';
 
 @Module({
     imports: [
@@ -82,8 +84,10 @@ import { PsModule } from './ps/ps.module';
         NotificationsModule,
         RatingModule,
         EndpointGroupsModule,
-        ProvisioningModule
-    ],
+        ProvisioningModule,
+        PsModule,
+        OpenAiModule
+    ]
 })
 
 export class AppModule {}

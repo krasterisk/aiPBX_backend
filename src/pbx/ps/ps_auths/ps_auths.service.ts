@@ -9,19 +9,19 @@ export class PsAuthsService {
     private psAuthModel: typeof PsAuth,
   ) {}
 
-  async findAll(): Promise<PsAuth[]> {
+  async findAll() {
     return this.psAuthModel.findAll();
   }
 
-  async findOne(id: string): Promise<PsAuth> {
+  async findOne(id: string) {
     return this.psAuthModel.findOne({ where: { id } });
   }
 
-  async create(psAuth: PsAuth): Promise<PsAuth> {
+  async create(psAuth: PsAuth) {
     return this.psAuthModel.create(psAuth);
   }
 
-  async update(id: string, psAuth: PsAuth): Promise<[number, PsAuth[]]> {
+  async update(id: string, psAuth: PsAuth) {
     return this.psAuthModel.update(psAuth, { where: { id } });
   }
 

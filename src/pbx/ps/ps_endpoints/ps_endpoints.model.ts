@@ -4,85 +4,58 @@ import { Column, DataType, Model, Table } from 'sequelize-typescript';
 export class PsEndpoint extends Model<PsEndpoint> {
   @Column({ type: DataType.STRING, primaryKey: true })
   id: string;
-
   @Column({ type: DataType.STRING })
   transport: string;
-
   @Column({ type: DataType.STRING })
   aors: string;
-
   @Column({ type: DataType.STRING })
   auth: string;
-
   @Column({ type: DataType.STRING })
   context: string;
-
   @Column({ type: DataType.STRING })
   disallow: string;
-
   @Column({ type: DataType.STRING })
   allow: string;
-
   @Column({ type: DataType.ENUM('yes', 'no') })
   direct_media: string;
-
   @Column({ type: DataType.ENUM('invite', 'reinvite', 'update') })
   connected_line_method: string;
-
   @Column({ type: DataType.ENUM('invite', 'reinvite', 'update') })
   direct_media_method: string;
-
   @Column({ type: DataType.ENUM('none', 'outgoing', 'incoming') })
   direct_media_glare_mitigation: string;
-
   @Column({ type: DataType.ENUM('yes', 'no') })
   disable_direct_media_on_nat: string;
-
   @Column({ type: DataType.ENUM('rfc4733', 'inband', 'info') })
   dtmf_mode: string;
-
   @Column({ type: DataType.STRING })
   external_media_address: string;
-
   @Column({ type: DataType.ENUM('yes', 'no') })
   force_rport: string;
-
   @Column({ type: DataType.ENUM('yes', 'no') })
   ice_support: string;
-
   @Column({ type: DataType.ENUM('username') })
   identify_by: string;
-
   @Column({ type: DataType.STRING })
   mailboxes: string;
-
   @Column({ type: DataType.STRING })
   moh_suggest: string;
-
   @Column({ type: DataType.STRING })
   outbound_auth: string;
-
   @Column({ type: DataType.STRING })
   outbound_proxy: string;
-
   @Column({ type: DataType.ENUM('yes', 'no') })
   rewrite_contact: string;
-
   @Column({ type: DataType.ENUM('yes', 'no') })
   rtp_ipv6: string;
-
   @Column({ type: DataType.ENUM('yes', 'no') })
   rtp_symmetric: string;
-
   @Column({ type: DataType.ENUM('yes', 'no') })
   send_diversion: string;
-
   @Column({ type: DataType.ENUM('yes', 'no') })
   send_pai: string;
-
   @Column({ type: DataType.ENUM('yes', 'no') })
   send_rpid: string;
-
   @Column({ type: DataType.INTEGER })
   timers_min_se: number;
 

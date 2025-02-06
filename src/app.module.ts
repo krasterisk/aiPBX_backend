@@ -39,6 +39,7 @@ import { ProvisioningModule } from './pbx/provisioning/provisioning.module';
 import { PsModule } from './pbx/ps/ps.module';
 import { OpenAiController } from './open-ai/open-ai.controller';
 import { OpenAiModule } from './open-ai/open-ai.module';
+import { AriModule } from "./ari/ari.module";
 
 @Module({
     imports: [
@@ -61,7 +62,7 @@ import { OpenAiModule } from './open-ai/open-ai.module';
         VpbxUsersModule,
         ContextsModule,
         RoutesModule,
-//        AriModule,
+        AriModule,
         ExtensionsModule,
         RecordsModule,
         PermitsModule,

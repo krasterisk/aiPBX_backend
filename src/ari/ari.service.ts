@@ -7,7 +7,8 @@ import * as util from "util";
 @Injectable()
 export class AriService {
 
-    private client
+    private client: any
+    private activePlayback: any = null;
 
     constructor() {
 
@@ -18,66 +19,60 @@ export class AriService {
         console.log('Данные для подключения: ' + `${url}` + `${username}` + `${password}`)
         const Ari = require('ari-client');
         Ari.connect(`${url}`, `${username}`, `${password}`)
-            .then((ari) => {
+            .then((ari: any) => {
+                this.client = ari
                 console.log("Успешно подключились к ARI")
+                this.client.on('StasisStart', this.handleCall.bind(this));
+                this.client.start('voicebot');
             })
-            .catch((err) => {
-                console.log('Ошибка: ')
+            .catch((err: string) => {
+                console.log('Ошибка: '+err)
                 return err
             })
-//        this.client.on('StasisStart', this.handleCall.bind(this));
+        // this.client.on();
     }
-
-    async onModuleInit() {
-        this.client.on('StasisStart', this.handleCall.bind(this));
-        console.log('Connected to ARI');
-    }
+    // async onModuleInit() {
+    //     this.client.start('StasisStart', this.handleCall.bind(this));
+    //     console.log('Connected to ARI');
+    // }
 
     async handleCall(event: any, channel: any) {
         console.log(`Incoming call from ${channel.caller.number}`);
 
-        // Включаем запись аудио
-        const recording = await this.startRecording(channel.id);
+        // Запускаем потоковое получение аудио
+        await this.startListening(channel);
 
-        // Ждем окончания речи
-        await this.waitForSpeechEnd(channel);
-
-        // Завершаем запись
-        await this.stopRecording(recording.name);
-
-        // Отправляем аудио в Whisper
-        const transcript = await this.transcribeAudio();
-
-        // Генерируем ответ с ChatGPT
-        const responseText = await this.getChatResponse(transcript);
-
-        // Генерируем аудио с OpenAI TTS
-        await this.textToSpeech(responseText);
-
-        // Воспроизводим ответ в Asterisk
-        await this.playResponse(channel);
+        // Отправляем приветственное сообщение
+        await this.speak(channel, "Привет! Как я могу помочь?");
     }
 
-    async startRecording(channelId: string) {
-        console.log('Starting recording...');
-        return await this.client.recordings.record({
-            format: 'wav',
-            name: 'voicebot_input',
-            maxDurationSeconds: 10,
-            ifExists: 'overwrite',
-            beep: false,
-            terminateOn: 'silence',
+    async startListening(channel: any) {
+        console.log('Listening for speech...');
+
+        const bridge = await this.client.bridges.create({ type: 'mixing' });
+        await bridge.addChannel({ channel: channel.id });
+
+        const snoop = await this.client.channels.snoopChannel({
+            app: 'voicebot',
+            channelId: channel.id,
+            spy: 'in',
+            whisper: 'none',
         });
-    }
 
-    async stopRecording(recordingName: string) {
-        console.log('Stopping recording...');
-        await this.client.recordings.stop({ recordingName });
-    }
+        snoop.on('ChannelTalkingStarted', async () => {
+            console.log('User started talking. Stopping bot response.');
+            if (this.activePlayback) {
+                await this.activePlayback.stop();
+                this.activePlayback = null;
+            }
+        });
 
-    async waitForSpeechEnd(channel: any) {
-        console.log('Waiting for speech to end...');
-        await util.promisify(setTimeout)(3000); // Ждем 3 секунды (можно улучшить)
+        snoop.on('ChannelTalkingFinished', async () => {
+            console.log('User stopped talking. Processing response...');
+            const transcript = await this.transcribeAudio();
+            const responseText = await this.getChatResponse(transcript);
+            await this.speak(channel, responseText);
+        });
     }
 
     async transcribeAudio(): Promise<string> {
@@ -85,14 +80,14 @@ export class AriService {
         const audioBuffer = fs.readFileSync('/var/lib/asterisk/sounds/voicebot_input.wav');
 
         const response = await axios.post(
-          'https://api.openai.com/v1/audio/transcriptions',
-          audioBuffer,
-          {
-              headers: {
-                  'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-                  'Content-Type': 'audio/wav',
-              },
-          }
+            'https://api.openai.com/v1/audio/transcriptions',
+            audioBuffer,
+            {
+                headers: {
+                    'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+                    'Content-Type': 'audio/wav',
+                },
+            }
         );
 
         console.log(`Recognized text: ${response.data.text}`);
@@ -103,17 +98,17 @@ export class AriService {
         console.log(`Sending text to ChatGPT: ${text}`);
 
         const response = await axios.post(
-          'https://api.openai.com/v1/chat/completions',
-          {
-              model: 'gpt-4',
-              messages: [{ role: 'user', content: text }],
-          },
-          {
-              headers: {
-                  'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-                  'Content-Type': 'application/json',
-              },
-          }
+            'https://api.openai.com/v1/chat/completions',
+            {
+                model: 'gpt-4',
+                messages: [{ role: 'user', content: text }],
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+                    'Content-Type': 'application/json',
+                },
+            }
         );
 
         const reply = response.data.choices[0].message.content;
@@ -121,27 +116,25 @@ export class AriService {
         return reply;
     }
 
-    async textToSpeech(text: string) {
-        console.log('Generating TTS audio...');
+    async speak(channel: any, text: string) {
+        console.log(`Speaking: ${text}`);
 
         const ttsResponse = await axios.post(
-          'https://api.openai.com/v1/audio/speech',
-          { model: 'tts-1', input: text, voice: 'alloy' },
-          {
-              headers: {
-                  'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-                  'Content-Type': 'application/json',
-              },
-              responseType: 'arraybuffer',
-          }
+            'https://api.openai.com/v1/audio/speech',
+            { model: 'tts-1', input: text, voice: 'alloy' },
+            {
+                headers: {
+                    'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+                    'Content-Type': 'application/json',
+                },
+                responseType: 'arraybuffer',
+            }
         );
 
-        fs.writeFileSync('/var/lib/asterisk/sounds/voicebot_response.wav', ttsResponse.data);
-    }
+        const filePath = '/var/lib/asterisk/sounds/voicebot_response.wav';
+        fs.writeFileSync(filePath, ttsResponse.data);
 
-    async playResponse(channel: any) {
-        console.log('Playing response...');
-        await channel.play({ media: 'sound:voicebot_response' });
+        this.activePlayback = await channel.play({ media: `sound:voicebot_response` });
     }
 
     public async getEndpoints(): Promise<Endpoints[]> {

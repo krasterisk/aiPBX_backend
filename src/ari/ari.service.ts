@@ -1,14 +1,14 @@
 import {Injectable} from '@nestjs/common';
-import { Endpoints } from "ari-client";
+import {Endpoints} from "ari-client";
 import axios from "axios";
 import * as fs from "fs";
-import * as util from "util";
 
 @Injectable()
 export class AriService {
 
     private client: any
     private activePlayback: any = null;
+    private isSpeaking = false;  // Флаг, говорит ли сейчас бот
 
     constructor() {
 
@@ -43,7 +43,11 @@ export class AriService {
         await this.startListening(channel);
 
         // Отправляем приветственное сообщение
-        await this.speak(channel, "Привет! Как я могу помочь?");
+        if (!this.isSpeaking) {
+            this.isSpeaking = true;
+            await this.speak(channel, "Привет! Как я могу помочь?");
+            this.isSpeaking = false;
+        }
     }
 
     async startListening(channel: any) {
@@ -65,6 +69,7 @@ export class AriService {
                 await this.activePlayback.stop();
                 this.activePlayback = null;
             }
+            this.isSpeaking = false;  // Разрешаем боту говорить снова после ответа пользователя
         });
 
         snoop.on('ChannelTalkingFinished', async () => {
@@ -117,6 +122,7 @@ export class AriService {
     }
 
     async speak(channel: any, text: string) {
+        if (this.isSpeaking) return;  // Защита от зацикливания
         console.log(`Speaking: ${text}`);
 
         const ttsResponse = await axios.post(
@@ -134,19 +140,22 @@ export class AriService {
         const filePath = '/var/lib/asterisk/sounds/voicebot_response.wav';
         fs.writeFileSync(filePath, ttsResponse.data);
 
+        this.isSpeaking = true;
         this.activePlayback = await channel.play({ media: `sound:voicebot_response` });
+        this.activePlayback.once('PlaybackFinished', () => {
+            this.isSpeaking = false;
+        });
     }
 
     public async getEndpoints(): Promise<Endpoints[]> {
         try {
             const endpoints_list = await this.client.endpoints.list()
-            const endpoints = endpoints_list.map(endpoint => ({
+            return endpoints_list.map((endpoint: { technology: any; resource: any; state: any; channel_ids: any; }) => ({
                 technology: endpoint.technology,
                 resource: endpoint.resource,
                 state: endpoint.state,
                 channel_id: endpoint.channel_ids
             }))
-            return endpoints
         } catch (e) {
             console.log("error: " + e)
         }

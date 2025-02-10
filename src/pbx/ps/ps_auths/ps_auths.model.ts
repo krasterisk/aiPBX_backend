@@ -2,8 +2,6 @@ import { Column, DataType, Model, Table } from 'sequelize-typescript';
 
 @Table({ tableName: 'ps_auths', timestamps: false })
 export class PsAuth extends Model<PsAuth> {
-  @Column({ type: DataType.STRING, primaryKey: true })
-  id: string;
 
   @Column({ type: DataType.ENUM('md5', 'userpass') })
   auth_type: string;

@@ -10,9 +10,6 @@ interface CreateBlacklistAttr {
 
 @Table({tableName: "pbx_blacklist"})
 export class Blacklist extends Model<Blacklist, CreateBlacklistAttr> {
-    @ApiProperty({example: '1', description: "Autoincrement"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: 'Private Person', description: "client name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string

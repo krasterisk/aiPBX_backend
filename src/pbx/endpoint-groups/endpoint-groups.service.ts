@@ -119,7 +119,7 @@ export class EndpointGroupsService {
             await this.endpointGroupsRepository.destroy({where: {id}})
             return {message: '[Endpoints]: Endpoints group deleted successfully', statusCode: HttpStatus.OK}
         } catch (e) {
-            throw new HttpException('[EndpointsGroup: Endpoints group delete error!', HttpStatus.BAD_REQUEST)
+            throw new HttpException('[EndpointsGroup: Endpoints group delete error!'+e, HttpStatus.BAD_REQUEST)
         }
     }
 

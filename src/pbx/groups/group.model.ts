@@ -11,9 +11,6 @@ interface CreateGroupModelAttr {
 
 @Table({tableName: "pbx_groups"})
 export class Group extends Model<Group, CreateGroupModelAttr> {
-    @ApiProperty({example: '1', description: "Autoincrement"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: 'Private Person', description: "client name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string

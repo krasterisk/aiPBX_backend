@@ -8,9 +8,6 @@ interface CreateIvrModelAttr {
 
 @Table({tableName: "pbx_ivr"})
 export class Ivr extends Model<Ivr, CreateIvrModelAttr> {
-    @ApiProperty({example: '1', description: "Autoincrement"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: 'Main IVR', description: "IVR name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string

@@ -11,8 +11,6 @@ interface EndpointCreationAttrs {
 
 @Table({tableName: 'pbx_endpoints'})
 export class Endpoint extends Model<Endpoint, EndpointCreationAttrs> {
-    @Column({type: DataType.INTEGER, unique: true, primaryKey: true, autoIncrement: true})
-    id: number
     @ApiProperty({example: 'WorkSoftPhone', description: "Endpoint name"})
     @Column({type: DataType.STRING, unique: true})
     endpoint_id: string

@@ -23,7 +23,7 @@ export class RolesService {
             const role = await this.roleRepository.findOne({where: {value}})
             return role
         } catch (e) {
-            throw new HttpException('[Roles]: Request error! Role not found!', HttpStatus.BAD_REQUEST)
+            throw new HttpException('[Roles]: Request error! Role not found!'+e, HttpStatus.BAD_REQUEST)
         }
     }
 

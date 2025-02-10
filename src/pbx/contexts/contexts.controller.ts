@@ -1,11 +1,10 @@
-import {Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards} from '@nestjs/common';
+import {Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards} from '@nestjs/common';
 import {ContextsService} from "./contexts.service";
 import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
 import {Roles} from "../../auth/roles-auth.decorator";
 import {RolesGuard} from "../../auth/roles.guard";
 import {Context} from "./contexts.model";
 import {ContextsDto} from "./dto/contexts.dto";
-import {GetEndpointsDto} from "../endpoints/dto/getEndpoins.dto";
 import {GetContextsDto} from "./dto/getContexts.dto";
 
 @ApiTags('Context')
@@ -35,7 +34,7 @@ export class ContextsController {
             return this.ContextService.get(query)
 
         } catch (e) {
-
+            console.log(e)
         }
     }
 

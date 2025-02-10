@@ -9,9 +9,6 @@ interface CreatePermitModelAttr {
 
 @Table({tableName: "pbx_permits"})
 export class Permit extends Model<Permit, CreatePermitModelAttr> {
-    @ApiProperty({example: '1', description: "Autoincrement"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: 'Permit for 100', description: "Permit name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string

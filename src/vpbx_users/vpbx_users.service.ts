@@ -1,9 +1,7 @@
 import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
-import {VpbxUser} from "./vpbx_users.model";
-import {UsersService} from "../users/users.service";
-import {CreateVpbxuserDto} from "./dto/create-vpbxuser.dto";
-import {User} from "../users/users.model";
+import {VpbxUser} from "./vpbx_users.model.js";
+import {CreateVpbxuserDto} from "./dto/create-vpbxuser.dto.js";
 
 @Injectable()
 export class VpbxUsersService {

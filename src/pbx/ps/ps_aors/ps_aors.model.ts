@@ -2,8 +2,6 @@ import { Column, DataType, Model, Table } from 'sequelize-typescript';
 
 @Table({ tableName: 'ps_aors', timestamps: false })
 export class PsAor extends Model<PsAor> {
-  @Column({ type: DataType.STRING, primaryKey: true })
-  id: string;
   @Column({ type: DataType.STRING })
   contact: string;
   @Column({ type: DataType.INTEGER })

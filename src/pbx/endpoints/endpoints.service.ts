@@ -130,7 +130,7 @@ export class EndpointsService {
             await endpoint.destroy()
             return {message: '[Endpoints]: Endpoint deleted successfully', statusCode: HttpStatus.OK}
         } catch (e) {
-            throw new HttpException('[Endpoints]: Endpoint delete error!', HttpStatus.NOT_FOUND)
+            throw new HttpException('[Endpoints]: Endpoint delete error!'+e, HttpStatus.NOT_FOUND)
         }
     }
 

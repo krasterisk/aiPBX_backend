@@ -14,9 +14,6 @@ export class CreateProvisioningModelAttr {
 
 @Table({tableName: "pbx_provisioning"})
 export class Provisioning extends Model<Provisioning, CreateProvisioningModelAttr> {
-    @ApiProperty({example: '1', description: "Autoincrement"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: 'SuperVendor', description: "Vendor name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string

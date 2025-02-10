@@ -4,7 +4,6 @@ import {UsersModule} from './users/users.module';
 import {ConfigModule} from "@nestjs/config";
 import {RolesModule} from './roles/roles.module';
 import {AuthModule} from './auth/auth.module';
-import {PostsModule} from './manuals/posts/posts.module';
 import {FilesModule} from './files/files.module';
 import {ServeStaticModule} from "@nestjs/serve-static";
 import * as path from 'path';
@@ -28,16 +27,9 @@ import {TimegroupModule} from './pbx/timegroup/timegroup.module';
 import {getMysqlConfig} from "./config/mysql.config";
 import {QueueMembersModule} from './pbx/queue_members/queue_members.module';
 import {WebhooksModule} from './pbx/webhooks/webhooks.module';
-import {BlockImageModule} from './manuals/block-image/block-image.module';
-import {ParagraphModule} from "./manuals/block-text/paragraph/paragraph.module";
-import {CommentsModule} from './manuals/comments/comments.module';
-import {HashtagsModule} from './manuals/hashtags/hashtags.module';
-import { NotificationsModule } from './notifications/notifications.module';
-import { RatingModule } from './manuals/rating/rating.module';
 import { EndpointGroupsModule } from './pbx/endpoint-groups/endpoint-groups.module';
 import { ProvisioningModule } from './pbx/provisioning/provisioning.module';
 import { PsModule } from './pbx/ps/ps.module';
-import { OpenAiController } from './open-ai/open-ai.controller';
 import { OpenAiModule } from './open-ai/open-ai.module';
 import { AriModule } from "./ari/ari.module";
 
@@ -55,7 +47,6 @@ import { AriModule } from "./ari/ari.module";
         UsersModule,
         RolesModule,
         AuthModule,
-        PostsModule,
         FilesModule,
 //        AmiModule,
         EndpointsModule,
@@ -78,12 +69,6 @@ import { AriModule } from "./ari/ari.module";
         TimegroupModule,
         QueueMembersModule,
         WebhooksModule,
-        BlockImageModule,
-        ParagraphModule,
-        CommentsModule,
-        HashtagsModule,
-        NotificationsModule,
-        RatingModule,
         EndpointGroupsModule,
         ProvisioningModule,
         PsModule,

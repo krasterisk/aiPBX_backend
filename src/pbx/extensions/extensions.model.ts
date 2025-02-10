@@ -9,9 +9,6 @@ interface CreateExtensionAttr {
 
 @Table({tableName: 'pbx_extensions'})
 export class Extensions extends Model<Extensions, CreateExtensionAttr> {
-    @ApiProperty({example: '1', description: "Autoincrement"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: '1XX, [3-5]XN, X.', description: "Extension pattern"})
     @Column({type: DataType.STRING, allowNull: false})
     exten: string

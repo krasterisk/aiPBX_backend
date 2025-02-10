@@ -1,7 +1,5 @@
-import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Post } from "@nestjs/common";
 import { ApiOperation, ApiResponse } from "@nestjs/swagger";
-import { Roles } from "../auth/roles-auth.decorator";
-import { RolesGuard } from "../auth/roles.guard";
 import { OpenAiService } from "./open-ai.service";
 import { openAiMessage } from "./dto/open-ai.dto";
 

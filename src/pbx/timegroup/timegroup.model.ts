@@ -9,9 +9,6 @@ export interface CreateTimegroupAttr {
 
 @Table({tableName: "pbx_timegroups"})
 export class Timegroup extends Model<Timegroup, CreateTimegroupAttr> {
-    @ApiProperty({example: '1', description: "Autoincrement"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: 'Permit for 100', description: "Permit name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string

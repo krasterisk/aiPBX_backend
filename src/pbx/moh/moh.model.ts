@@ -9,9 +9,6 @@ interface CreateMohModelAttr {
 
 @Table({tableName: "pbx_moh"})
 export class Moh extends Model<Moh, CreateMohModelAttr> {
-    @ApiProperty({example: '1', description: "Autoincrement"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: 'Main', description: "Music on hold name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string

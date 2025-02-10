@@ -1,5 +1,5 @@
 import {Column, DataType, Model, Table} from "sequelize-typescript";
-import {ApiProperty, ApiTags} from "@nestjs/swagger";
+import {ApiProperty} from "@nestjs/swagger";
 
 export interface CreateWebhookAttr {
     name: string,
@@ -10,9 +10,6 @@ export interface CreateWebhookAttr {
 
 @Table({tableName: "pbx_webhooks"})
 export class Webhook extends Model<Webhook, CreateWebhookAttr> {
-    @ApiProperty({example: '1', description: "id"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: 'On Answer webhook', description: "Webhook name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string

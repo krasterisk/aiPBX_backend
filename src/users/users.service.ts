@@ -34,7 +34,7 @@ export class UsersService {
             const user = await this.usersRepository.findAll({include: {all: true}})
             return user
         } catch (e) {
-            throw new HttpException('Users not found', HttpStatus.NOT_FOUND)
+            throw new HttpException('Users not found'+e, HttpStatus.NOT_FOUND)
         }
     }
 

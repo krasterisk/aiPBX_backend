@@ -1,10 +1,7 @@
-import {Body, Controller, Get, Param, Post, UseGuards} from '@nestjs/common';
+import {Body, Controller, Get, Param, Post} from '@nestjs/common';
 import {RolesService} from "./roles.service";
 import {CreateRoleDto} from "./dto/create-role.dto";
-import {Roles} from "../auth/roles-auth.decorator";
-import {RolesGuard} from "../auth/roles.guard";
 import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
-import {User} from "../users/users.model";
 import {Role} from "./roles.model";
 
 @ApiTags('Roles')

@@ -10,9 +10,6 @@ interface CreateListbookModelAttr {
 
 @Table({tableName: "pbx_listbook"})
 export class Listbook extends Model<Listbook, CreateListbookModelAttr> {
-    @ApiProperty({example: '1', description: "Autoincrement"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: 'Private Person', description: "client name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string

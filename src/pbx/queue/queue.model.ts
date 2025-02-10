@@ -20,9 +20,6 @@ interface CreateQueueAttr {
 
 @Table({tableName: "pbx_queues", createdAt: false, updatedAt: false})
 export class Queue extends Model<Queue, CreateQueueAttr> {
-    @ApiProperty({example: '1', description: "Autoincrement primary key"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: 'Ops', description: "Queue name"})
     @Column({type: DataType.STRING, allowNull: false, unique: true, primaryKey: true})
     name: string

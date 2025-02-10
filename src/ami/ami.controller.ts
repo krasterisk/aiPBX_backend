@@ -16,8 +16,8 @@ export class AmiController {
         @Query('exten') exten: number,
         @Query('phone') phone: number,
         @Query('user_uid') user_uid: number | 0,
-    ): any {
-        return this.amiService.origCall(exten, phone, user_uid);
+    ) {
+        this.amiService.origCall(exten, phone, user_uid);
     }
 }
 

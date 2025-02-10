@@ -1,5 +1,5 @@
 import { IsString } from "class-validator";
-import { AiMessages, role } from "../open-ai.model";
+import { AiMessages } from "../open-ai.model";
 
 export class openAiMessage {
   @IsString({message: 'Должно быть строкой'})

@@ -9,9 +9,6 @@ interface CreateRecordModelAttr{
 
 @Table({tableName: "pbx_records"})
 export class Record extends Model<Record, CreateRecordModelAttr> {
-    @ApiProperty({example: '1', description: "Unique id"})
-    @Column({type: DataType.INTEGER, unique: true, primaryKey: true, autoIncrement: true})
-    id: number
     @ApiProperty({example: 'record all', description: "Record template name"})
     @Column({type: DataType.STRING, unique: true, allowNull: false})
     name: string

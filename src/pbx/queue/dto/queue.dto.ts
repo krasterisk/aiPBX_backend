@@ -1,4 +1,4 @@
-import {IsEnum, IsIn, IsNumber, IsString} from "class-validator";
+import { IsIn, IsNumber, IsString} from "class-validator";
 import {QueueStrategies} from "../queue.model";
 
 export class QueueDto {

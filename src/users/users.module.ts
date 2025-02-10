@@ -5,7 +5,6 @@ import {User} from "./users.model";
 import {SequelizeModule} from "@nestjs/sequelize";
 import {RolesModule} from "../roles/roles.module";
 import {AuthModule} from "../auth/auth.module";
-import {CommentsModule} from "../manuals/comments/comments.module";
 
 @Module({
     controllers: [UsersController],
@@ -13,7 +12,6 @@ import {CommentsModule} from "../manuals/comments/comments.module";
     imports: [
         SequelizeModule.forFeature([User]),
         RolesModule,
-        CommentsModule,
         forwardRef(() => AuthModule)
     ],
     exports: [

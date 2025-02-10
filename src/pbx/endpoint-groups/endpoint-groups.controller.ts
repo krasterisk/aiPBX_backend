@@ -31,7 +31,7 @@ export class EndpointGroupsController {
         try {
             return this.endpointGroupsService.getPage(query)
         } catch (e) {
-
+                console.log(e)
         }
     }
 

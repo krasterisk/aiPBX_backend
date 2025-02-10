@@ -13,9 +13,6 @@ interface CreateRouteAttr {
 
 @Table({tableName: 'pbx_routes'})
 export class Route extends Model<Route, CreateRouteAttr> {
-    @ApiProperty({example: '1', description: "Уникальный идентификатор"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: 'true', description: "Disable/Enable PBX route"})
     @Column({type: DataType.BOOLEAN, defaultValue: true})
     active: boolean

@@ -32,7 +32,7 @@ export class EndpointsController {
             return this.endpointService.getAll(query)
 
         } catch (e) {
-
+            console.log(e)
         }
     }
 

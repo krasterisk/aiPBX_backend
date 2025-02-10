@@ -9,9 +9,6 @@ interface CreateAppAttr {
 
 @Table({tableName: "pbx_apps"})
 export class App extends Model<App, CreateAppAttr> {
-    @ApiProperty({example: '1', description: "Unique id"})
-    @Column({type: DataType.INTEGER, unique: true, primaryKey: true, autoIncrement: true})
-    id: number
     @ApiProperty({example: 'voice-mail', description: "Voice mail"})
     @Column({type: DataType.STRING, unique: true, allowNull: false})
     name: string

@@ -2,8 +2,6 @@ import { Column, DataType, Model, Table } from 'sequelize-typescript';
 
 @Table({ tableName: 'ps_endpoints', timestamps: false })
 export class PsEndpoint extends Model<PsEndpoint> {
-  @Column({ type: DataType.STRING, primaryKey: true })
-  id: string;
   @Column({ type: DataType.STRING })
   transport: string;
   @Column({ type: DataType.STRING })

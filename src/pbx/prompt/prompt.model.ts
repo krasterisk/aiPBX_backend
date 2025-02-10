@@ -19,9 +19,6 @@ interface CreatePromptModelAttr {
 
 @Table({tableName: "pbx_prompts"})
 export class Prompt extends Model<Prompt, CreatePromptModelAttr> {
-    @ApiProperty({example: '1', description: "Autoincrement"})
-    @Column({type: DataType.INTEGER, unique: true, autoIncrement: true, primaryKey: true})
-    id: number
     @ApiProperty({example: 'Permit for 100', description: "Permit name"})
     @Column({type: DataType.STRING, allowNull: false})
     name: string

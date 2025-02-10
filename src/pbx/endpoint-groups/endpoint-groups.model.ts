@@ -11,13 +11,6 @@ interface EndpointGroupsCreationAttrs {
 
 @Table({ tableName: "pbx_endpoints_groups" })
 export class EndpointGroups extends Model<EndpointGroupsDto, EndpointGroupsCreationAttrs> {
-  @Column({
-    type: DataType.INTEGER,
-    unique: true,
-    primaryKey: true,
-    autoIncrement: true,
-  })
-  id: number;
   @ApiProperty({ example: "Support", description: "Endpoint groups name" })
   @Column({ type: DataType.STRING })
   name: string

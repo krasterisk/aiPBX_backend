@@ -32,6 +32,7 @@ import { ProvisioningModule } from './pbx/provisioning/provisioning.module';
 import { PsModule } from './pbx/ps/ps.module';
 import { OpenAiModule } from './open-ai/open-ai.module';
 import { AriModule } from "./ari/ari.module";
+import { WsServerModule } from './ws-server/ws-server.module';
 
 @Module({
     imports: [
@@ -49,30 +50,31 @@ import { AriModule } from "./ari/ari.module";
         AuthModule,
         FilesModule,
 //        AmiModule,
-        EndpointsModule,
-        VpbxUsersModule,
-        ContextsModule,
-        RoutesModule,
+//         EndpointsModule,
+//         VpbxUsersModule,
+//         ContextsModule,
+//         RoutesModule,
         AriModule,
-        ExtensionsModule,
-        RecordsModule,
-        PermitsModule,
-        ListbookModule,
-        BlacklistModule,
-        CallbackModule,
-        AppsModule,
-        IvrModule,
-        QueueModule,
-        GroupsModule,
-        PromptModule,
-        MohModule,
-        TimegroupModule,
-        QueueMembersModule,
-        WebhooksModule,
-        EndpointGroupsModule,
-        ProvisioningModule,
-        PsModule,
-        OpenAiModule
+        // ExtensionsModule,
+        // RecordsModule,
+        // PermitsModule,
+        // ListbookModule,
+        // BlacklistModule,
+        // CallbackModule,
+        // AppsModule,
+        // IvrModule,
+        // QueueModule,
+        // GroupsModule,
+        // PromptModule,
+        // MohModule,
+        // TimegroupModule,
+        // QueueMembersModule,
+        // WebhooksModule,
+        // EndpointGroupsModule,
+        // ProvisioningModule,
+        // PsModule,
+        OpenAiModule,
+        WsServerModule
     ]
 })
 

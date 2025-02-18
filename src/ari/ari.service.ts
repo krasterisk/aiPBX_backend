@@ -91,9 +91,9 @@ export class AriService implements OnModuleInit {
                         }).catch((err) => {
                             console.log('erroring extmedia')
                         })
-
                         this.externalChannel.on('StasisStart', async (event, chan) => {
                             if(this.bridge) {
+                                console.log("Bridge ID: ", this.bridge.id)
                                 await this.bridge.addChannel({channel: chan.id});
                             }
                         })

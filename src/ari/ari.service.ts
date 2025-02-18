@@ -55,14 +55,20 @@ export class AriService implements OnModuleInit {
                     if (!this.startingStream) {
                         this.bridge = ari.Bridge();
                         this.bridge.create({type: "mixing"});
+                        await this.bridge.addChannel({channel: incoming.id});
+                        this.bridge.on('BridgeCreated', (event) => {
+                            console.log('bridge created', event)
+                            // this.startingStream = false
+                            // ari.stop()
+                        });
                         this.bridge.on('BridgeDestroyed', (event) => {
-                            console.log('bridge destored')
+                            console.log('bridge destroyed')
                             this.startingStream = false
                             // ari.stop()
                         });
                         // console.log(incoming.id)
                         // console.dir(incoming, { depth: null })
-                        await this.bridge.addChannel({channel: incoming.id});
+
                         // incoming.answer((err) => {
                         //     // console.log(JSON.stringify(incoming))
                         //     console.dir(incoming, { depth: null });
@@ -72,21 +78,25 @@ export class AriService implements OnModuleInit {
                         incoming.play({media: 'sound:hello-world', lang: 'en'},
                             this.playback,
                             function (err, playback) {
-                            console.log(playback)
+                            console.log('playbacking')
                         });
-                        this.externalChannel = ari.Channel()
 
-                        await this.externalChannel.externalMedia({
+                        this.externalChannel = ari.Channel()
+                        this.externalChannel.externalMedia({
                             app: 'voicebot',
                             external_host: 'localhost:3032',
                             format: 'alaw',
+                        }).then((channel) => {
+                            console.log("externalMediaChannel: ", channel.channelvars)
+                        }).catch((err) => {
+                            console.log('erroring extmedia')
                         })
 
-                        this.externalChannel.on('StasisStart', (event, chan) => {
-                            console.log('ExternalChan: ', chan)
-                            this.bridge.addChannel({channel: chan.id});
+                        this.externalChannel.on('StasisStart', async (event, chan) => {
+                            if(this.bridge) {
+                                await this.bridge.addChannel({channel: chan.id});
+                            }
                         })
-
                         this.externalChannel.on('StasisEnd', (event, chan) => {
                             console.log('externalMedia Channel stasisEnd')
                         })

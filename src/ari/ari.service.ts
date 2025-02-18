@@ -94,11 +94,14 @@ export class AriService implements OnModuleInit {
                         this.externalChannel.on('StasisStart', async (event, chan) => {
                             if(this.bridge) {
                                 console.log("Bridge ID: ", this.bridge.id)
-                                await this.bridge.addChannel({channel: chan.id});
+                                this.bridge.addChannel({channel: chan.id},(err) => {
+                                    console.log(err)
+                                });
                             }
                         })
                         this.externalChannel.on('StasisEnd', (event, chan) => {
                             console.log('externalMedia Channel stasisEnd')
+                            this.bridge.removeChannel({channel: chan.id})
                         })
 
                         this.startingStream = true

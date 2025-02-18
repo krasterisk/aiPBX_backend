@@ -51,32 +51,34 @@ export class AriService implements OnModuleInit {
             .then((ari) => {
                 ari.start('voicebot')
 
-                ari.on('StasisStart', async (event, incoming) => {
+                ari.on('StasisStart', (event, incoming) => {
                     if (!this.startingStream) {
                         this.bridge = ari.Bridge();
-                        await this.bridge.create({type: "mixing"});
+                        this.bridge.create({type: "mixing"});
                         this.bridge.on('BridgeDestroyed', (event) => {
-                            ari.stop()
+                            console.log('bridge destored')
+                            this.startingStream = false
+                            // ari.stop()
                         });
                         // console.log(incoming.id)
                         // console.dir(incoming, { depth: null })
-                        await this.bridge.addChannel({channel: incoming.id});
+                        this.bridge.addChannel({channel: incoming.id});
                         // incoming.answer((err) => {
                         //     // console.log(JSON.stringify(incoming))
                         //     console.dir(incoming, { depth: null });
                         //     // this.streamAudioFromChannel(incoming)
                         // })
                         this.playback = ari.Playback()
-                        await incoming.play({media: 'sound:hello-world', lang: 'en'},
+                        incoming.play({media: 'sound:hello-world', lang: 'en'},
                             this.playback,
                             function (err, playback) {
-                            // console.log(playback)
+                            console.log(playback)
                         });
                         this.externalChannel = ari.Channel()
 
-                        await this.externalChannel.externalMedia({
+                        this.externalChannel.externalMedia({
                             app: 'voicebot',
-                            external_host: '109.226.233.92:3001',
+                            external_host: 'localhost:3032',
                             format: 'alaw',
                         })
 
@@ -86,7 +88,7 @@ export class AriService implements OnModuleInit {
                         })
 
                         this.externalChannel.on('StasisEnd', (event, chan) => {
-                            console.log('externalMedia Channel end')
+                            console.log('externalMedia Channel stasisEnd')
                         })
 
                         this.startingStream = true

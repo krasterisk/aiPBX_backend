@@ -8,7 +8,7 @@ import {Logger} from "@nestjs/common";
 import {Server} from "socket.io";
 import {from, map, Observable} from "rxjs";
 
-@WebSocketGateway(3001,{
+@WebSocketGateway(3032,{
   cors: {
     origin: '*',
   },
@@ -16,11 +16,11 @@ import {from, map, Observable} from "rxjs";
 export class WsServerGateway {
   private readonly logger = new Logger(WebSocketGateway.name);
   @WebSocketServer() server: Server;
-  public port: number = 3001;
+  public port: number = 3032;
 
   afterInit() {
     this.logger.log('WebSocket сервер инициализирован');
-    console.log('ws server started on port: ')
+    console.log('ws server started on port: ', this.port)
   }
 
   handleConnection(client: any) {
@@ -34,12 +34,6 @@ export class WsServerGateway {
   @SubscribeMessage('events')
   findAll(@MessageBody() data: any): Observable<WsResponse<number>> {
     console.log('receive event events')
-    return from([1, 2, 3]).pipe(map(item => ({ event: 'events', data: item })));
-  }
-
-  @SubscribeMessage('*')
-  findAllMessages(@MessageBody() data: any): Observable<WsResponse<number>> {
-    console.log('receive all events')
     return from([1, 2, 3]).pipe(map(item => ({ event: 'events', data: item })));
   }
 

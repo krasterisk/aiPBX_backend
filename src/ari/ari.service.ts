@@ -1,4 +1,4 @@
-import {Inject, Injectable, Logger, OnModuleInit} from '@nestjs/common';
+import {Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy} from '@nestjs/common';
 import * as ariClient from 'ari-client';
 import {WsServerGateway} from "../ws-server/ws-server.gateway";
 
@@ -7,31 +7,31 @@ export class AriService implements OnModuleInit {
     private url = process.env.ARI_URL
     private username = process.env.ARI_USER;
     private password = process.env.ARI_PASS;
-    private logger: Logger
+    private readonly logger = new Logger();
     private startingStream: boolean
     private bridge: ariClient.Bridge
-    private channel: ariClient.Channel
+    private externalChannel: ariClient.Channel
+    private playback: ariClient.Playback
 
     constructor(
         @Inject(WsServerGateway) private wsGateway: WsServerGateway
     ) {
     }
-
     async onModuleInit() {
-        this.wsGateway.server.on('connection', (socket) => {
-            socket.on('events', (data) => {
-                console.log('this data: ', data)
-                // this.handleWebSocketEvent(socket)
-            })
-            socket.on('open', () => {
-                const port = this.wsGateway.port;
-                console.log(`server listening ${port}`);
-            });
-            socket.on('message', (data) => {
-                console.log(`server messaging`);
-                this.wsGateway.handleMessage('ARI', data)
-            });
-        })
+        // this.wsGateway.server.on('connection', (socket) => {
+        //     socket.on('events', (data) => {
+        //         console.log('this data: ', data)
+        //         this.handleWebSocketEvent(data)
+        //     })
+        //     socket.on('open', () => {
+        //         const port = this.wsGateway.port;
+        //         console.log(`server listening ${port}`);
+        //     });
+        //     socket.on('message', (data: any) => {
+        //         console.log(`server messaging`, data);
+        //         // this.wsGateway.handleMessage('ARI', data)
+        //     });
+        // })
 
         // Подключаемся к ARI
         if (!this.startingStream) {
@@ -40,7 +40,8 @@ export class AriService implements OnModuleInit {
     }
 
     private handleWebSocketEvent(data: any) {
-        this.logger.log('Получено событие от WebSocket:', data);
+        this.logger.log('Получено событие от WebSocket', data);
+        console.log('Получено событие от WebSocket:', data);
         // Здесь можно обработать события и отправить команды в ARI
     }
 
@@ -49,28 +50,53 @@ export class AriService implements OnModuleInit {
         ariClient.connect(this.url, this.username, this.password)
             .then((ari) => {
                 ari.start('voicebot')
-                this.bridge = ari.Bridge();
-                this.bridge.create({type: "mixing"});
-                this.bridge.on('BridgeDestroyed', (event) => {
-                    ari.stop()
-                });
 
-                ari.on('StasisStart', (event, incoming) => {
+                ari.on('StasisStart', async (event, incoming) => {
                     if (!this.startingStream) {
-                        console.log('Starting Statis')
-                        this.bridge.addChannel({channel: incoming.id});
-                        incoming.answer((err) => {
-                            this.streamAudioFromChannel(incoming)
-                            // play(incoming, 'sound:hello-world', err)
+                        this.bridge = ari.Bridge();
+                        await this.bridge.create({type: "mixing"});
+                        this.bridge.on('BridgeDestroyed', (event) => {
+                            ari.stop()
+                        });
+                        // console.log(incoming.id)
+                        // console.dir(incoming, { depth: null })
+                        await this.bridge.addChannel({channel: incoming.id});
+                        // incoming.answer((err) => {
+                        //     // console.log(JSON.stringify(incoming))
+                        //     console.dir(incoming, { depth: null });
+                        //     // this.streamAudioFromChannel(incoming)
+                        // })
+                        this.playback = ari.Playback()
+                        await incoming.play({media: 'sound:hello-world', lang: 'en'},
+                            this.playback,
+                            function (err, playback) {
+                            // console.log(playback)
+                        });
+                        this.externalChannel = ari.Channel()
+
+                        await this.externalChannel.externalMedia({
+                            app: 'voicebot',
+                            external_host: '109.226.233.92:3001',
+                            format: 'alaw',
                         })
+
+                        this.externalChannel.on('StasisStart', (event, chan) => {
+                            console.log('ExternalChan: ', chan)
+                            this.bridge.addChannel({channel: chan.id});
+                        })
+
+                        this.externalChannel.on('StasisEnd', (event, chan) => {
+                            console.log('externalMedia Channel end')
+                        })
+
                         this.startingStream = true
                         // incoming.hangup()
                     }
                 })
                 ari.on('StasisEnd', (event, channel) => {
                     console.log('Ended Statis')
+                    // this.bridge.removeChannel({channel: channel.id})
                     this.bridge.destroy()
-                    ari.stop()
                     this.startingStream = false
                 })
             })

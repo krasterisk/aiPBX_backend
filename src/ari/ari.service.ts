@@ -51,7 +51,7 @@ export class AriService implements OnModuleInit {
             .then((ari) => {
                 ari.start('voicebot')
 
-                ari.on('StasisStart', (event, incoming) => {
+                ari.on('StasisStart', async (event, incoming) => {
                     if (!this.startingStream) {
                         this.bridge = ari.Bridge();
                         this.bridge.create({type: "mixing"});
@@ -62,7 +62,7 @@ export class AriService implements OnModuleInit {
                         });
                         // console.log(incoming.id)
                         // console.dir(incoming, { depth: null })
-                        this.bridge.addChannel({channel: incoming.id});
+                        await this.bridge.addChannel({channel: incoming.id});
                         // incoming.answer((err) => {
                         //     // console.log(JSON.stringify(incoming))
                         //     console.dir(incoming, { depth: null });
@@ -76,7 +76,7 @@ export class AriService implements OnModuleInit {
                         });
                         this.externalChannel = ari.Channel()
 
-                        this.externalChannel.externalMedia({
+                        await this.externalChannel.externalMedia({
                             app: 'voicebot',
                             external_host: 'localhost:3032',
                             format: 'alaw',

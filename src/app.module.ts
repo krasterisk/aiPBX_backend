@@ -33,6 +33,7 @@ import { PsModule } from './pbx/ps/ps.module';
 import { OpenAiModule } from './open-ai/open-ai.module';
 import { AriModule } from "./ari/ari.module";
 import { WsServerModule } from './ws-server/ws-server.module';
+import { RtpUdpServerModule } from './rtp-udp-server/rtp-udp-server.module';
 
 @Module({
     imports: [
@@ -74,7 +75,8 @@ import { WsServerModule } from './ws-server/ws-server.module';
         // ProvisioningModule,
         // PsModule,
         OpenAiModule,
-        WsServerModule
+        WsServerModule,
+        // RtpUdpServerModule
     ]
 })
 

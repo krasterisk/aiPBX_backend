@@ -40,6 +40,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cross-env": "^7.0.3",
+    "datagram-stream": "^1.1.1",
     "express": "^5.0.1",
     "fs": "^0.0.1-security",
     "mysql2": "^3.12.0",
@@ -68,6 +69,7 @@
     "@types/socket.io": "^3.0.2",
     "@types/supertest": "^6.0.2",
     "@types/ws": "^8.5.14",
+    "@types/yargs": "^17.0.33",
     "@typescript-eslint/eslint-plugin": "^8.24.1",
     "@typescript-eslint/parser": "^8.24.1",
     "eslint": "^9.20.1",
@@ -83,7 +85,8 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "4.2.0",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.24.1"
+    "typescript-eslint": "^8.24.1",
+    "yargs": "^17.7.2"
   },
   "jest": {
     "moduleFileExtensions": [

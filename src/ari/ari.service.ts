@@ -1,6 +1,7 @@
 import {Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy} from '@nestjs/common';
 import * as ariClient from 'ari-client';
 import {WsServerGateway} from "../ws-server/ws-server.gateway";
+import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
 
 @Injectable()
 export class AriService implements OnModuleInit {
@@ -12,9 +13,12 @@ export class AriService implements OnModuleInit {
     private bridge: ariClient.Bridge
     private externalChannel: ariClient.Channel
     private playback: ariClient.Playback
+    private rtpUdpServer: RtpUdpServerService
 
     constructor(
-        @Inject(WsServerGateway) private wsGateway: WsServerGateway
+        @Inject(WsServerGateway)
+        private wsGateway: WsServerGateway
+        // private rtpUdpServer: RtpUdpServerService
     ) {
     }
     async onModuleInit() {
@@ -54,8 +58,7 @@ export class AriService implements OnModuleInit {
                 ari.on('StasisStart', async (event, incoming) => {
                     if (!this.startingStream) {
                         this.bridge = ari.Bridge();
-                        this.bridge.create({type: "mixing"});
-                        await this.bridge.addChannel({channel: incoming.id});
+                        await this.bridge.create({type: "mixing"});
                         this.bridge.on('BridgeCreated', (event) => {
                             console.log('bridge created', event)
                             // this.startingStream = false
@@ -66,9 +69,6 @@ export class AriService implements OnModuleInit {
                             this.startingStream = false
                             // ari.stop()
                         });
-                        // console.log(incoming.id)
-                        // console.dir(incoming, { depth: null })
-
                         // incoming.answer((err) => {
                         //     // console.log(JSON.stringify(incoming))
                         //     console.dir(incoming, { depth: null });
@@ -80,11 +80,12 @@ export class AriService implements OnModuleInit {
                             function (err, playback) {
                             console.log('playbacking')
                         });
-
+                        await this.bridge.addChannel({channel: incoming.id});
+                        this.rtpUdpServer = new RtpUdpServerService()
                         this.externalChannel = ari.Channel()
                         this.externalChannel.externalMedia({
                             app: 'voicebot',
-                            external_host: 'localhost:3032',
+                            external_host: '109.226.233.92:3032',
                             format: 'alaw',
                         }).then((channel) => {
                             console.log("externalMediaChannel: ", channel.channelvars)
@@ -108,10 +109,12 @@ export class AriService implements OnModuleInit {
                         // incoming.hangup()
                     }
                 })
+
                 ari.on('StasisEnd', (event, channel) => {
                     console.log('Ended Statis')
                     // this.bridge.removeChannel({channel: channel.id})
                     this.bridge.destroy()
+                    this.rtpUdpServer.onModuleDestroy()
                     this.startingStream = false
                 })
             })
@@ -124,7 +127,7 @@ export class AriService implements OnModuleInit {
         console.log('WebSocket connection established for audio streaming');
         channel.externalMedia({
             app: 'voicebot',
-            external_host: '109.226.233.92:3001',
+            external_host: '109.226.233.92:3032',
             format: 'alaw',
 
         })

@@ -8,7 +8,7 @@ import {Logger} from "@nestjs/common";
 import {Server} from "socket.io";
 import {from, map, Observable} from "rxjs";
 
-@WebSocketGateway(3032,{
+@WebSocketGateway(3033,{
   cors: {
     origin: '*',
   },
@@ -16,7 +16,7 @@ import {from, map, Observable} from "rxjs";
 export class WsServerGateway {
   private readonly logger = new Logger(WebSocketGateway.name);
   @WebSocketServer() server: Server;
-  public port: number = 3032;
+  public port: number = 3033;
 
   afterInit() {
     this.logger.log('WebSocket сервер инициализирован');

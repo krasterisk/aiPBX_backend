@@ -16,7 +16,7 @@ export class RtpUdpServerService implements OnModuleDestroy {
     constructor() {
         this.filePath = path.join(__dirname, `audio_${Date.now()}.wav`);
         this.writeStream = fs.createWriteStream(this.filePath);
-
+        this.openai = new OpenAiService()
         // WAV Header (placeholder, updated on close)
         const wavHeader = Buffer.alloc(this.headerSize);
         this.writeStream.write(wavHeader);
@@ -27,6 +27,7 @@ export class RtpUdpServerService implements OnModuleDestroy {
             console.log(`Received ${msg.length} bytes from ${rinfo.address}:${rinfo.port}`);
             // const pcmData = this.alawToPcm(msg);
             // this.writeStream.write(pcmData);
+
             this.openai.sendAudioData(msg)
         });
 

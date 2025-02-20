@@ -2,6 +2,7 @@ import {Injectable, OnModuleDestroy} from '@nestjs/common';
 import * as dgram from "dgram";
 import * as fs from "fs";
 import * as path from "path";
+import {OpenAiService} from "../open-ai/open-ai.service";
 
 @Injectable()
 export class RtpUdpServerService implements OnModuleDestroy {
@@ -10,7 +11,7 @@ export class RtpUdpServerService implements OnModuleDestroy {
     private writeStream: fs.WriteStream;
     private readonly filePath: string;
     private headerSize = 44;
-
+    private openai: OpenAiService
 
     constructor() {
         this.filePath = path.join(__dirname, `audio_${Date.now()}.wav`);
@@ -24,8 +25,9 @@ export class RtpUdpServerService implements OnModuleDestroy {
 
         this.server.on('message', (msg, rinfo) => {
             console.log(`Received ${msg.length} bytes from ${rinfo.address}:${rinfo.port}`);
-            const pcmData = this.alawToPcm(msg);
-            this.writeStream.write(pcmData);
+            // const pcmData = this.alawToPcm(msg);
+            // this.writeStream.write(pcmData);
+            this.openai.sendAudioData(msg)
         });
 
         this.server.on('error', (err) => {
@@ -93,7 +95,7 @@ export class RtpUdpServerService implements OnModuleDestroy {
     }
     onModuleDestroy() {
         console.log('Closing RTP server and file stream...');
-        this.writeStream.end(() => this.updateWavHeader());
+        // this.writeStream.end(() => this.updateWavHeader());
         this.server.close();
     }
 }

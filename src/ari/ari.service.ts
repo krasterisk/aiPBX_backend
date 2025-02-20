@@ -54,7 +54,6 @@ export class AriService implements OnModuleInit {
         ariClient.connect(this.url, this.username, this.password)
             .then((ari) => {
                 ari.start('voicebot')
-
                 ari.on('StasisStart', async (event, incoming) => {
                     if (!this.startingStream) {
                         this.bridge = ari.Bridge();

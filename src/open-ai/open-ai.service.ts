@@ -1,6 +1,8 @@
 import { HttpException, HttpStatus, Injectable } from "@nestjs/common";
 import OpenAI from "openai";
 import { openAiMessage } from "./dto/open-ai.dto";
+import { encode } from 'base64-arraybuffer';
+import { WebSocket } from 'ws';
 
 @Injectable()
 export class OpenAiService {
@@ -10,6 +12,8 @@ export class OpenAiService {
     baseURL: 'https://api.openai.com/v1',
     apiKey: process.env.OPEN_API_KEY
   });
+
+  private ws: WebSocket
 
   // constructor(private readonly aiRepository) {}
 
@@ -41,5 +45,45 @@ export class OpenAiService {
     }
   }
 
+  public sendAudioData(audioData: Buffer) {
+    const base64Audio = encode(audioData.buffer);
 
+  this.ws = new WebSocket('wss://api.openai.com/v1/realtime/sessions', {
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+    });
+    this.ws.send(JSON.stringify({
+      model: 'gpt-4o-realtime-preview-2024-12-17',
+      modalities: ["audio", "text"],
+      instructions: "You are a friendly assistant.",
+      voice: "alloy",
+      input_audio_format: "g711_alaw",
+      output_audio_format: "g711_alaw",
+      turn_detection: {
+        type: "server_vad",
+        threshold: 0.5,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 500,
+        create_response: true
+      },
+      temperature: 0.8,
+      max_response_output_tokens: 1000
+    }));
+
+    // this.ws.send(JSON.stringify({
+    //   type: 'audio',
+    //   format: 'g711_alaw', // или 'pcm16' в зависимости от формата
+    //   data: base64Audio,
+    // }));
+
+    this.ws.on('open', () => {
+      console.log('Connected to OpenAI Realtime API');
+    });
+
+    this.ws.on('message', (data) => {
+      // Обработка полученных сообщений от OpenAI
+      console.log('Received:', data.toString());
+    });
+  }
 }

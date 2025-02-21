@@ -3,6 +3,7 @@ import * as dgram from "dgram";
 import * as fs from "fs";
 import * as path from "path";
 import {OpenAiService} from "../open-ai/open-ai.service";
+import {WebSocket} from "ws";
 
 @Injectable()
 export class RtpUdpServerService implements OnModuleDestroy {
@@ -12,6 +13,7 @@ export class RtpUdpServerService implements OnModuleDestroy {
     private openai: OpenAiService
     private audioBuffer: Buffer[] = [];
     private readonly MAX_BUFFER_SIZE = 500; // 32kb
+    private ws: WebSocket
 
     constructor() {
         this.openai = new OpenAiService()
@@ -24,7 +26,11 @@ export class RtpUdpServerService implements OnModuleDestroy {
             // const pcmData = this.base64EncodeAudio(msg)
             try {
                     const data = msg.toString('base64')
-                    this.openai.sendAudioData(data)
+                this.ws.send(JSON.stringify({
+                    type: 'input_audio_buffer.append',
+                    audio: data
+                }));
+
             } catch (error) {
                 console.error(`Error processing RTP packet: ${error}`);
             }
@@ -40,6 +46,32 @@ export class RtpUdpServerService implements OnModuleDestroy {
             console.log(`UDP Server listening on ${address.address}:${address.port}`);
         });
         this.server.bind(this.PORT);
+    }
+
+    onModuleInit() {
+        const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
+
+        try {
+            this.ws = new WebSocket(url, {
+                headers: {
+                    "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
+                    "OpenAI-Beta": "realtime=v1",
+                },
+            });
+
+            this.ws.on('open', () => {
+                console.log('Connected to WebSocket OpenAI Realtime API');
+            });
+
+            this.ws.on('message', (data) => {
+                // Обработка полученных сообщений от OpenAI
+                console.log('Received:', data.toString());
+            });
+
+        } catch (e) {
+            console.log("error connect to realtime api")
+        }
+
     }
 
     onModuleDestroy() {

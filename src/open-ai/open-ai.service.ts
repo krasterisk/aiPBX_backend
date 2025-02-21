@@ -75,6 +75,9 @@ export class OpenAiService {
             audio: audioData
         }));
 
+        this.ws.send(JSON.stringify({type: 'input_audio_buffer.commit'}));
+        this.ws.send(JSON.stringify({type: 'response.create'}));
+
         const event = {
             type: "response.create",
             response: {

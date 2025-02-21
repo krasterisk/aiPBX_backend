@@ -9,26 +9,32 @@ export class RtpUdpServerService implements OnModuleDestroy {
     private readonly PORT = 3032;
     private server: dgram.Socket;
     private writeStream: fs.WriteStream;
-    private readonly filePath: string;
-    private headerSize = 44;
     private openai: OpenAiService
+    private audioBuffer: Buffer[] = [];
+    private readonly MAX_BUFFER_SIZE = 32 * 1024; // 32kb
 
     constructor() {
-        this.filePath = path.join(__dirname, `audio_${Date.now()}.wav`);
-        this.writeStream = fs.createWriteStream(this.filePath);
         this.openai = new OpenAiService()
-        // WAV Header (placeholder, updated on close)
-        const wavHeader = Buffer.alloc(this.headerSize);
-        this.writeStream.write(wavHeader);
-
         this.server = dgram.createSocket('udp4');
 
-        this.server.on('message', (msg, rinfo) => {
+        this.server.on('message', async (msg, rinfo) => {
             console.log(`Received ${msg.length} bytes from ${rinfo.address}:${rinfo.port}`);
             // const pcmData = this.alawToPcm(msg);
             // this.writeStream.write(pcmData);
-            const pcmData = this.base64EncodeAudio(msg)
-            this.openai.sendAudioData(pcmData)
+            // const pcmData = this.base64EncodeAudio(msg)
+            try {
+                // Буферизация пакетов для обеспечения порядка
+                this.audioBuffer.push(msg);
+
+                // Проверка размера буфера
+                if (this.audioBuffer.length > this.MAX_BUFFER_SIZE) {
+                    const data = msg.toString('base64')
+                    this.openai.sendAudioData(data)
+                    this.audioBuffer.length = 0
+                }
+            } catch (error) {
+                console.error(`Error processing RTP packet: ${error}`);
+            }
         });
 
         this.server.on('error', (err) => {
@@ -54,6 +60,8 @@ export class RtpUdpServerService implements OnModuleDestroy {
         this.writeStream.end();
         this.server.close();
     }
+
+
 
     // Converts Float32Array of audio data to PCM16 ArrayBuffer
     private floatTo16BitPCM(float32Array) {

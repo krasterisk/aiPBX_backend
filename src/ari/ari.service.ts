@@ -2,7 +2,6 @@ import {Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy} from '@nestjs
 import * as ariClient from 'ari-client';
 import {WsServerGateway} from "../ws-server/ws-server.gateway";
 import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
-import {WebSocket} from "ws";
 
 @Injectable()
 export class AriService implements OnModuleInit {

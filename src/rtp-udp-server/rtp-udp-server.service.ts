@@ -11,7 +11,7 @@ export class RtpUdpServerService implements OnModuleDestroy {
     private writeStream: fs.WriteStream;
     private openai: OpenAiService
     private audioBuffer: Buffer[] = [];
-    private readonly MAX_BUFFER_SIZE = 32 * 1024; // 32kb
+    private readonly MAX_BUFFER_SIZE = 32 * 172; // 32kb
 
     constructor() {
         this.openai = new OpenAiService()
@@ -25,7 +25,7 @@ export class RtpUdpServerService implements OnModuleDestroy {
             try {
                 // Буферизация пакетов для обеспечения порядка
                 this.audioBuffer.push(msg);
-
+                console.log(this.audioBuffer.length)
                 // Проверка размера буфера
                 if (this.audioBuffer.length > this.MAX_BUFFER_SIZE) {
                     const data = msg.toString('base64')

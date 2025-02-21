@@ -11,7 +11,7 @@ export class RtpUdpServerService implements OnModuleDestroy {
     private writeStream: fs.WriteStream;
     private openai: OpenAiService
     private audioBuffer: Buffer[] = [];
-    private readonly MAX_BUFFER_SIZE = 32 * 172; // 32kb
+    private readonly MAX_BUFFER_SIZE = 500; // 32kb
 
     constructor() {
         this.openai = new OpenAiService()

@@ -1,4 +1,4 @@
-import {HttpException, HttpStatus, Injectable} from "@nestjs/common";
+import {HttpException, HttpStatus, Injectable, OnModuleInit} from "@nestjs/common";
 import OpenAI from "openai";
 import {openAiMessage} from "./dto/open-ai.dto";
 import {encode} from 'base64-arraybuffer';
@@ -16,6 +16,31 @@ export class OpenAiService {
     private ws: WebSocket
 
     // constructor(private readonly aiRepository) {}
+    onModuleInit() {
+        const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
+
+        try {
+            this.ws = new WebSocket(url, {
+                headers: {
+                    "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
+                    "OpenAI-Beta": "realtime=v1",
+                },
+            });
+
+            this.ws.on('open', () => {
+                console.log('Connected to WebSocket OpenAI Realtime API');
+            });
+
+            this.ws.on('message', (data) => {
+                // Обработка полученных сообщений от OpenAI
+                console.log('Received:', data.toString());
+            });
+
+        } catch (e) {
+            console.log("error connect to realtime api")
+        }
+
+    }
 
     async request(messageDto: openAiMessage) {
         try {
@@ -45,39 +70,18 @@ export class OpenAiService {
     }
 
     public sendAudioData(audioData: any) {
-        const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
+        this.ws.send(JSON.stringify({
+            type: 'input_audio_buffer.append',
+            audio: audioData
+        }));
 
-        try {
-            this.ws = new WebSocket(url, {
-                headers: {
-                    "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
-                    "OpenAI-Beta": "realtime=v1",
-                },
-            });
-            const event = {
-                type: "response.create",
-                response: {
-                    modalities: ["audio", "text"],
-                    instructions: "Give me a haiku about code.",
-                }
-            };
+        const event = {
+            type: "response.create",
+            response: {
+                modalities: ["audio", "text"],
+                instructions: "Расскажи смешной стих",
+            }
+        };
 
-            this.ws.send(JSON.stringify({
-                type: 'input_audio_buffer.append',
-                audio: audioData
-            }));
-
-            this.ws.on('open', () => {
-                console.log('Connected to WebSocket OpenAI Realtime API');
-            });
-
-            this.ws.on('message', (data) => {
-                // Обработка полученных сообщений от OpenAI
-                console.log('Received:', data.toString());
-            });
-
-        } catch (e) {
-            console.log("error connect to realtime api")
-        }
     }
 }

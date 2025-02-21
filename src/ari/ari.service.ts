@@ -66,7 +66,6 @@ export class AriService implements OnModuleInit {
 
             // Подключаемся к ARI
             if (!this.startingStream) {
-
                 await this.connectToARI();
             }
     }

@@ -17,28 +17,28 @@ export class OpenAiService {
 
     // constructor(private readonly aiRepository) {}
     onModuleInit() {
-        const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
-
-        try {
-            this.ws = new WebSocket(url, {
-                headers: {
-                    "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
-                    "OpenAI-Beta": "realtime=v1",
-                },
-            });
-
-            this.ws.on('open', () => {
-                console.log('Connected to WebSocket OpenAI Realtime API');
-            });
-
-            this.ws.on('message', (data) => {
-                // Обработка полученных сообщений от OpenAI
-                console.log('Received:', data.toString());
-            });
-
-        } catch (e) {
-            console.log("error connect to realtime api")
-        }
+        // const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
+        //
+        // try {
+        //     this.ws = new WebSocket(url, {
+        //         headers: {
+        //             "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
+        //             "OpenAI-Beta": "realtime=v1",
+        //         },
+        //     });
+        //
+        //     this.ws.on('open', () => {
+        //         console.log('Connected to WebSocket OpenAI Realtime API');
+        //     });
+        //
+        //     this.ws.on('message', (data) => {
+        //         // Обработка полученных сообщений от OpenAI
+        //         console.log('Received:', data.toString());
+        //     });
+        //
+        // } catch (e) {
+        //     console.log("error connect to realtime api")
+        // }
 
     }
 
@@ -71,6 +71,24 @@ export class OpenAiService {
 
     public sendAudioData(audioData: any) {
         console.log(audioData)
+        const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
+
+        this.ws = new WebSocket(url, {
+                headers: {
+                    "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
+                    "OpenAI-Beta": "realtime=v1",
+                },
+            });
+
+            this.ws.on('open', () => {
+                console.log('Connected to WebSocket OpenAI Realtime API');
+            });
+
+            this.ws.on('message', (data) => {
+                // Обработка полученных сообщений от OpenAI
+                console.log('Received:', data.toString());
+            });
+
         this.ws.send(JSON.stringify({
             type: 'input_audio_buffer.append',
             audio: audioData

@@ -19,8 +19,8 @@ export class OpenAiService {
 
     async request(messageDto: openAiMessage) {
         try {
-            const result = await this.openai.chat.completions.create(messageDto)
-            return result
+            // const result = await this.openai.chat.completions.create(messageDto)
+            // return result
         } catch (error) {
             throw new HttpException("[openAI]: request error" + error, HttpStatus.BAD_REQUEST);
         }
@@ -28,67 +28,56 @@ export class OpenAiService {
 
     async stream(messageDto: openAiMessage) {
         try {
-            const stream = await this.openai.chat.completions.create({
-                ...messageDto,
-                stream: true
-            })
+            // const stream = await this.openai.chat.completions.create({
+            //     ...messageDto,
+            //     stream: true
+            // })
+            // if (!stream[Symbol.asyncIterator]) {
+            //     throw new Error("[openAI]: Returned stream is not an async iterable");
+            // }
 
-            if (!stream[Symbol.asyncIterator]) {
-                throw new Error("[openAI]: Returned stream is not an async iterable");
-            }
-
-            for await (const chunk of stream) {
-                process.stdout.write(chunk.choices[0]?.delta?.content || "");
-            }
+            // for await (const chunk of stream) {
+            //     process.stdout.write(chunk.choices[0]?.delta?.content || "");
+            // }
         } catch (error) {
             throw new HttpException("[openAI]: request error" + error, HttpStatus.BAD_REQUEST);
         }
     }
 
-    public sendAudioData(audioData: Buffer) {
-        const base64Audio = encode(audioData.buffer);
-        try {
+    public sendAudioData(audioData: any) {
+        const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
-            this.ws = new WebSocket('wss://api.openai.com/v1/realtime/sessions', {
+        try {
+            this.ws = new WebSocket(url, {
                 headers: {
-                    'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+                    "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
+                    "OpenAI-Beta": "realtime=v1",
                 },
             });
+            const event = {
+                type: "response.create",
+                response: {
+                    modalities: ["audio", "text"],
+                    instructions: "Give me a haiku about code.",
+                }
+            };
+
             this.ws.send(JSON.stringify({
-                model: 'gpt-4o-realtime-preview-2024-12-17',
-                modalities: ["audio", "text"],
-                instructions: "You are a friendly assistant.",
-                voice: "alloy",
-                input_audio_format: "g711_alaw",
-                output_audio_format: "g711_alaw",
-                turn_detection: {
-                    type: "server_vad",
-                    threshold: 0.5,
-                    prefix_padding_ms: 300,
-                    silence_duration_ms: 500,
-                    create_response: true
-                },
-                temperature: 0.8,
-                max_response_output_tokens: 1000
+                type: 'input_audio_buffer.append',
+                audio: audioData
             }));
 
-            // this.ws.send(JSON.stringify({
-            //   type: 'audio',
-            //   format: 'g711_alaw', // или 'pcm16' в зависимости от формата
-            //   data: base64Audio,
-            // }));
-
             this.ws.on('open', () => {
-                console.log('Connected to OpenAI Realtime API');
+                console.log('Connected to WebSocket OpenAI Realtime API');
             });
 
             this.ws.on('message', (data) => {
                 // Обработка полученных сообщений от OpenAI
                 console.log('Received:', data.toString());
             });
-        } catch (e) {
-            console.log('Ошибка WebSocket: ', e)
-        }
 
+        } catch (e) {
+            console.log("error connect to realtime api")
+        }
     }
 }

@@ -2,12 +2,14 @@ import {Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy} from '@nestjs
 import * as ariClient from 'ari-client';
 import {WsServerGateway} from "../ws-server/ws-server.gateway";
 import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
+import {WebSocket} from "ws";
 
 @Injectable()
 export class AriService implements OnModuleInit {
     private url = process.env.ARI_URL
     private username = process.env.ARI_USER;
     private password = process.env.ARI_PASS;
+    private externalHost = process.env.ARI_EXTERNAL_HOST;
     private readonly logger = new Logger();
     private startingStream: boolean
     private bridge: ariClient.Bridge
@@ -21,26 +23,53 @@ export class AriService implements OnModuleInit {
         // private rtpUdpServer: RtpUdpServerService
     ) {
     }
-    async onModuleInit() {
-        // this.wsGateway.server.on('connection', (socket) => {
-        //     socket.on('events', (data) => {
-        //         console.log('this data: ', data)
-        //         this.handleWebSocketEvent(data)
-        //     })
-        //     socket.on('open', () => {
-        //         const port = this.wsGateway.port;
-        //         console.log(`server listening ${port}`);
-        //     });
-        //     socket.on('message', (data: any) => {
-        //         console.log(`server messaging`, data);
-        //         // this.wsGateway.handleMessage('ARI', data)
-        //     });
-        // })
 
-        // Подключаемся к ARI
-        if (!this.startingStream) {
-            await this.connectToARI();
-        }
+    async onModuleInit() {
+
+            // this.ws.send(JSON.stringify({
+            //     modalities: ["audio", "text"],
+            //     instructions: "You are a friendly assistant.",
+            //     voice: "alloy",
+            //     input_audio_format: "g711_alaw",
+            //     output_audio_format: "g711_alaw",
+            //     turn_detection: {
+            //         type: "server_vad",
+            //         threshold: 0.5,
+            //         prefix_padding_ms: 300,
+            //         silence_duration_ms: 500,
+            //         create_response: true
+            //     },
+            //     temperature: 0.8,
+            //     max_response_output_tokens: 1000
+            // }));
+
+            // this.ws.send(JSON.stringify({
+            //   type: 'audio',
+            //   format: 'g711_alaw', // или 'pcm16' в зависимости от формата
+            //   data: base64Audio,
+            // }));
+
+
+            // this.wsGateway.server.on('connection', (socket) => {
+            //     socket.on('events', (data) => {
+            //         console.log('this data: ', data)
+            //         this.handleWebSocketEvent(data)
+            //     })
+            //     socket.on('open', () => {
+            //         const port = this.wsGateway.port;
+            //         console.log(`server listening ${port}`);
+            //     });
+            //     socket.on('message', (data: any) => {
+            //         console.log(`server messaging`, data);
+            //         // this.wsGateway.handleMessage('ARI', data)
+            //     });
+            // })
+
+            // Подключаемся к ARI
+            if (!this.startingStream) {
+
+                await this.connectToARI();
+            }
     }
 
     private handleWebSocketEvent(data: any) {
@@ -77,14 +106,14 @@ export class AriService implements OnModuleInit {
                         incoming.play({media: 'sound:hello-world', lang: 'en'},
                             this.playback,
                             function (err, playback) {
-                            console.log('playbacking')
-                        });
+                                console.log('playbacking')
+                            });
                         await this.bridge.addChannel({channel: incoming.id});
                         this.rtpUdpServer = new RtpUdpServerService()
                         this.externalChannel = ari.Channel()
                         this.externalChannel.externalMedia({
                             app: 'voicebot',
-                            external_host: 'localhost:3032',
+                            external_host: this.externalHost,
                             format: 'alaw',
                         }).then((channel) => {
                             console.log("externalMediaChannel: ", channel.channelvars)
@@ -92,9 +121,9 @@ export class AriService implements OnModuleInit {
                             console.log('erroring extmedia')
                         })
                         this.externalChannel.on('StasisStart', async (event, chan) => {
-                            if(this.bridge) {
+                            if (this.bridge) {
                                 console.log("Bridge ID: ", this.bridge.id)
-                                this.bridge.addChannel({channel: chan.id},(err) => {
+                                this.bridge.addChannel({channel: chan.id}, (err) => {
                                     console.log(err)
                                 });
                             }

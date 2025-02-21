@@ -27,8 +27,8 @@ export class RtpUdpServerService implements OnModuleDestroy {
             console.log(`Received ${msg.length} bytes from ${rinfo.address}:${rinfo.port}`);
             // const pcmData = this.alawToPcm(msg);
             // this.writeStream.write(pcmData);
-
-            this.openai.sendAudioData(msg)
+            const pcmData = this.base64EncodeAudio(msg)
+            this.openai.sendAudioData(pcmData)
         });
 
         this.server.on('error', (err) => {
@@ -43,60 +43,40 @@ export class RtpUdpServerService implements OnModuleDestroy {
         this.server.bind(this.PORT);
     }
 
-    onHangup() {
-        console.log('Closing RTP file stream...');
-        this.writeStream.end(() => this.updateWavHeader());
-        this.server.close();
-    }
-
-    private updateWavHeader() {
-        const fileSize = fs.statSync(this.filePath).size;
-        const dataSize = fileSize - this.headerSize;
-
-        const buffer = Buffer.alloc(44);
-        buffer.write('RIFF', 0);
-        buffer.writeUInt32LE(fileSize - 8, 4);
-        buffer.write('WAVE', 8);
-        buffer.write('fmt ', 12);
-        buffer.writeUInt32LE(16, 16);
-        buffer.writeUInt16LE(1, 20); // PCM format
-        buffer.writeUInt16LE(1, 22);
-        buffer.writeUInt32LE(8000, 24);
-        buffer.writeUInt32LE(16000, 28);
-        buffer.writeUInt16LE(2, 32);
-        buffer.writeUInt16LE(16, 34);
-        buffer.write('data', 36);
-        buffer.writeUInt32LE(dataSize, 40);
-
-        const fd = fs.openSync(this.filePath, 'r+');
-        fs.writeSync(fd, buffer, 0, buffer.length, 0);
-        fs.closeSync(fd);
-    }
-
-    private alawToPcm(alawData: Buffer): Buffer {
-        const pcmData = Buffer.alloc(alawData.length * 2);
-        for (let i = 0; i < alawData.length; i++) {
-            const sample = this.decodeAlawSample(alawData[i]);
-            pcmData.writeInt16LE(sample, i * 2);
-        }
-        return pcmData;
-    }
-
-    private decodeAlawSample(alaw: number): number {
-        alaw ^= 0x55;
-        let sign = alaw & 0x80;
-        let exponent = (alaw & 0x70) >> 4;
-        let mantissa = alaw & 0x0F;
-        let sample = (mantissa << 4) + 8;
-        if (exponent !== 0) {
-            sample += 0x100;
-            sample <<= exponent - 1;
-        }
-        return sign === 0 ? sample : -sample;
-    }
     onModuleDestroy() {
         console.log('Closing RTP server and file stream...');
         // this.writeStream.end(() => this.updateWavHeader());
         this.server.close();
+    }
+
+    onHangup() {
+        console.log('Closing RTP file stream...');
+        this.writeStream.end();
+        this.server.close();
+    }
+
+    // Converts Float32Array of audio data to PCM16 ArrayBuffer
+    private floatTo16BitPCM(float32Array) {
+        const buffer = new ArrayBuffer(float32Array.length * 2);
+        const view = new DataView(buffer);
+        let offset = 0;
+        for (let i = 0; i < float32Array.length; i++, offset += 2) {
+            let s = Math.max(-1, Math.min(1, float32Array[i]));
+            view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+        }
+        return buffer;
+    }
+
+// Converts a Float32Array to base64-encoded PCM16 data
+    private base64EncodeAudio(float32Array) {
+        const arrayBuffer = this.floatTo16BitPCM(float32Array);
+        let binary = '';
+        let bytes = new Uint8Array(arrayBuffer);
+        const chunkSize = 0x8000; // 32KB chunk size
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            let chunk = bytes.subarray(i, i + chunkSize);
+            binary += String.fromCharCode.apply(null, chunk);
+        }
+        return btoa(binary);
     }
 }

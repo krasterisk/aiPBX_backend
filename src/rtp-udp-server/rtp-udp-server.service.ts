@@ -6,7 +6,7 @@ import {OpenAiService} from "../open-ai/open-ai.service";
 import {WebSocket} from "ws";
 
 @Injectable()
-export class RtpUdpServerService implements OnModuleInit, OnModuleDestroy {
+export class RtpUdpServerService implements OnModuleDestroy {
     private readonly PORT = 3032;
     private server: dgram.Socket;
     private writeStream: fs.WriteStream;
@@ -46,12 +46,9 @@ export class RtpUdpServerService implements OnModuleInit, OnModuleDestroy {
             console.log(`UDP Server listening on ${address.address}:${address.port}`);
         });
         this.server.bind(this.PORT);
-    }
 
-    async onModuleInit() {
         const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
-        try {
             this.ws = new WebSocket(url, {
                 headers: {
                     "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
@@ -69,14 +66,14 @@ export class RtpUdpServerService implements OnModuleInit, OnModuleDestroy {
             });
 
         } catch (e) {
-            console.log("error connect to realtime api")
+            console.log("error connect to realtime api", e)
         }
 
-    }
 
     onModuleDestroy() {
         console.log('Closing RTP server and file stream...');
         // this.writeStream.end(() => this.updateWavHeader());
+        this.ws.close()
         this.server.close();
     }
 

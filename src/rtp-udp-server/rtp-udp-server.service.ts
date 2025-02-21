@@ -6,7 +6,7 @@ import {OpenAiService} from "../open-ai/open-ai.service";
 import {WebSocket} from "ws";
 
 @Injectable()
-export class RtpUdpServerService implements OnModuleDestroy {
+export class RtpUdpServerService implements OnModuleInit, OnModuleDestroy {
     private readonly PORT = 3032;
     private server: dgram.Socket;
     private writeStream: fs.WriteStream;
@@ -48,7 +48,7 @@ export class RtpUdpServerService implements OnModuleDestroy {
         this.server.bind(this.PORT);
     }
 
-    OnModuleInit() {
+    async onModuleInit() {
         const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
         try {

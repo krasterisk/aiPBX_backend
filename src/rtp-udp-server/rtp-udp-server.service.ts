@@ -1,4 +1,4 @@
-import {Injectable, OnModuleDestroy} from '@nestjs/common';
+import {Injectable, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
 import * as dgram from "dgram";
 import * as fs from "fs";
 import * as path from "path";
@@ -48,7 +48,7 @@ export class RtpUdpServerService implements OnModuleDestroy {
         this.server.bind(this.PORT);
     }
 
-    onModuleInit() {
+    OnModuleInit() {
         const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
         try {

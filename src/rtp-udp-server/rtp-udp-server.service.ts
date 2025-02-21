@@ -23,15 +23,8 @@ export class RtpUdpServerService implements OnModuleDestroy {
             // this.writeStream.write(pcmData);
             // const pcmData = this.base64EncodeAudio(msg)
             try {
-                // Буферизация пакетов для обеспечения порядка
-                this.audioBuffer.push(msg);
-                console.log(this.audioBuffer.length)
-                // Проверка размера буфера
-                if (this.audioBuffer.length > this.MAX_BUFFER_SIZE) {
                     const data = msg.toString('base64')
                     this.openai.sendAudioData(data)
-                    this.audioBuffer.length = 0
-                }
             } catch (error) {
                 console.error(`Error processing RTP packet: ${error}`);
             }

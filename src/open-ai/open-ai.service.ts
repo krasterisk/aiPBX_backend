@@ -70,6 +70,7 @@ export class OpenAiService {
     }
 
     public sendAudioData(audioData: any) {
+        console.log(audioData)
         this.ws.send(JSON.stringify({
             type: 'input_audio_buffer.append',
             audio: audioData

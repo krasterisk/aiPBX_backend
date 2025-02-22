@@ -15,17 +15,7 @@ export class OpenAiController {
   // @UsePipes(ValidationPipe)
   @Post()
   request(@Body() dto: openAiMessage) {
-     return this.openAiService.request(dto)
-  }
-
-  @ApiOperation({summary: "Request to Ai"})
-  @ApiResponse({status: 200, type: openAiMessage})
-  // @Roles('ADMIN')
-  // @UseGuards(RolesGuard)
-  // @UsePipes(ValidationPipe)
-  @Post('stream')
-  stream(@Body() dto: openAiMessage) {
-    return this.openAiService.stream(dto)
+     return this.openAiService.updateSession()
   }
 
 }

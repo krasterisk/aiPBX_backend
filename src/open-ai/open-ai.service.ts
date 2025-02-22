@@ -1,61 +1,119 @@
-import {HttpException, HttpStatus, Injectable, OnModuleInit} from "@nestjs/common";
-import OpenAI from "openai";
-import {openAiMessage} from "./dto/open-ai.dto";
-import {encode} from 'base64-arraybuffer';
-import {WebSocket} from 'ws';
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { WebSocket } from 'ws';
 
 @Injectable()
-export class OpenAiService {
+export class OpenAiService implements OnModuleInit {
+    private ws: WebSocket;
+    private readonly API_URL = 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17';
+    private readonly API_KEY = process.env.OPENAI_API_KEY;
+    private eventId: string
 
-    private openai = new OpenAI({
-        // baseURL: 'https://api.deepseek.com',
-        baseURL: 'https://api.openai.com/v1',
-        apiKey: process.env.OPEN_API_KEY
-    });
-
-    // constructor(private readonly aiRepository) {}
-
-    async request(messageDto: openAiMessage) {
-        try {
-            // const result = await this.openai.chat.completions.create(messageDto)
-            // return result
-        } catch (error) {
-            throw new HttpException("[openAI]: request error" + error, HttpStatus.BAD_REQUEST);
-        }
+    onModuleInit() {
+        this.connect();
     }
 
-    async stream(messageDto: openAiMessage) {
-        try {
-            // const stream = await this.openai.chat.completions.create({
-            //     ...messageDto,
-            //     stream: true
-            // })
-            // if (!stream[Symbol.asyncIterator]) {
-            //     throw new Error("[openAI]: Returned stream is not an async iterable");
-            // }
+    private connect() {
+        this.ws = new WebSocket(this.API_URL, {
+            headers: {
+                Authorization: `Bearer ${this.API_KEY}`,
+                "OpenAI-Beta": "realtime=v1",
+            },
+        });
 
-            // for await (const chunk of stream) {
-            //     process.stdout.write(chunk.choices[0]?.delta?.content || "");
-            // }
-        } catch (error) {
-            throw new HttpException("[openAI]: request error" + error, HttpStatus.BAD_REQUEST);
-        }
+        this.ws.on('open', () => {
+            console.log('WebSocket OpenAI connection established');
+            this.updateSession()
+            // this.ws.send(
+                // JSON.stringify({
+                //     type: "response.create",
+                //     response: {
+                //         modalities: ["audio", "text"],
+                //         instructions: "You are a friendly assistant.",
+                //         voice: "alloy",
+                //         input_audio_format: "g711_alaw",
+                //         output_audio_format: "g711_alaw",
+                //         turn_detection: {
+                //             type: "server_vad",
+                //             threshold: 0.5,
+                //             prefix_padding_ms: 300,
+                //             silence_duration_ms: 500,
+                //             create_response: true
+                //         },
+                //         temperature: 0.8,
+                //         max_response_output_tokens: 1000
+                //     }
+                // })
+            // );
+        });
+
+        this.ws.on('message', (data) => {
+            console.log('Received:', data.toString());
+        });
+
+        this.ws.on('error', (error) => {
+            console.error('WebSocket Error:', error);
+        });
+
+        this.ws.on('close', () => {
+            console.log('WebSocket connection closed, reconnecting...');
+            setTimeout(() => this.connect(), 5000);
+        });
     }
 
-    public sendAudioData(audioData: any) {
-        console.log(audioData)
+    audioAppend(chunk: any) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+                type: 'input_audio_buffer.append',
+                audio: chunk
+            }));
+        }
+    }
+            updateSession() {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            const updatePayload = {
+                // event_id: 'event_123',
+                type: 'session.update',
+                session: {
+                    modalities: ['text', 'audio'],
+                    instructions: 'You are a helpful assistant.',
+                    voice: 'sage',
+                    input_audio_format: 'g711_alaw',
+                    output_audio_format: 'g711_alaw',
+                    input_audio_transcription: {
+                        model: 'whisper-1',
+                        language: 'ru'
+                    },
+                    turn_detection: {
+                        type: 'server_vad',
+                        threshold: 0.5,
+                        prefix_padding_ms: 300,
+                        silence_duration_ms: 500,
+                        create_response: true,
+                    },
+                    tools: [
+                        {
+                            type: 'function',
+                            name: 'get_weather',
+                            description: 'Get the current weather...',
+                            parameters: {
+                                type: 'object',
+                                properties: {
+                                    location: { type: 'string' },
+                                },
+                                required: ['location'],
+                            },
+                        },
+                    ],
+                    tool_choice: 'auto',
+                    temperature: 0.8,
+                    max_response_output_tokens: 'inf',
+                },
+            };
 
-
-        // this.ws.send(JSON.stringify({type: 'input_audio_buffer.commit'}));
-        // this.ws.send(JSON.stringify({type: 'response.create'}));
-
-        const event = {
-            type: "response.create",
-            response: {
-                modalities: ["audio", "text"],
-                instructions: "Расскажи смешной стих",
-            }
-        };
-
+            this.ws.send(JSON.stringify(updatePayload));
+            console.log('Session update sent:', updatePayload);
+        } else {
+            console.error('WebSocket is not open, cannot send session update');
+        }
     }
 }

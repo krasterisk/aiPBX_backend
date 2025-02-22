@@ -1,22 +1,18 @@
 import {Injectable, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
 import * as dgram from "dgram";
 import * as fs from "fs";
-import * as path from "path";
 import {OpenAiService} from "../open-ai/open-ai.service";
-import {WebSocket} from "ws";
 
 @Injectable()
 export class RtpUdpServerService implements OnModuleDestroy {
     private readonly PORT = 3032;
     private server: dgram.Socket;
     private writeStream: fs.WriteStream;
-    private openai: OpenAiService
     private audioBuffer: Buffer[] = [];
     private readonly MAX_BUFFER_SIZE = 500; // 32kb
-    private ws: WebSocket
+    private openAi: OpenAiService
 
     constructor() {
-        this.openai = new OpenAiService()
         this.server = dgram.createSocket('udp4');
 
         this.server.on('message', async (msg, rinfo) => {
@@ -24,12 +20,14 @@ export class RtpUdpServerService implements OnModuleDestroy {
             // const pcmData = this.alawToPcm(msg);
             // this.writeStream.write(pcmData);
             // const pcmData = this.base64EncodeAudio(msg)
+
             try {
-                    const data = msg.toString('base64')
-                this.ws.send(JSON.stringify({
-                    type: 'input_audio_buffer.append',
-                    audio: data
-                }));
+                const data = msg.toString('base64')
+                this.openAi.audioAppend(data)
+                // this.ws.send(JSON.stringify({
+                //     type: 'input_audio_buffer.append',
+                //     audio: data
+                // }));
 
             } catch (error) {
                 console.error(`Error processing RTP packet: ${error}`);
@@ -47,39 +45,37 @@ export class RtpUdpServerService implements OnModuleDestroy {
         });
         this.server.bind(this.PORT);
 
-        const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
-
-            this.ws = new WebSocket(url, {
-                headers: {
-                    "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
-                    "OpenAI-Beta": "realtime=v1",
-                },
-            });
-
-            this.ws.on('open', () => {
-                console.log('Connected to WebSocket OpenAI Realtime API');
-            });
-
-            this.ws.on('message', (data) => {
-                // Обработка полученных сообщений от OpenAI
-                console.log('Received:', data.toString());
-            });
-
-        } catch (e) {
-            console.log("error connect to realtime api", e)
-        }
-
+        // const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
+        //
+        //     this.ws = new WebSocket(url, {
+        //         headers: {
+        //             "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
+        //             "OpenAI-Beta": "realtime=v1",
+        //         },
+        //     });
+        //
+        //     this.ws.on('open', () => {
+        //         console.log('Connected to WebSocket OpenAI Realtime API');
+        //     });
+        //
+        //     this.ws.on('message', (data) => {
+        //         // Обработка полученных сообщений от OpenAI
+        //         console.log('Received:', data.toString());
+        //     });
+        //
+        // } catch (e) {
+        //     console.log("error connect to realtime api", e)
+        // }
+    }
 
     onModuleDestroy() {
         console.log('Closing RTP server and file stream...');
         // this.writeStream.end(() => this.updateWavHeader());
-        this.ws.close()
         this.server.close();
     }
 
     onHangup() {
         console.log('Closing RTP file stream...');
-        this.writeStream.end();
         this.server.close();
     }
 

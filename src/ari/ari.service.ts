@@ -14,12 +14,12 @@ export class AriService implements OnModuleInit {
     private bridge: ariClient.Bridge
     private externalChannel: ariClient.Channel
     private playback: ariClient.Playback
-    private rtpUdpServer: RtpUdpServerService
+    // private rtpUdpServer: RtpUdpServerService
 
     constructor(
         @Inject(WsServerGateway)
-        private wsGateway: WsServerGateway
-        // private rtpUdpServer: RtpUdpServerService
+        // private wsGateway: WsServerGateway,
+        private rtpUdpServer: RtpUdpServerService
     ) {
     }
 
@@ -108,7 +108,7 @@ export class AriService implements OnModuleInit {
                                 console.log('playbacking')
                             });
                         await this.bridge.addChannel({channel: incoming.id});
-                        this.rtpUdpServer = new RtpUdpServerService()
+                        // this.rtpUdpServer = new RtpUdpServerService()
                         this.externalChannel = ari.Channel()
                         this.externalChannel.externalMedia({
                             app: 'voicebot',

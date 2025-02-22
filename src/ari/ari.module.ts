@@ -12,6 +12,6 @@ import {RtpUdpServerModule} from "../rtp-udp-server/rtp-udp-server.module";
     forwardRef(() => AuthModule),
       WsServerModule,
       RtpUdpServerModule
-  ],
+  ]
 })
 export class AriModule {}

@@ -76,7 +76,7 @@ import { RtpUdpServerModule } from './rtp-udp-server/rtp-udp-server.module';
         // PsModule,
         OpenAiModule,
         WsServerModule,
-        // RtpUdpServerModule
+        RtpUdpServerModule
     ]
 })
 

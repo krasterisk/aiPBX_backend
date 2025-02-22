@@ -8,6 +8,7 @@ import { OpenAiController } from "./open-ai.controller";
   controllers: [OpenAiController],
   imports: [
     forwardRef(() => AuthModule)
-  ]
+  ],
+  exports: [OpenAiService]
 })
 export class OpenAiModule {}

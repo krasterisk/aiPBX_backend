@@ -24,49 +24,8 @@ export class AriService implements OnModuleInit {
     }
 
     async onModuleInit() {
-
-            // this.ws.send(JSON.stringify({
-            //     modalities: ["audio", "text"],
-            //     instructions: "You are a friendly assistant.",
-            //     voice: "alloy",
-            //     input_audio_format: "g711_alaw",
-            //     output_audio_format: "g711_alaw",
-            //     turn_detection: {
-            //         type: "server_vad",
-            //         threshold: 0.5,
-            //         prefix_padding_ms: 300,
-            //         silence_duration_ms: 500,
-            //         create_response: true
-            //     },
-            //     temperature: 0.8,
-            //     max_response_output_tokens: 1000
-            // }));
-
-            // this.ws.send(JSON.stringify({
-            //   type: 'audio',
-            //   format: 'g711_alaw', // или 'pcm16' в зависимости от формата
-            //   data: base64Audio,
-            // }));
-
-
-            // this.wsGateway.server.on('connection', (socket) => {
-            //     socket.on('events', (data) => {
-            //         console.log('this data: ', data)
-            //         this.handleWebSocketEvent(data)
-            //     })
-            //     socket.on('open', () => {
-            //         const port = this.wsGateway.port;
-            //         console.log(`server listening ${port}`);
-            //     });
-            //     socket.on('message', (data: any) => {
-            //         console.log(`server messaging`, data);
-            //         // this.wsGateway.handleMessage('ARI', data)
-            //     });
-            // })
-
             // Подключаемся к ARI
             if (!this.startingStream) {
-
                 await this.connectToARI();
             }
     }
@@ -141,7 +100,7 @@ export class AriService implements OnModuleInit {
                     console.log('Ended Statis')
                     // this.bridge.removeChannel({channel: channel.id})
                     this.bridge.destroy()
-                    this.rtpUdpServer.onModuleDestroy()
+                    // this.rtpUdpServer.onModuleDestroy()
                     this.startingStream = false
                 })
             })

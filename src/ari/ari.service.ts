@@ -86,6 +86,7 @@ export class AriService implements OnModuleInit {
                                 });
                             }
                         })
+
                         this.externalChannel.on('StasisEnd', (event, chan) => {
                             console.log('externalMedia Channel stasisEnd')
                             this.bridge.removeChannel({channel: chan.id})

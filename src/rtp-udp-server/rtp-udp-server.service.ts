@@ -1,4 +1,4 @@
-import {Injectable, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
+import {Inject, Injectable, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
 import * as dgram from "dgram";
 import * as fs from "fs";
 import {OpenAiService} from "../open-ai/open-ai.service";
@@ -10,9 +10,11 @@ export class RtpUdpServerService implements OnModuleDestroy {
     private writeStream: fs.WriteStream;
     private audioBuffer: Buffer[] = [];
     private readonly MAX_BUFFER_SIZE = 500; // 32kb
-    private openAi: OpenAiService
 
-    constructor() {
+    constructor(
+        @Inject(OpenAiService)
+        private openAi?: OpenAiService
+    ) {
         this.server = dgram.createSocket('udp4');
 
         this.server.on('message', async (msg, rinfo) => {

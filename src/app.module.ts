@@ -34,6 +34,7 @@ import { OpenAiModule } from './open-ai/open-ai.module';
 import { AriModule } from "./ari/ari.module";
 import { WsServerModule } from './ws-server/ws-server.module';
 import { RtpUdpServerModule } from './rtp-udp-server/rtp-udp-server.module';
+import { VoskServerModule } from './vosk-server/vosk-server.module';
 
 @Module({
     imports: [
@@ -76,7 +77,8 @@ import { RtpUdpServerModule } from './rtp-udp-server/rtp-udp-server.module';
         // PsModule,
         OpenAiModule,
         WsServerModule,
-        RtpUdpServerModule
+        RtpUdpServerModule,
+        VoskServerModule
     ]
 })
 

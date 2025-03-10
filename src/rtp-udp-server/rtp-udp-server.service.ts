@@ -1,6 +1,7 @@
 import {Injectable, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
 import * as dgram from "dgram";
 import {OpenAiService} from "../open-ai/open-ai.service";
+import {VoskServerService} from "../vosk-server/vosk-server.service";
 
 @Injectable()
 export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
@@ -9,7 +10,8 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
     private startingStream: boolean = false
 
     constructor(
-        private openAi: OpenAiService
+        private openAi: OpenAiService,
+        private vosk: VoskServerService
     ) {}
 
     onModuleInit() {
@@ -23,7 +25,8 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             }
 
             try {
-                this.openAi.audioAppend(msg)
+                await this.vosk.audioAppend(msg)
+                // this.openAi.audioAppend(msg)
             } catch (error) {
                 console.error(`Error processing RTP packet: ${error}`);
             }

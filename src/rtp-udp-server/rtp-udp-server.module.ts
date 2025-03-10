@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { RtpUdpServerService } from './rtp-udp-server.service';
 import {OpenAiService} from "../open-ai/open-ai.service";
-import {OpenAiModule} from "../open-ai/open-ai.module";
+import {VoskServerService} from "../vosk-server/vosk-server.service";
 
 @Module({
-  providers: [RtpUdpServerService, OpenAiService],
+  providers: [RtpUdpServerService, OpenAiService, VoskServerService],
   exports: [RtpUdpServerService]
 })
 export class RtpUdpServerModule {}

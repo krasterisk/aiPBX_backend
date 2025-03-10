@@ -36,6 +36,7 @@
     "alawmulaw": "^6.0.0",
     "ari-client": "^2.2.0",
     "asterisk-manager": "^0.2.0",
+    "audio-decode": "^2.2.2",
     "axios": "^1.7.9",
     "base64-arraybuffer": "^1.0.2",
     "bcryptjs": "^3.0.1",
@@ -72,6 +73,7 @@
     "@types/sequelize": "^4.28.20",
     "@types/socket.io": "^3.0.2",
     "@types/supertest": "^6.0.2",
+    "@types/vosk": "^0.3.1",
     "@types/ws": "^8.5.14",
     "@types/yargs": "^17.0.33",
     "@typescript-eslint/eslint-plugin": "^8.24.1",
@@ -90,6 +92,7 @@
     "tsconfig-paths": "4.2.0",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.24.1",
+    "vosk": "^0.3.39",
     "yargs": "^17.7.2"
   },
   "jest": {

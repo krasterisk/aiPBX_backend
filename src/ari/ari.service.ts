@@ -61,7 +61,7 @@ export class AriService implements OnModuleInit {
                         //     // this.streamAudioFromChannel(incoming)
                         // })
                         this.playback = ari.Playback()
-                        incoming.play({media: 'sound:hello-world', lang: 'en'},
+                        incoming.play({media: 'sound:hello-world', lang: 'ru'},
                             this.playback,
                             function (err, playback) {
                                 console.log('playbacking')
@@ -72,7 +72,7 @@ export class AriService implements OnModuleInit {
                         this.externalChannel.externalMedia({
                             app: 'voicebot',
                             external_host: this.externalHost,
-                            format: 'alaw',
+                            format: 'slin16',
                         }).then((channel) => {
                             console.log("externalMediaChannel: ", channel.channelvars)
                         }).catch((err) => {
@@ -89,20 +89,25 @@ export class AriService implements OnModuleInit {
 
                         this.externalChannel.on('StasisEnd', (event, chan) => {
                             console.log('externalMedia Channel stasisEnd')
-                            this.bridge.removeChannel({channel: chan.id})
+                            // this.bridge.removeChannel({channel: chan.id})
+                            // chan.hangup()
+                            //this.bridge.destroy()
                         })
 
                         this.startingStream = true
-                        // incoming.hangup()
                     }
                 })
 
                 ari.on('StasisEnd', (event, channel) => {
                     console.log('Ended Statis')
                     // this.bridge.removeChannel({channel: channel.id})
-                    this.bridge.destroy()
+                    // channel.hangup()
                     // this.rtpUdpServer.onModuleDestroy()
-                    this.startingStream = false
+                    if(this.startingStream) {
+                        this.bridge.destroy()
+                        this.externalChannel.hangup()
+                        this.startingStream = false
+                    }
                 })
             })
             .catch((err) => {
@@ -114,7 +119,7 @@ export class AriService implements OnModuleInit {
         console.log('WebSocket connection established for audio streaming');
         channel.externalMedia({
             app: 'voicebot',
-            external_host: '109.226.233.92:3032',
+            external_host: this.externalHost,
             format: 'alaw',
 
         })

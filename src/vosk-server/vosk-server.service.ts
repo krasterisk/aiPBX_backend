@@ -8,7 +8,7 @@ export class VoskServerService implements OnModuleInit, OnModuleDestroy {
     private model: vosk.Model;
     private recognizer: any;
     private buffer: Buffer = Buffer.alloc(0); // Инициализация пустого буфера
-    private readonly BUFFER_THRESHOLD = 8000; // Пороговый размер буфера в байтах (например, 8 KB)
+    private readonly BUFFER_THRESHOLD = 4000; // Пороговый размер буфера в байтах (например, 8 KB)
     private writeStream: fs.WriteStream;
 
     onModuleInit(): void {
@@ -35,11 +35,12 @@ export class VoskServerService implements OnModuleInit, OnModuleDestroy {
         // Проверка, достиг ли буфер порогового значения
         if (this.buffer.length >= this.BUFFER_THRESHOLD) {
             if (this.recognizer.acceptWaveform(this.buffer)) {
-                console.log(this.recognizer.result());
+                console.log(JSON.stringify(this.recognizer.result(), null, 4));
             } else {
-                // console.log(this.recognizer.partialResult());
+                console.log(JSON.stringify(this.recognizer.partialResult(), null, 4));
             }
             this.buffer = Buffer.alloc(0)
+            console.log(JSON.stringify(this.recognizer.finalResult(), null, 4));
         }
     }
 
@@ -48,6 +49,7 @@ export class VoskServerService implements OnModuleInit, OnModuleDestroy {
         if (this.writeStream) {
             this.writeStream.end();
         }
+        this.model.free()
     }
 
 }

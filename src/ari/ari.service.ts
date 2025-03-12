@@ -107,6 +107,7 @@ export class AriService implements OnModuleInit {
                         this.bridge.destroy()
                         this.externalChannel.hangup()
                         this.startingStream = false
+
                     }
                 })
             })

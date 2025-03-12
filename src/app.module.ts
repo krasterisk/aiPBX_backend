@@ -75,10 +75,10 @@ import { VoskServerModule } from './vosk-server/vosk-server.module';
         // EndpointGroupsModule,
         // ProvisioningModule,
         // PsModule,
-        OpenAiModule,
+//        OpenAiModule,
         WsServerModule,
         RtpUdpServerModule,
-        VoskServerModule
+//        VoskServerModule
     ]
 })
 

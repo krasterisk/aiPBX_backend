@@ -10,15 +10,9 @@ export class OpenAiService implements OnModuleInit {
     private ws: WebSocket;
     private readonly API_URL = 'wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview-2024-12-17';
     private readonly API_KEY = process.env.OPENAI_API_KEY;
-    private eventId: string
-    private pcmChunks: Int8Array[] = [];
-    private rtpStream: fs.WriteStream;
-
 
     onModuleInit() {
         this.connect();
-        this.rtpStream = fs.createWriteStream(path.join(__dirname, 'rtp_input.raw'));
-
     }
 
     private connect() {
@@ -35,7 +29,7 @@ export class OpenAiService implements OnModuleInit {
         });
 
         this.ws.on('message', (data) => {
-            console.log('Received:', data.toString());
+            console.log('Received from OpenAI:', data.toString());
         });
 
         this.ws.on('error', (error) => {
@@ -48,7 +42,7 @@ export class OpenAiService implements OnModuleInit {
         });
     }
 
-    async audioAppend(chunk: any) {
+    async audioAppend(chunk: Buffer) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             // Конвертируем PCM16 в base64
             const base64Audio = chunk.toString('base64');
@@ -56,8 +50,6 @@ export class OpenAiService implements OnModuleInit {
                 type: 'input_audio_buffer.append',
                 audio: base64Audio
             }));
-            // this.pcmChunks.push(new Int8Array(chunk));
-            // this.saveWAVToFile();
         }
     }
 
@@ -80,7 +72,7 @@ export class OpenAiService implements OnModuleInit {
                     output_audio_format: 'pcm16',
                     input_audio_transcription: {
                         model: 'whisper-1',
-                        language: 'en'
+                        language: 'ru'
                     },
                     turn_detection: {
                         type: 'server_vad',

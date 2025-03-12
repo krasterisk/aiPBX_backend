@@ -12,11 +12,14 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
     private startingStream: boolean = false
     private writeStream: fs.WriteStream;
     private readonly swap16 = true;
+    public externalAddress: string
+    public externalPort: number
 
     constructor(
         private openAi: OpenAiService,
         private vosk: VoskServerService
-    ) {}
+    ) {
+    }
 
     onModuleInit() {
         this.server = dgram.createSocket('udp4');
@@ -31,23 +34,37 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
         this.server.on('message', async (msg, rinfo) => {
 
-            if(!this.startingStream) {
+            if (!this.startingStream) {
                 console.log(`Received ${msg.length} bytes from ${rinfo.address}:${rinfo.port}`);
                 this.startingStream = true;
             }
 
             try {
                 let buf: Buffer = msg.slice(12); // Убираем 12-байтовый RTP-заголовок
+
+                //Меняет порядок байтов (swap16), если это необходимо.
                 if (this.swap16) {
-                     buf.swap16()
+                    buf.swap16()
                 }
 
                 this.writeStream.write(buf);
-                // this.server.emit('data', msg);
-                await this.vosk.audioAppend(buf)
-                // await this.openAi.audioAppend(buf)
+                this.server.emit('data', buf);
             } catch (error) {
                 console.error(`Error processing RTP packet: ${error}`);
+            }
+        });
+
+        this.server.on('data', async (audioBuffer: Buffer) => {
+            const transcription = await this.vosk.audioAppend(audioBuffer);
+            if (transcription) {
+                const aiText = await this.openAi.textResponse(transcription)
+                if (aiText) {
+                    const voice = await this.openAi.textToSpeech(aiText)
+                    if (voice && this.externalAddress && this.externalPort) {
+                        console.log(this.externalAddress,this.externalPort, voice)
+                        // this.server.send(voice, this.externalPort, this.externalAddress)
+                    }
+                }
             }
         });
 

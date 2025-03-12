@@ -15,7 +15,7 @@ export class OpenAiController {
   // @UsePipes(ValidationPipe)
   @Post()
   request(@Body() dto: openAiMessage) {
-     return this.openAiService.updateSession()
+     return this.openAiService.updateRtAudioSession()
   }
 
 }

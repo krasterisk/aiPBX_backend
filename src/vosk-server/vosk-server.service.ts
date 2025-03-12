@@ -8,14 +8,16 @@ interface recText {
 @Injectable()
 export class VoskServerService implements OnModuleInit, OnModuleDestroy {
     private model: vosk.Model;
+    private speakerModel: vosk.SpeakerModel;
     private recognizer: any;
+    private voskTts: any;
     private buffer: Buffer = Buffer.alloc(0); // Инициализация пустого буфера
     private readonly BUFFER_THRESHOLD = 8000; // Пороговый размер буфера в байтах (например, 8 KB)
 
     onModuleInit(): void {
         this.model = new vosk.Model('dist/vosk-model');
+        this.speakerModel = new vosk.SpeakerModel('dist/vosk-model');
         this.recognizer = new vosk.Recognizer<any>({model: this.model, sampleRate: 16000});
-
     }
 
     async audioAppend(chunk: Buffer) {
@@ -26,7 +28,7 @@ export class VoskServerService implements OnModuleInit, OnModuleDestroy {
         if (this.buffer.length >= this.BUFFER_THRESHOLD) {
             if (this.recognizer.acceptWaveform(this.buffer)) {
                 const text: recText = this.recognizer.result()
-                console.log(text.text)
+                return text.text
                 //console.log(JSON.stringify(this.recognizer.finalResult(), null, 4));
             } else {
   //              console.log(JSON.stringify(this.recognizer.partialResult(), null, 4));
@@ -35,6 +37,11 @@ export class VoskServerService implements OnModuleInit, OnModuleDestroy {
 //            console.log(JSON.stringify(this.recognizer.finalResult(), null, 4));
         }
     }
+
+    async tts(input: recText) {
+
+    }
+
 
     onModuleDestroy(): void {
         // Завершение записи и закрытие файла при уничтожении модуля

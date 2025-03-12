@@ -3,6 +3,11 @@ import * as ariClient from 'ari-client';
 import {WsServerGateway} from "../ws-server/ws-server.gateway";
 import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
 
+interface chanVars {
+    UNICASTRTP_LOCAL_PORT: number,
+    UNICASTRTP_LOCAL_ADDRESS: string
+}
+
 @Injectable()
 export class AriService implements OnModuleInit {
     private url = process.env.ARI_URL
@@ -14,7 +19,6 @@ export class AriService implements OnModuleInit {
     private bridge: ariClient.Bridge
     private externalChannel: ariClient.Channel
     private playback: ariClient.Playback
-    // private rtpUdpServer: RtpUdpServerService
 
     constructor(
         @Inject(WsServerGateway)
@@ -75,6 +79,11 @@ export class AriService implements OnModuleInit {
                             format: 'slin16',
                         }).then((channel) => {
                             console.log("externalMediaChannel: ", channel.channelvars)
+                            const channelVars = channel.channelvars as chanVars
+                            if(channelVars) {
+                                this.rtpUdpServer.externalAddress = channelVars.UNICASTRTP_LOCAL_ADDRESS;
+                                this.rtpUdpServer.externalPort = channelVars.UNICASTRTP_LOCAL_PORT
+                            }
                         }).catch((err) => {
                             console.log('erroring extmedia')
                         })

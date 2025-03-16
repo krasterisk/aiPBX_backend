@@ -10,7 +10,6 @@ export class VoskServerService implements OnModuleInit, OnModuleDestroy {
     private model: vosk.Model;
     private speakerModel: vosk.SpeakerModel;
     private recognizer: any;
-    private voskTts: any;
     private buffer: Buffer = Buffer.alloc(0); // Инициализация пустого буфера
     private readonly BUFFER_THRESHOLD = 8000; // Пороговый размер буфера в байтах (например, 8 KB)
 

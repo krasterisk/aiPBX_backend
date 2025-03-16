@@ -35,6 +35,8 @@ import { AriModule } from "./ari/ari.module";
 import { WsServerModule } from './ws-server/ws-server.module';
 import { RtpUdpServerModule } from './rtp-udp-server/rtp-udp-server.module';
 import { VoskServerModule } from './vosk-server/vosk-server.module';
+import { AudioResampleModule } from './audio-resample/audio-resample.module';
+import { AudioStreamModule } from './audio-stream/audio-stream.module';
 
 @Module({
     imports: [
@@ -78,6 +80,8 @@ import { VoskServerModule } from './vosk-server/vosk-server.module';
 //        OpenAiModule,
         WsServerModule,
         RtpUdpServerModule,
+//        AudioResampleModule,
+//        AudioStreamModule,
 //        VoskServerModule
     ]
 })

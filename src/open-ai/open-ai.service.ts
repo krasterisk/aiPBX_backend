@@ -205,8 +205,8 @@ export class OpenAiService implements OnModuleInit {
                 response_format: "pcm",
                 input
             })
-
-            return response
+            const buffer: Buffer = Buffer.from(await response.arrayBuffer());
+            return buffer
 
         } catch (error) {
             console.error("Ошибка OpenAI:", error);

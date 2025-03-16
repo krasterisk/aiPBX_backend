@@ -21,11 +21,10 @@ export class AriService implements OnModuleInit {
     private playback: ariClient.Playback
 
     constructor(
-        @Inject(WsServerGateway)
+        //@Inject(WsServerGateway)
         // private wsGateway: WsServerGateway,
-        private rtpUdpServer: RtpUdpServerService
-    ) {
-    }
+        // @Inject(RtpUdpServerService) private rtpUdpServer: RtpUdpServerService
+    ) {}
 
     async onModuleInit() {
             // Подключаемся к ARI
@@ -78,12 +77,8 @@ export class AriService implements OnModuleInit {
                             external_host: this.externalHost,
                             format: 'slin16',
                         }).then((channel) => {
-                            console.log("externalMediaChannel: ", channel.channelvars)
                             const channelVars = channel.channelvars as chanVars
-                            if(channelVars) {
-                                this.rtpUdpServer.externalAddress = channelVars.UNICASTRTP_LOCAL_ADDRESS;
-                                this.rtpUdpServer.externalPort = channelVars.UNICASTRTP_LOCAL_PORT
-                            }
+                                console.log("externalChannelVars: ", channelVars)
                         }).catch((err) => {
                             console.log('erroring extmedia')
                         })

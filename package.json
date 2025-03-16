@@ -1,6 +1,6 @@
 {
   "name": "aiPBX",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "aiPBX",
   "author": "Krasterisk LTD",
   "private": true,
@@ -57,7 +57,8 @@
     "sequelize-typescript": "^2.1.6",
     "swagger-ui-express": "^5.0.1",
     "uuid": "^11.0.5",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "x-law": "^0.3.1"
   },
   "devDependencies": {
     "@darraghor/eslint-plugin-nestjs-typed": "^6.2.4",
@@ -67,6 +68,7 @@
     "@nestjs/testing": "^11.0.10",
     "@types/ari-client": "^2.2.13",
     "@types/express": "^5.0.0",
+    "@types/fluent-ffmpeg": "^2.1.27",
     "@types/jest": "29.5.14",
     "@types/node": "^22.13.4",
     "@types/node-wav": "^0.0.3",

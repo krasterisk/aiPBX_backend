@@ -161,7 +161,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
         let i = 0;
 
-        const sendPacket = () => {
+        const sendPacket = (scheduledTime = Date.now()) => {
             if (i >= resampledBuffer.length) {
                 console.log('RTP stream sent.');
                 return;
@@ -179,8 +179,14 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
             i += packetSize;
 
-            // Отправляем следующий пакет через 20 мс
-            setTimeout(sendPacket, packetDurationMs);
+            const now = Date.now();
+            const drift = now - scheduledTime;
+            const nextInterval = packetDurationMs - drift;
+
+            setTimeout(
+                () => sendPacket(scheduledTime + packetDurationMs),
+                Math.max(0, nextInterval)
+            );
         };
 
         sendPacket(); // Запускаем отправку

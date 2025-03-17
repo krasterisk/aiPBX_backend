@@ -1,6 +1,6 @@
 {
   "name": "aiPBX",
-  "version": "0.0.9",
+  "version": "0.1.1",
   "description": "aiPBX",
   "author": "Krasterisk LTD",
   "private": true,
@@ -57,8 +57,10 @@
     "sequelize-typescript": "^2.1.6",
     "swagger-ui-express": "^5.0.1",
     "uuid": "^11.0.5",
+    "vosk-koffi": "^1.1.0",
     "ws": "^8.18.0",
-    "x-law": "^0.3.1"
+    "x-law": "^0.3.1",
+    "yauzl": "^3.2.0"
   },
   "devDependencies": {
     "@darraghor/eslint-plugin-nestjs-typed": "^6.2.4",
@@ -94,7 +96,6 @@
     "tsconfig-paths": "4.2.0",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.24.1",
-    "vosk": "^0.3.39",
     "yargs": "^17.7.2"
   },
   "jest": {

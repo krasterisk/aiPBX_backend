@@ -1,5 +1,5 @@
 import {Injectable, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
-import * as vosk from 'vosk';
+import * as vosk from 'vosk-koffi';
 
 interface recText {
     text: string

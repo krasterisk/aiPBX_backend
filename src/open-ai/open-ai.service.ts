@@ -1,7 +1,7 @@
 import {Injectable, OnModuleInit} from '@nestjs/common';
 import {WebSocket} from 'ws';
 import {OpenAI} from "openai";
-import { Readable } from "stream";
+import {PassThrough, Readable} from "stream";
 
 @Injectable()
 export class OpenAiService implements OnModuleInit {
@@ -205,7 +205,9 @@ export class OpenAiService implements OnModuleInit {
                 response_format: "pcm",
                 input
             })
+
             const buffer: Buffer = Buffer.from(await response.arrayBuffer());
+
             return buffer
 
         } catch (error) {
@@ -214,4 +216,55 @@ export class OpenAiService implements OnModuleInit {
         }
     }
 
+    async textToStreamSpeechPCM(input: string) {
+        this.connect();
+        try {
+            const response = await this.openAi.audio.speech.create({
+                model: "tts-1",
+                voice: "alloy",
+                response_format: "pcm",
+                input
+            });
+
+            // Приводим тело ответа к NodeJS.ReadableStream
+            const readableStream = response.body as unknown as NodeJS.ReadableStream;
+            let bufferStore = Buffer.from([]);
+
+            readableStream.on("data", (chunk: Buffer) => {
+                bufferStore = Buffer.concat([bufferStore, chunk]);
+                console.log('Buffered: ', bufferStore.length)
+
+            });
+            readableStream.on("end", () => {
+                console.log('stream ended')
+            });
+            readableStream.on("error", (error) => {
+                console.log('stream error', error)
+            });
+        } catch (error) {
+            console.error("Ошибка OpenAI:", error);
+        }
+    }
+
+    async textToStreamOpus(input: string): Promise<NodeJS.ReadableStream> {
+        this.connect();
+        try {
+            const response = await this.openAi.audio.speech.create({
+                model: "tts-1",
+                voice: "alloy",
+                response_format: "pcm",
+                input
+            });
+
+            return response.body as unknown as NodeJS.ReadableStream;
+            // const readableStream = response.body as unknown as NodeJS.ReadableStream;
+            // const passThrough = new PassThrough();
+
+            // readableStream.pipe(passThrough);
+            // return passThrough;
+        } catch (error) {
+            console.error("Ошибка OpenAI:", error);
+            throw error;
+        }
+    }
 }

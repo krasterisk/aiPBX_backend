@@ -1,6 +1,5 @@
-import {Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy} from '@nestjs/common';
+import {Inject, Injectable, Logger, OnModuleInit} from '@nestjs/common';
 import * as ariClient from 'ari-client';
-import {WsServerGateway} from "../ws-server/ws-server.gateway";
 import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
 
 interface chanVars {
@@ -23,7 +22,7 @@ export class AriService implements OnModuleInit {
     constructor(
         //@Inject(WsServerGateway)
         // private wsGateway: WsServerGateway,
-        // @Inject(RtpUdpServerService) private rtpUdpServer: RtpUdpServerService
+        @Inject(RtpUdpServerService) private rtpUdpServer: RtpUdpServerService
     ) {}
 
     async onModuleInit() {
@@ -40,10 +39,11 @@ export class AriService implements OnModuleInit {
     }
 
     private async connectToARI() {
-        console.log('Данные для подключения: ' + `${this.url}` + `${this.username}` + `${this.password}`)
+        console.log('Данные для подключения: ')
         ariClient.connect(this.url, this.username, this.password)
             .then((ari) => {
                 ari.start('voicebot')
+                console.log('ARI started on ', this.url)
                 ari.on('StasisStart', async (event, incoming) => {
                     if (!this.startingStream) {
                         this.bridge = ari.Bridge();
@@ -79,6 +79,8 @@ export class AriService implements OnModuleInit {
                         }).then((channel) => {
                             const channelVars = channel.channelvars as chanVars
                                 console.log("externalChannelVars: ", channelVars)
+                            this.rtpUdpServer.externalAddress = channelVars.UNICASTRTP_LOCAL_ADDRESS;
+                            this.rtpUdpServer.externalPort = channelVars.UNICASTRTP_LOCAL_PORT;
                         }).catch((err) => {
                             console.log('erroring extmedia')
                         })
@@ -111,7 +113,6 @@ export class AriService implements OnModuleInit {
                         this.bridge.destroy()
                         this.externalChannel.hangup()
                         this.startingStream = false
-
                     }
                 })
             })

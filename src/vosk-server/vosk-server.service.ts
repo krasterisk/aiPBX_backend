@@ -20,7 +20,6 @@ export class VoskServerService implements OnModuleInit, OnModuleDestroy {
     }
 
     async audioAppend(chunk: Buffer) {
-
         this.buffer = Buffer.concat([this.buffer, chunk]);
 
         // Проверка, достиг ли буфер порогового значения

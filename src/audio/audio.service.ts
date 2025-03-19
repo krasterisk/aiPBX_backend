@@ -6,7 +6,7 @@ export interface ResampleOptions {
 }
 
 @Injectable()
-export class AudioResampleService {
+export class AudioService {
     public resamplePCM(
         inputBuffer: Buffer,
         originalSampleRate: number,
@@ -28,44 +28,42 @@ export class AudioResampleService {
     }
 
     public resampleLinearPcmData(inputBuffer, inputSampleRate, outputSampleRate, inputBitDepth = 16, outputBitDepth = 16) {
-        // Проверка входных параметров
+        // Ensure buffer length is a multiple of the byte size per sample
         if (inputBuffer.length % (inputBitDepth / 8) !== 0) {
-            throw new Error(`Input buffer length must be a multiple of ${inputBitDepth / 8} bytes`);
+            console.warn(
+                `Input buffer length (${inputBuffer.length}) is not a multiple of ${
+                    inputBitDepth / 8
+                }. Padding with zero bytes.`
+            );
+            inputBuffer = Buffer.concat([inputBuffer, Buffer.alloc(1, 0)]);
         }
 
-        // Рассчитываем соотношение частот
         const ratio = inputSampleRate / outputSampleRate;
-        const inputSamples = inputBuffer.length / (inputBitDepth / 8); // Количество сэмплов
+        const inputSamples = inputBuffer.length / (inputBitDepth / 8);
         const outputSamples = Math.floor(inputSamples / ratio);
-        const outputBuffer = Buffer.alloc(outputSamples * (outputBitDepth / 8)); // Выходной буфер
+        const outputBuffer = Buffer.alloc(outputSamples * (outputBitDepth / 8));
 
-        // Основной цикл ресемплинга
         for (let i = 0; i < outputSamples; i++) {
-            // Позиция во входном буфере (дробная)
             const srcPos = i * ratio;
             const idx = Math.floor(srcPos);
             const frac = srcPos - idx;
 
-            // Безопасное чтение сэмплов с проверкой границ
             const safeIdx = Math.min(idx, inputSamples - 1);
             const nextIdx = Math.min(idx + 1, inputSamples - 1);
 
-            // Чтение текущего и следующего сэмплов (в зависимости от inputBitDepth)
             let s0, s1;
             if (inputBitDepth === 16) {
                 s0 = inputBuffer.readInt16LE(safeIdx * 2);
                 s1 = inputBuffer.readInt16LE(nextIdx * 2);
             } else if (inputBitDepth === 8) {
-                s0 = inputBuffer.readUInt8(safeIdx) - 128; // Преобразование в signed
+                s0 = inputBuffer.readUInt8(safeIdx) - 128;
                 s1 = inputBuffer.readUInt8(nextIdx) - 128;
             } else {
                 throw new Error("Unsupported input bit depth");
             }
 
-            // Линейная интерполяция
             const interpolated = s0 + (s1 - s0) * frac;
 
-            // Запись результата (в зависимости от outputBitDepth)
             if (outputBitDepth === 16) {
                 outputBuffer.writeInt16LE(
                     Math.max(-32768, Math.min(32767, Math.round(interpolated))),
@@ -191,4 +189,33 @@ export class AudioResampleService {
         }
         return buffer;
     }
+
+    public buildRTPPacket(payload: Buffer,
+                   seq: number,
+                   timestamp: number,
+                   ssrc: number,
+                   payloadType: number
+    ) {
+        const header = Buffer.alloc(12);
+        header.writeUInt8(0x80, 0); // Version(2), Padding(0), Extension(0), CC(0)
+        header.writeUInt8(payloadType, 1);
+        header.writeUInt16BE(seq, 2); // Sequence Number
+        header.writeUInt32BE(timestamp, 4); // Timestamp
+        header.writeUInt32BE(ssrc, 8); // SSRC (идентификатор потока)
+        return Buffer.concat([header, payload]);
+    }
+
+    public removeRTPHeader(payload: Buffer, swap16: boolean = true) {
+
+        const buf: Buffer = payload.subarray(12); // Убираем 12-байтовый RTP-заголовок
+
+        //Меняет порядок байтов (swap16), если это необходимо.
+        if (swap16) {
+            buf.swap16()
+        }
+
+        return buf;
+    }
+
+
 }

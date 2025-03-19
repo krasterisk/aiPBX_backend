@@ -35,8 +35,9 @@ import { AriModule } from "./ari/ari.module";
 import { WsServerModule } from './ws-server/ws-server.module';
 import { RtpUdpServerModule } from './rtp-udp-server/rtp-udp-server.module';
 import { VoskServerModule } from './vosk-server/vosk-server.module';
-import { AudioResampleModule } from './audio-resample/audio-resample.module';
-import { AudioStreamModule } from './audio-stream/audio-stream.module';
+import { AudioModule } from './audio/audio.module';
+import {aiBotsModule} from "./pbx/aibots/aibots.module";
+
 
 @Module({
     imports: [
@@ -80,6 +81,7 @@ import { AudioStreamModule } from './audio-stream/audio-stream.module';
 //        OpenAiModule,
         WsServerModule,
         RtpUdpServerModule,
+        aiBotsModule,
 //        AudioResampleModule,
 //        AudioStreamModule,
 //        VoskServerModule

@@ -5,8 +5,7 @@ import {VoskServerService} from "../vosk-server/vosk-server.service";
 import * as fs from 'fs';
 import * as path from 'path';
 import { alaw, utils, mulaw } from "x-law";
-import {AudioResampleService} from "../audio-resample/audio-resample.service";
-import {AudioStreamRTPService} from "../audio-stream/audio-stream.service";
+import {AudioService} from "../audio/audio.service";
 
 @Injectable()
 export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
@@ -15,12 +14,9 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
     private startingStream: boolean = false
     private writeStream: fs.WriteStream;
     private readonly swap16 = true;
-    private externalAddress: string
-    private externalPort: number
+    public externalAddress: string
+    public externalPort: number
     private fileOutPath = path.join(__dirname, '..', 'audio_files', `audio_out_${Date.now()}.raw`);
-    private audioStreamService: AudioStreamRTPService
-
-
 //    private RTP_PAYLOAD_TYPE = 8;    // G.711 A-law
     private RTP_SSRC = Math.floor(Math.random() * 0xffffffff); // Уникальный идентификатор потока
     private SEQ_START = Math.floor(Math.random() * 65535);
@@ -28,7 +24,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
     constructor(
         private openAi: OpenAiService,
         private vosk: VoskServerService,
-        private audioResamplePcm: AudioResampleService,
+        private audioService: AudioService,
 ) {}
 
     onModuleInit() {
@@ -39,6 +35,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             fs.mkdirSync(audioDir);
         }
         const fileInPath = path.join(audioDir, `audio_in_${Date.now()}.raw`);
+        const fileOutPath = path.join(audioDir, `audio_out_${Date.now()}.raw`);
 
 
         this.writeStream = fs.createWriteStream(fileInPath);
@@ -46,29 +43,22 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         this.server.on('message', async (msg, rinfo) => {
 
             if (!this.startingStream) {
-                this.externalAddress = rinfo.address
-                this.externalPort = rinfo.port
-                console.log(`Received ${msg.length} bytes from ${rinfo.address}:${rinfo.port}`);
+                console.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port}`);
                 this.startingStream = true;
             }
 
             try {
-                let buf: Buffer = msg.slice(12); // Убираем 12-байтовый RTP-заголовок
 
-                //Меняет порядок байтов (swap16), если это необходимо.
-                if (this.swap16) {
-                    buf.swap16()
-                }
-
-                this.writeStream.write(buf);
-                this.server.emit('data', buf);
+                // this.writeStream.write(buf);
+                this.server.emit('data', msg);
             } catch (error) {
                 console.error(`Error processing RTP packet: ${error}`);
             }
         });
 
         this.server.on('data', async (audioBuffer: Buffer) => {
-            const transcription = await this.vosk.audioAppend(audioBuffer);
+            const audioChunk = this.audioService.removeRTPHeader(audioBuffer)
+            const transcription = await this.vosk.audioAppend(audioChunk);
             if (transcription) {
                 console.log('User text: ', transcription,)
                 const aiText = await this.openAi.textResponse(transcription)
@@ -78,7 +68,6 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
                     if (voice && this.externalAddress && this.externalPort) {
                         console.log('AI voice got')
                         // Отправляем назад поток
-                        // await fs.promises.writeFile(fileOutPath,voice);
                         await this.convertAndStreamPCM(voice)
 
                     }
@@ -110,47 +99,15 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         }
     }
 
-    buildRTPPacket(payload, seq, timestamp, ssrc) {
-        const header = Buffer.alloc(12);
-
-//        header[0] = 0x80; // RTP Version 2, без расширений, без CSRC
- //       // header[1] = this.RTP_PAYLOAD_TYPE & 0x7F; // Payload Type (G.711 A-law)
-        header.writeUInt8(0x80, 0); // Version(2), Padding(0), Extension(0), CC(0)
-//        header.writeUInt8(0x0B, 1); // Marker(0), Payload Type 11 (L16/16000)
-//        header.writeUInt8(0x89, 1); // Marker(0), Payload Type 9 (L16/8000)
-        header.writeUInt8(0x00, 1); // Marker=0, Payload Type=0 (G.711 U-law)
-//        header.writeUInt8(0x08, 1); // Marker(0), Payload Type 8 (G.711 A-law)
-//        header[1] = 0x11; // Payload type 17 (L16/16000)
-//        header.writeUInt8(0x0, 1);  // Marker(0), Payload Type (настраивается)
-//        header.writeUInt8(0x60, 1);     // Marker(0), PT=96 (0x60 = 96 << 1)
-
-        header.writeUInt16BE(seq, 2); // Sequence Number
-        header.writeUInt32BE(timestamp, 4); // Timestamp
-        header.writeUInt32BE(ssrc, 8); // SSRC (идентификатор потока)
-
-        return Buffer.concat([header, payload]);
-    }
-
-
-
     async convertAndStreamPCM(inputBuffer) {
 
-        const resampled = this.audioResamplePcm.resamplePCM(
+        const resampled = this.audioService.resamplePCM(
             inputBuffer,
             24000,
             8000,
-            { bitDepth: 16, numChannels: 1 }
+            {bitDepth: 16, numChannels: 1}
         );
 
-         // const resampled = await this.resamplePcmData(inputBuffer, 24000, 8000, 16, 16);
-        //const resampled = Buffer.from(resampledArray); // Преобразуем в Buffer
-        // await fs.promises.writeFile(this.fileOutPath,resampled);
-
-            //const resampled = utils.resample(resampledBuffer, 16000, 8000, 16);
-//         const resampled = this.downSampleBuffer(convertBuffer,24000, 16000);
-
-//        const resampled = await this.resamplePCM(inputBuffer, 24000, 8000);
-        // const resampled = inputBuffer.swap16()
         const resampledBuffer = mulaw.encodeBuffer(resampled)
 
         let seq = this.SEQ_START;
@@ -163,12 +120,18 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
         const sendPacket = (scheduledTime = Date.now()) => {
             if (i >= resampledBuffer.length) {
-                console.log('RTP stream sent.');
+                console.log('RTP stream sent on ' + `${this.externalAddress}:${this.externalPort}`);
                 return;
             }
 
             const chunk = resampledBuffer.subarray(i, i + packetSize);
-            const rtpPacket = this.buildRTPPacket(chunk, seq, timestamp, this.RTP_SSRC);
+            const rtpPacket = this.audioService.buildRTPPacket(
+                chunk,
+                seq,
+                timestamp,
+                this.RTP_SSRC,
+                0x00 // Payload Type для U-Law G.711
+            );
 
             this.server.send(rtpPacket, this.externalPort, this.externalAddress, (err) => {
                 if (err) console.error('RTP send error:', err);

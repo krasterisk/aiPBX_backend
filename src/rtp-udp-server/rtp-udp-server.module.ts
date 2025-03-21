@@ -8,7 +8,7 @@ import {AudioService} from "../audio/audio.service";
   providers: [
     RtpUdpServerService,
     OpenAiService,
-    VoskServerService,
+//    VoskServerService,
     AudioService
   ],
   exports: [RtpUdpServerService]

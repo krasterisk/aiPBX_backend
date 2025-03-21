@@ -23,7 +23,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
     constructor(
         private openAi: OpenAiService,
-        private vosk: VoskServerService,
+//        private vosk: VoskServerService,
         private audioService: AudioService,
 ) {}
 
@@ -57,13 +57,15 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         });
 
         this.server.on('data', async (audioBuffer: Buffer) => {
+
             const audioChunk = this.audioService.removeRTPHeader(audioBuffer)
-            const transcription = await this.vosk.audioAppend(audioChunk);
-            if (transcription) {
-                console.log('User text: ', transcription,)
-                // const aiText = await this.openAi.textResponse(transcription)
-                const aiText = await this.openAi.rtTextAppend(transcription)
-                console.log(aiText)
+            const openAiVoice = this.openAi.rtInputAudioAppend(audioChunk)
+            // const transcription = await this.vosk.audioAppend(audioChunk);
+            // if (transcription) {
+            //     console.log('User text: ', transcription,)
+            //     // const aiText = await this.openAi.textResponse(transcription)
+            //     const aiText = await this.openAi.rtTextAppend(transcription)
+//                console.log(aiText)
                 // if (aiText) {
                 //     console.log('AI text: ', aiText)
                 //     const voice = await this.openAi.textToSpeech(aiText)
@@ -74,7 +76,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
                     // }
                 // }
-            }
+//            }
         });
 
         this.server.on('error', (err) => {

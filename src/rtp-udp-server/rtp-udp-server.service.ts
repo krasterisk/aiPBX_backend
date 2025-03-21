@@ -58,8 +58,9 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
         this.server.on('data', async (audioBuffer: Buffer) => {
 
-            // const audioChunk = this.audioService.removeRTPHeader(audioBuffer)
-            const openAiVoice = this.openAi.rtInputAudioAppend(audioBuffer)
+            const audioChunk = this.audioService.removeRTPHeader(audioBuffer)
+            const openAiVoice = this.openAi.rtInputAudioAppend(audioChunk)
+
             // const transcription = await this.vosk.audioAppend(audioChunk);
             // if (transcription) {
             //     console.log('User text: ', transcription,)

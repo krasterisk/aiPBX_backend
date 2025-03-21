@@ -9,7 +9,7 @@ import {AudioService} from "../audio/audio.service";
 
 @Injectable()
 export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
-    private readonly PORT = 3032;
+    private UDP_PORT = Number(process.env.UDP_SERVER_PORT);
     private server: dgram.Socket;
     private startingStream: boolean = false
     private writeStream: fs.WriteStream;
@@ -90,7 +90,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             console.log(`UDP Server listening on ${address.address}:${address.port}`);
 
         });
-        this.server.bind(this.PORT);
+        this.server.bind(this.UDP_PORT);
 
     }
 

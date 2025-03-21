@@ -5,8 +5,9 @@ import {AppDto} from "./dto/app.dto";
 
 @Injectable()
 export class AppsService {
-    
-    constructor(@InjectModel(App) private appsRepository: typeof App) {}
+
+    constructor(@InjectModel(App) private appsRepository: typeof App) {
+    }
 
     async create(dto: AppDto) {
         try {
@@ -16,7 +17,7 @@ export class AppsService {
             if (e.name === 'SequelizeUniqueConstraintError') {
                 throw new HttpException('Appt already exists', HttpStatus.BAD_REQUEST)
             }
-            throw new HttpException('[Appts]:  Request error' +e, HttpStatus.BAD_REQUEST)
+            throw new HttpException('[Appts]:  Request error' + e, HttpStatus.BAD_REQUEST)
         }
     }
 
@@ -30,8 +31,8 @@ export class AppsService {
     }
 
     async delete(ids: number[]) {
-        const deleted = await this.appsRepository.destroy({where: { id: ids } })
-        if(deleted === 0) {
+        const deleted = await this.appsRepository.destroy({where: {id: ids}})
+        if (deleted === 0) {
             throw new HttpException('Appt not found', HttpStatus.NOT_FOUND)
         } else {
             return {message: 'App deleted successfully', statusCode: HttpStatus.OK}
@@ -46,18 +47,16 @@ export class AppsService {
             }
 
         } catch (e) {
-            throw new HttpException({message: '[App]:  Request error'} +e, HttpStatus.BAD_REQUEST)
+            throw new HttpException({message: '[App]:  Request error'} + e, HttpStatus.BAD_REQUEST)
         }
     }
 
     async getAppById(id: number) {
         const app = await this.appsRepository.findOne({where: {id}})
-        if(!app) {
+        if (!app) {
             throw new HttpException('App not found', HttpStatus.NOT_FOUND)
         } else {
             return app
         }
     }
-
-
 }

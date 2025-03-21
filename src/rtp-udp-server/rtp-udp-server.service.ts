@@ -4,7 +4,7 @@ import {OpenAiService} from "../open-ai/open-ai.service";
 import {VoskServerService} from "../vosk-server/vosk-server.service";
 import * as fs from 'fs';
 import * as path from 'path';
-import { alaw, utils, mulaw } from "x-law";
+import { mulaw } from "x-law";
 import {AudioService} from "../audio/audio.service";
 
 @Injectable()
@@ -61,17 +61,19 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             const transcription = await this.vosk.audioAppend(audioChunk);
             if (transcription) {
                 console.log('User text: ', transcription,)
-                const aiText = await this.openAi.textResponse(transcription)
-                if (aiText) {
-                    console.log('AI text: ', aiText)
-                    const voice = await this.openAi.textToSpeech(aiText)
-                    if (voice && this.externalAddress && this.externalPort) {
-                        console.log('AI voice got')
-                        // Отправляем назад поток
-                        await this.convertAndStreamPCM(voice)
+                // const aiText = await this.openAi.textResponse(transcription)
+                const aiText = await this.openAi.rtTextAppend(transcription)
+                console.log(aiText)
+                // if (aiText) {
+                //     console.log('AI text: ', aiText)
+                //     const voice = await this.openAi.textToSpeech(aiText)
+                //     if (voice && this.externalAddress && this.externalPort) {
+                //         console.log('AI voice got')
+                //         // Отправляем назад поток
+                //         await this.convertAndStreamPCM(voice)
 
-                    }
-                }
+                    // }
+                // }
             }
         });
 

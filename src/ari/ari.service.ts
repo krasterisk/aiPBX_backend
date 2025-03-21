@@ -75,7 +75,7 @@ export class AriService implements OnModuleInit {
                         this.externalChannel.externalMedia({
                             app: 'voicebot',
                             external_host: this.externalHost,
-                            format: 'pcm16',
+                            format: 'slin16',
                         }).then((channel) => {
                             const channelVars = channel.channelvars as chanVars
                                 console.log("externalChannelVars: ", channelVars)

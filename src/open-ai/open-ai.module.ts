@@ -4,11 +4,11 @@ import { AuthModule } from "../auth/auth.module";
 import { OpenAiController } from "./open-ai.controller";
 
 @Module({
-  providers: [OpenAiService],
   controllers: [OpenAiController],
+  providers: [OpenAiService],
   imports: [
     forwardRef(() => AuthModule)
-  ],
-  exports: [OpenAiService]
+  ]
 })
+
 export class OpenAiModule {}

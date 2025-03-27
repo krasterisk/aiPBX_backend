@@ -37,6 +37,7 @@ import { RtpUdpServerModule } from './rtp-udp-server/rtp-udp-server.module';
 import { VoskServerModule } from './vosk-server/vosk-server.module';
 import { AudioModule } from './audio/audio.module';
 import {aiBotsModule} from "./pbx/aibots/aibots.module";
+import {EventEmitterModule} from "@nestjs/event-emitter";
 
 
 @Module({
@@ -50,6 +51,7 @@ import {aiBotsModule} from "./pbx/aibots/aibots.module";
         SequelizeModule.forRootAsync({
             useFactory: getMysqlConfig
         }),
+        EventEmitterModule.forRoot(),
         UsersModule,
         RolesModule,
         AuthModule,
@@ -80,7 +82,7 @@ import {aiBotsModule} from "./pbx/aibots/aibots.module";
         // PsModule,
 //        OpenAiModule,
         WsServerModule,
-        RtpUdpServerModule,
+//        RtpUdpServerModule,
         aiBotsModule,
 //        AudioResampleModule,
 //        AudioStreamModule,

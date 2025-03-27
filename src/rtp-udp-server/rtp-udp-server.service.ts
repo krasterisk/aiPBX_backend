@@ -1,4 +1,4 @@
-import {Inject, Injectable, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
+import {Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
 import * as dgram from "dgram";
 import {OpenAiService} from "../open-ai/open-ai.service";
 import {VoskServerService} from "../vosk-server/vosk-server.service";
@@ -6,26 +6,51 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { mulaw } from "x-law";
 import {AudioService} from "../audio/audio.service";
+import { EventEmitter2 } from '@nestjs/event-emitter';
+
+interface requestData {
+    address: string,
+    port: string,
+    sessionId?: string
+}
 
 @Injectable()
 export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
     private UDP_PORT = Number(process.env.UDP_SERVER_PORT);
-    private server: dgram.Socket;
+//     private UDP_PORT = Math.floor(
+//         Math.random() * 5001 // 5000 + 1, чтобы включить верхнюю границу
+//     ) + Number(process.env.UDP_SERVER_PORT);
+
+    public server: dgram.Socket;
     private startingStream: boolean = false
     private writeStream: fs.WriteStream;
-    private readonly swap16 = true;
-    public externalAddress: string
-    public externalPort: number
-    private fileOutPath = path.join(__dirname, '..', 'audio_files', `audio_out_${Date.now()}.raw`);
+    private externalAddress: string
+    private externalPort: number
+    private external_local_Address: string
+    private external_local_Port: number
+
 //    private RTP_PAYLOAD_TYPE = 8;    // G.711 A-law
     private RTP_SSRC = Math.floor(Math.random() * 0xffffffff); // Уникальный идентификатор потока
     private SEQ_START = Math.floor(Math.random() * 65535);
+    private logger = new Logger(RtpUdpServerService.name);
 
     constructor(
         private openAi: OpenAiService,
-//        private vosk: VoskServerService,
+        //        private vosk: VoskServerService,
         private audioService: AudioService,
-) {}
+        private eventEmitter: EventEmitter2
+    ) {}
+
+    private audioStreamState = {
+        isSending: false,
+        bufferQueue: [] as Buffer[],
+        seq: this.SEQ_START,
+        timestamp: 0,
+        lastSendTime: Date.now(),
+        packetSize: 160, // Для G.711 ulaw
+        packetDurationMs: 20,
+        timestampIncrement: 160
+    };
 
     onModuleInit() {
         this.server = dgram.createSocket('udp4');
@@ -37,14 +62,22 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         const fileInPath = path.join(audioDir, `audio_in_${Date.now()}.raw`);
         const fileOutPath = path.join(audioDir, `audio_out_${Date.now()}.raw`);
 
+        this.eventEmitter.on('delta', async (outAudio: Buffer) => {
+            // console.log('streaming audio chunk')
+           await this.streamAudio(outAudio);
+        });
 
-        this.writeStream = fs.createWriteStream(fileInPath);
 
         this.server.on('message', async (msg, rinfo) => {
 
             if (!this.startingStream) {
                 console.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port}`);
                 this.startingStream = true;
+                this.external_local_Address = rinfo.address
+                this.external_local_Port = Number(rinfo.port)
+
+                const eventId = `${rinfo.address}:${rinfo.port}`
+                await this.openAi.updateRtAudioSession(eventId)
             }
 
             try {
@@ -57,9 +90,9 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         });
 
         this.server.on('data', async (audioBuffer: Buffer) => {
-
-            const audioChunk = this.audioService.removeRTPHeader(audioBuffer)
-            const openAiVoice = this.openAi.rtInputAudioAppend(audioChunk)
+            //this.writeStream = fs.createWriteStream(fileInPath);
+            const audioChunk = this.audioService.removeRTPHeader(audioBuffer, false)
+            await this.openAi.rtInputAudioAppend(audioChunk)
 
             // const transcription = await this.vosk.audioAppend(audioChunk);
             // if (transcription) {
@@ -67,16 +100,16 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             //     // const aiText = await this.openAi.textResponse(transcription)
             //     const aiText = await this.openAi.rtTextAppend(transcription)
 //                console.log(aiText)
-                // if (aiText) {
-                //     console.log('AI text: ', aiText)
-                //     const voice = await this.openAi.textToSpeech(aiText)
-                //     if (voice && this.externalAddress && this.externalPort) {
-                //         console.log('AI voice got')
-                //         // Отправляем назад поток
-                //         await this.convertAndStreamPCM(voice)
+            // if (aiText) {
+            //     console.log('AI text: ', aiText)
+            //     const voice = await this.openAi.textToSpeech(aiText)
+            //     if (voice && this.externalAddress && this.externalPort) {
+            //         console.log('AI voice got')
+            //         // Отправляем назад поток
+            //         await this.convertAndStreamPCM(voice)
 
-                    // }
-                // }
+            // }
+            // }
 //            }
         });
 
@@ -88,9 +121,9 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
         this.server.on('listening', () => {
             const address = this.server.address();
-            console.log(`UDP Server listening on ${address.address}:${address.port}`);
-
+            this.logger.log(`UDP Server listening on ${address.address}:${address.port}`);
         });
+
         this.server.bind(this.UDP_PORT);
 
     }
@@ -160,9 +193,54 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         sendPacket(); // Запускаем отправку
     }
 
-    onHangup() {
-        console.log('Closing UDP stream...');
-        this.server.close();
+    async streamAudio(outputBuffer: Buffer) {
+        this.audioStreamState.bufferQueue.push(outputBuffer);
+        if (!this.audioStreamState.isSending) {
+            this.audioStreamState.isSending = true;
+            await this.processBufferQueue();
+        }
+    }
+
+    private async processBufferQueue() {
+        while (this.audioStreamState.bufferQueue.length > 0) {
+            const currentBuffer = this.audioStreamState.bufferQueue.shift()!;
+            await this.sendBuffer(currentBuffer);
+        }
+        this.audioStreamState.isSending = false;
+    }
+
+    private async sendBuffer(buffer: Buffer) {
+        let offset = 0;
+        const startTime = Date.now();
+        // const expectedPackets = buffer.length / this.audioStreamState.packetSize;
+        // const expectedDuration = expectedPackets * this.audioStreamState.packetDurationMs;
+
+        while (offset < buffer.length) {
+            const chunk = buffer.subarray(offset, offset + this.audioStreamState.packetSize);
+            const rtpPacket = this.audioService.buildRTPPacket(
+                chunk,
+                this.audioStreamState.seq,
+                this.audioStreamState.timestamp,
+                this.RTP_SSRC,
+                0x00
+            );
+
+            // Рассчет времени отправки
+            const packetIndex = offset / this.audioStreamState.packetSize;
+            const targetTime = startTime + packetIndex * this.audioStreamState.packetDurationMs;
+            const delay = Math.max(0, targetTime - Date.now());
+
+            await new Promise(resolve => setTimeout(resolve, delay));
+
+            this.server.send(rtpPacket, this.external_local_Port, this.external_local_Address, (err) => {
+                if (err) console.error('RTP send error:', err);
+            });
+
+            // Обновляем состояние
+            this.audioStreamState.seq = (this.audioStreamState.seq + 1) & 0xFFFF;
+            this.audioStreamState.timestamp += this.audioStreamState.timestampIncrement;
+            offset += this.audioStreamState.packetSize;
+        }
     }
 
 }

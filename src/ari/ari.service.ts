@@ -1,10 +1,79 @@
-import {Inject, Injectable, Logger, OnModuleInit} from '@nestjs/common';
+import {Injectable, Logger, OnModuleInit} from '@nestjs/common';
 import * as ariClient from 'ari-client';
-import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
 
 interface chanVars {
     UNICASTRTP_LOCAL_PORT: number,
     UNICASTRTP_LOCAL_ADDRESS: string
+}
+
+class CallSession {
+    public bridge: ariClient.Bridge;
+    public externalChannel: ariClient.Channel;
+    public playback: ariClient.Playback;
+    private logger = new Logger(CallSession.name);
+
+    constructor(
+        private ari: ariClient.Client,
+        private channel: ariClient.Channel,
+        private externalHost: string
+    ) {}
+
+    async initialize() {
+            try {
+
+            // Создаем мост
+            this.bridge = this.ari.Bridge();
+            await this.bridge.create({ type: 'mixing' });
+
+            // Добавляем входящий канал в мост
+            await this.bridge.addChannel({ channel: this.channel.id });
+
+            // Создаем канал для внешнего медиа
+            this.externalChannel = this.ari.Channel();
+            this.externalChannel.externalMedia({
+                app: 'voicebot',
+                external_host: this.externalHost,
+                format: 'ulaw'
+            }).then((chan) => {
+                const channelVars = chan.channelvars as chanVars;
+                this.logger.log('channelsVars is: ', channelVars);
+                this.logger.log('External Host is: ', this.externalHost);
+                this.bridge.addChannel({channel: chan.id});
+            });
+
+            // Настраиваем обработчики внешнего канала
+            // this.externalChannel.on('StasisEnd', () => {
+            //     console.log("STASOS EEEEEEEEEENNNNNNNNNNNNNNND")
+            //     // this.cleanup()
+            // });
+
+            this.playback = this.ari.Playback();
+            await this.channel.play({
+                media: 'sound:hello-world',
+                lang: 'ru'
+            }, this.playback);
+
+        } catch (err) {
+            this.logger.error('Error initializing call session', err);
+            await this.cleanup();
+        }
+    }
+
+    async cleanup() {
+        try {
+            if (this.bridge.id !== undefined) {
+                await this.bridge.destroy();
+            }
+            if (this.externalChannel.id !== undefined) {
+                await this.externalChannel.hangup();
+            }
+            // if (this.channel) { // Добавляем завершение основного канала
+            //     await this.channel.hangup();
+            // }
+        } catch (err) {
+            this.logger.error('Error cleaning up session', err);
+        }
+    }
 }
 
 @Injectable()
@@ -14,111 +83,65 @@ export class AriService implements OnModuleInit {
     private password = process.env.ARI_PASS;
     private externalHost = process.env.ARI_EXTERNAL_HOST;
     private readonly logger = new Logger();
-    private startingStream: boolean
-    private bridge: ariClient.Bridge
-    private externalChannel: ariClient.Channel
-    private playback: ariClient.Playback
 
-    constructor(
-        //@Inject(WsServerGateway)
-        // private wsGateway: WsServerGateway,
-        @Inject(RtpUdpServerService) private rtpUdpServer: RtpUdpServerService
-    ) {}
+    private sessions = new Map<string, CallSession>();
+
 
     async onModuleInit() {
             // Подключаемся к ARI
-            if (!this.startingStream) {
                 await this.connectToARI();
-            }
-    }
-
-    private handleWebSocketEvent(data: any) {
-        this.logger.log('Получено событие от WebSocket', data);
-        console.log('Получено событие от WebSocket:', data);
-        // Здесь можно обработать события и отправить команды в ARI
     }
 
     private async connectToARI() {
-        console.log('Данные для подключения: ')
-        ariClient.connect(this.url, this.username, this.password)
-            .then((ari) => {
-                ari.start('voicebot')
-                console.log('ARI started on ', this.url)
-                ari.on('StasisStart', async (event, incoming) => {
-                    if (!this.startingStream) {
-                        this.bridge = ari.Bridge();
-                        await this.bridge.create({type: "mixing"});
-                        this.bridge.on('BridgeCreated', (event) => {
-                            console.log('bridge created', event)
-                            // this.startingStream = false
-                            // ari.stop()
-                        });
-                        this.bridge.on('BridgeDestroyed', (event) => {
-                            console.log('bridge destroyed')
-                            this.startingStream = false
-                            // ari.stop()
-                        });
-                        // incoming.answer((err) => {
-                        //     // console.log(JSON.stringify(incoming))
-                        //     console.dir(incoming, { depth: null });
-                        //     // this.streamAudioFromChannel(incoming)
-                        // })
-                        this.playback = ari.Playback()
-                        incoming.play({media: 'sound:hello-world', lang: 'ru'},
-                            this.playback,
-                            function (err, playback) {
-                                console.log('playbacking')
-                            });
-                        await this.bridge.addChannel({channel: incoming.id});
-                        // this.rtpUdpServer = new RtpUdpServerService()
-                        this.externalChannel = ari.Channel()
-                        this.externalChannel.externalMedia({
-                            app: 'voicebot',
-                            external_host: this.externalHost,
-                            format: 'slin16',
-                        }).then((channel) => {
-                            const channelVars = channel.channelvars as chanVars
-                                console.log("externalChannelVars: ", channelVars)
-                            this.rtpUdpServer.externalAddress = channelVars.UNICASTRTP_LOCAL_ADDRESS;
-                            this.rtpUdpServer.externalPort = channelVars.UNICASTRTP_LOCAL_PORT;
-                        }).catch((err) => {
-                            console.log('erroring extmedia')
-                        })
-                        this.externalChannel.on('StasisStart', async (event, chan) => {
-                            if (this.bridge) {
-                                console.log("Bridge ID: ", this.bridge.id)
-                                this.bridge.addChannel({channel: chan.id}, (err) => {
-                                    console.log(err)
-                                });
-                            }
-                        })
+        const ari = await ariClient.connect(this.url, this.username, this.password);
+        await ari.start('voicebot');
 
-                        this.externalChannel.on('StasisEnd', (event, chan) => {
-                            console.log('externalMedia Channel stasisEnd')
-                            // this.bridge.removeChannel({channel: chan.id})
-                            // chan.hangup()
-                            //this.bridge.destroy()
-                        })
+        ari.on('StasisStart', async (event, incoming) => {
+            if (this.sessions.has(incoming.id)) {
+                this.logger.warn(`Session already exists for channel ${incoming.id}`);
+                return;
+            }
 
-                        this.startingStream = true
-                    }
-                })
+            if (incoming.name.startsWith('UnicastRTP/')) {
+                this.logger.log(`Ignoring external media channel: ${incoming.id}`);
+                return;
+            }
 
-                ari.on('StasisEnd', (event, channel) => {
-                    console.log('Ended Statis')
-                    // this.bridge.removeChannel({channel: channel.id})
-                    // channel.hangup()
-                    // this.rtpUdpServer.onModuleDestroy()
-                    if(this.startingStream) {
-                        this.bridge.destroy()
-                        this.externalChannel.hangup()
-                        this.startingStream = false
-                    }
-                })
-            })
-            .catch((err) => {
+            try {
+                const session = new CallSession(
+                    ari,
+                    incoming,
+                    this.externalHost
+                );
+
+
+                this.sessions.set(incoming.id, session);
+
+                console.log("STARTING: ", incoming.id)
+                await session.initialize();
+
+                incoming.on('StasisEnd', (event, channel) => {
+
+                });
+
+            } catch (err) {
                 console.log(err)
-            })
+                this.logger.error('Error handling new call', err);
+            }
+        });
+
+        ari.on('StasisEnd', (event, channel) => {
+            try {
+                const session = this.sessions.get(channel.id);
+                if (session) {
+                    session.cleanup();
+                    this.sessions.delete(channel.id);
+                }
+            } catch (e) {
+                this.logger.error('Error from stasis end', e);
+            }
+
+        })
     }
 
     private streamAudioFromChannel(channel) {
@@ -127,7 +150,6 @@ export class AriService implements OnModuleInit {
             app: 'voicebot',
             external_host: this.externalHost,
             format: 'alaw',
-
         })
         console.log('externalMedia Channel: ', channel)
         // this.wsGateway.handleMessage('message', channel.data)

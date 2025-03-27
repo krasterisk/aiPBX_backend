@@ -75,24 +75,26 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
                 this.startingStream = true;
                 this.external_local_Address = rinfo.address
                 this.external_local_Port = Number(rinfo.port)
-
-                const eventId = `${rinfo.address}:${rinfo.port}`
-                await this.openAi.updateRtAudioSession(eventId)
+                const metadata: requestData = {
+                    address: rinfo.address,
+                    port: String(rinfo.port)
+                }
+                await this.openAi.rtInitAudioResponse(metadata)
             }
 
             try {
-
+                const eventId = `${rinfo.address}:${rinfo.port}`
                 // this.writeStream.write(buf);
-                this.server.emit('data', msg);
+                this.server.emit('data', msg, eventId);
             } catch (error) {
                 console.error(`Error processing RTP packet: ${error}`);
             }
         });
 
-        this.server.on('data', async (audioBuffer: Buffer) => {
+        this.server.on('data', async (audioBuffer: Buffer, eventId: string) => {
             //this.writeStream = fs.createWriteStream(fileInPath);
             const audioChunk = this.audioService.removeRTPHeader(audioBuffer, false)
-            await this.openAi.rtInputAudioAppend(audioChunk)
+            await this.openAi.rtInputAudioAppend(audioChunk, eventId)
 
             // const transcription = await this.vosk.audioAppend(audioChunk);
             // if (transcription) {

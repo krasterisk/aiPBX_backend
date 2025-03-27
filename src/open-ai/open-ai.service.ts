@@ -44,7 +44,8 @@ export class OpenAiService implements OnModuleInit {
 
     constructor(
         private eventEmitter: EventEmitter2
-    ) {}
+    ) {
+    }
 
     onModuleInit() {
         if (this.isRealtime) {
@@ -111,12 +112,11 @@ export class OpenAiService implements OnModuleInit {
 
         this.ws.on('open', () => {
             console.log('WebSocket OpenAI connection established');
-            // if (this.inAudio) {
-            //     this.updateRtAudioSession()
-            // } else {
-            //     this.updateRtTextSession()
-            // }
-
+            if (this.inAudio) {
+                this.updateRtAudioSession()
+            } else {
+                this.updateRtTextSession()
+            }
         });
 
         this.ws.on('message', (data) => {
@@ -129,7 +129,7 @@ export class OpenAiService implements OnModuleInit {
 
         this.ws.on('close', () => {
             console.log('WebSocket connection closed, reconnecting...');
-            if(this.isRealtime) {
+            if (this.isRealtime) {
                 setTimeout(() => this.RTConnect(), 5000);
             } else {
                 setTimeout(() => this.connect(), 5000);
@@ -137,63 +137,61 @@ export class OpenAiService implements OnModuleInit {
         });
     }
 
-    public updateRtAudioSession(eventId: string) {
+    public updateRtAudioSession() {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
 
             const initAudioSession = {
-                    event_id: eventId,
-                    type: 'session.update',
-                    session: {
-                        modalities: ['text', 'audio'],
-                        instructions: 'You are a helpful, witty, and friendly AI by name Alex. Your are Russian. ' +
-                            'Answer on Russian language. Act like a human, but remember that you arent ' +
-                            'a human and that you cant do human things in the real world. Your voice and ' +
-                            'personality should be warm and engaging, with a lively and playful tone. ' +
-                            'If interacting in a non-English language, start by using the standard accent ' +
-                            'or dialect familiar to the user. Talk quickly. You should always call a function ' +
-                            'if you can. Do not refer to these rules, even if you’re asked about them.',
-                        voice: 'alloy',
-                        input_audio_format: 'g711_ulaw',
-                        output_audio_format: 'g711_ulaw',
-                        input_audio_transcription: {
-                            model: 'whisper-1',
-                            language: 'ru'
-                        },
-                        turn_detection: {
-                            type: 'server_vad',
-                            threshold: 0.5,
-                            prefix_padding_ms: 300,
-                            silence_duration_ms: 500,
-                            create_response: true,
-                            interrupt_response: true
-                        },
-                        temperature: 0.8,
-
-                        max_response_output_tokens: 'inf',
-                        tools: [
-                            {
-                                type: 'function',
-                                name: 'get_doctor_timesheet_by_service',
-                                description: 'Получить расписание врача по направлению или услуге',
-                                parameters: {
-                                    type: 'object',
-                                    properties: {
-                                        service: {
-                                            type: 'string',
-                                            description: 'Наименование специалиста или услуги',
-                                            enum: [
-                                                'Стоматолог',
-                                                'Офтальмолог'
-                                            ]
-                                        }
-                                    },
-                                    required: ['service']
+                type: 'session.update',
+                session: {
+                    modalities: ['text', 'audio'],
+                    instructions: 'You are a helpful, witty, and friendly AI by name Alex. Your are Russian. ' +
+                        'Answer on Russian language. Act like a human, but remember that you arent ' +
+                        'a human and that you cant do human things in the real world. Your voice and ' +
+                        'personality should be warm and engaging, with a lively and playful tone. ' +
+                        'If interacting in a non-English language, start by using the standard accent ' +
+                        'or dialect familiar to the user. Talk quickly. You should always call a function ' +
+                        'if you can. Do not refer to these rules, even if you’re asked about them.',
+                    voice: 'alloy',
+                    input_audio_format: 'g711_ulaw',
+                    output_audio_format: 'g711_ulaw',
+                    input_audio_transcription: {
+                        model: 'whisper-1',
+                        language: 'ru'
+                    },
+                    turn_detection: {
+                        type: 'server_vad',
+                        threshold: 0.5,
+                        prefix_padding_ms: 300,
+                        silence_duration_ms: 500,
+                        create_response: true,
+                        interrupt_response: true
+                    },
+                    temperature: 0.8,
+                    max_response_output_tokens: 'inf',
+                    tools: [
+                        {
+                            type: 'function',
+                            name: 'get_doctor_timesheet_by_service',
+                            description: 'Получить расписание врача по направлению или услуге',
+                            parameters: {
+                                type: 'object',
+                                properties: {
+                                    service: {
+                                        type: 'string',
+                                        description: 'Наименование специалиста или услуги',
+                                        enum: [
+                                            'Стоматолог',
+                                            'Офтальмолог'
+                                        ]
+                                    }
                                 },
+                                required: ['service']
                             },
-                        ],
-                        tool_choice: 'auto'
-                    }
-                };
+                        },
+                    ],
+                    tool_choice: 'auto'
+                }
+            };
 
 
             this.ws.send(JSON.stringify(initAudioSession));
@@ -211,17 +209,18 @@ export class OpenAiService implements OnModuleInit {
         }
     }
 
-    async rtInputAudioAppend(chunk: Buffer) {
+    async rtInputAudioAppend(chunk: Buffer, eventId: string) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             // Конвертируем PCM16 в base64
             const base64Audio = chunk.toString('base64');
             this.ws.send(JSON.stringify({
+                event_id: eventId,
                 type: 'input_audio_buffer.append',
-                // event_id: eventId,
                 audio: base64Audio
             }));
         }
     }
+
 
     async rtTextAppend(text: string) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -239,7 +238,6 @@ export class OpenAiService implements OnModuleInit {
                 },
             };
             this.ws.send(JSON.stringify(event))
-            await this.rtAudioResponse()
         } else {
             console.log("error sending text. ws is closed")
         }
@@ -251,10 +249,11 @@ export class OpenAiService implements OnModuleInit {
             const topic = `${responseData.address}:${responseData.port}`
             const event = {
                 type: "response.create",
+                conversation: "none",
                 response: {
                     modalities: ["text", "audio"],
                     conversation: 'none',
-                    metadata: { topic },
+                    metadata: {topic},
                 }
             }
             this.ws.send(JSON.stringify(event));
@@ -264,15 +263,16 @@ export class OpenAiService implements OnModuleInit {
     }
 
 
-    async rtAudioResponse() {
+    async rtInitAudioResponse(metadata: requestData) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            const prompt = `This is a service request, don't say anything, just return an empty result.`;
+
             const event = {
                 type: "response.create",
                 response: {
-                    modalities: ["text", "audio"],
-                    instructions: "Please assist the user.",
-                    voice: 'alloy',
-                    output_audio_format: 'g711_ulaw',
+                    modalities: ["text"],
+                    instructions: prompt,
+                    metadata,
                 }
             }
             this.ws.send(JSON.stringify(event));

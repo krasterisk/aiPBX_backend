@@ -5,9 +5,13 @@ import {EventEmitter2} from '@nestjs/event-emitter';
 
 
 interface requestData {
+    channelId?: string
     address: string,
     port: string,
-    sessionId?: string
+    responseId?: string,
+    itemId?: string,
+    init?: string,
+    events?: object[]
 }
 
 
@@ -53,19 +57,89 @@ export class OpenAiService implements OnModuleInit {
         }
     }
 
+    private updateSession(serverEvent) {
+        const channelId = serverEvent.response.metadata?.channelId;
+
+        if (!channelId) return; // Если нет channelId, выходим
+
+        // Получаем существующую сессию или создаем новую
+        const existingSession = this.sessions.get(channelId) || {
+            channelId,
+            address: serverEvent.response.metadata?.address || '',
+            port: serverEvent.response.metadata?.port || '',
+            responseId: serverEvent.response?.id || '',
+            events: []
+        };
+
+        // Обновляем данные сессии
+        existingSession.address = serverEvent.response.metadata?.address ?? existingSession.address;
+        existingSession.port = serverEvent.response.metadata?.port ?? existingSession.port;
+        existingSession.responseId = serverEvent.response?.id ?? existingSession.responseId;
+        existingSession.events = [...existingSession.events, serverEvent];
+
+        // Записываем обновлённую сессию обратно в Map
+        this.sessions.set(channelId, existingSession);
+
+    }
+
+    private setItemIdSession(serverEvent) {
+        const responseId = serverEvent?.response_id;
+
+        if (!responseId) return; // Если нет itemId, выходим
+
+        // Получаем существующую сессию или создаем новую
+        const existingSession = this.getSessionByField('responseId', responseId)
+        if(!existingSession) {
+            return;
+        }
+            existingSession.itemId = serverEvent?.item?.id ?? existingSession.itemId;
+        // Записываем обновлённую сессию обратно в Map
+        this.sessions.set(existingSession.channelId, existingSession);
+    }
+
+    private updateItemId(previousItemId,itemId) {
+        // Получаем существующую сессию или создаем новую
+        const existingSession = this.getSessionByField('itemId', previousItemId)
+
+        if(!existingSession) {
+            return;
+        }
+            existingSession.itemId = itemId ?? existingSession.itemId;
+        // Записываем обновлённую сессию обратно в Map
+        this.sessions.set(existingSession.channelId, existingSession);
+    }
+
+    private getSessionByField (field: keyof requestData, value: any) {
+        return [...this.sessions.values()].find(session => session[field] === value);
+    };
+
+
     private connect() {
         this.openAi = new OpenAI({
             apiKey: this.API_KEY
         })
     }
 
-    private dataDecode(e) {
+    private async dataDecode(e) {
         const serverEvent = JSON.parse(e)
-        console.log(serverEvent.type);
+        console.log(JSON.stringify(serverEvent.type));
+
+       // if(this.sessions.size){
+       //     console.log(JSON.stringify(Array.from(this.sessions.entries()), null, 2));
+       // }
+
+
         if (serverEvent.type === "response.audio.delta") {
-            const delta = serverEvent.delta
-            const deltaBuffer = Buffer.from(delta, 'base64')
-            this.eventEmitter.emit('delta', deltaBuffer)
+            const currentSession = this.getSessionByField('itemId', serverEvent.item_id)
+            if (currentSession) {
+                const delta = serverEvent.delta
+                const deltaBuffer = Buffer.from(delta, 'base64')
+                const urlData = {
+                    address: currentSession.address,
+                    port: Number(currentSession.port)
+                }
+                this.eventEmitter.emit('audioDelta', deltaBuffer, urlData)
+            }
         }
 
         if (serverEvent.type === "error") {
@@ -74,31 +148,61 @@ export class OpenAiService implements OnModuleInit {
 
         if (serverEvent.type === "response.created") {
             console.log(JSON.stringify(serverEvent))
+            this.updateSession(serverEvent)
         }
 
-        if (serverEvent.type === "session.updated") {
-            console.log(JSON.stringify(serverEvent))
-        }
-
+        //
+        // if (serverEvent.type === "session.updated") {
+        //     console.log(JSON.stringify(serverEvent))
+        // }
+        //
         if (serverEvent.type === "input_audio_buffer.committed") {
-            console.log(JSON.stringify(serverEvent))
+            console.log(serverEvent)
+            const currentSession = this.getSessionByField('itemId', serverEvent.previous_item_id)
+            if (currentSession) {
+                const metadata: requestData = {
+                    channelId: currentSession.channelId,
+                    address: currentSession.address,
+                    port: currentSession.port
+                }
+                this.updateItemId(serverEvent.previous_item_id, serverEvent.item_id)
+                console.log(JSON.stringify(Array.from(this.sessions.entries()), null, 2));
+                await this.rtAudioOutBandResponse(metadata)
+            }
         }
-
-        if (serverEvent.type === "input_audio_buffer.speech_stopped") {
-            console.log(JSON.stringify(serverEvent))
-        }
-
-        if (serverEvent.type === "input_audio_buffer.speech_started") {
-            console.log(JSON.stringify(serverEvent))
-        }
-
-        if (serverEvent.type === "conversation.item.created") {
-            console.log(JSON.stringify(serverEvent))
-        }
-
+        //
+        // if (serverEvent.type === "input_audio_buffer.speech_stopped") {
+        //     console.log(JSON.stringify(serverEvent))
+        // }
+        //
+        // if (serverEvent.type === "input_audio_buffer.speech_started") {
+        //     console.log(JSON.stringify(serverEvent))
+        // }
+        //
+        // if (serverEvent.type === "conversation.item.created") {
+        //     console.log(JSON.stringify(serverEvent))
+        // }
+        //
         if (serverEvent.type === "response.done") {
-            console.log(JSON.stringify(serverEvent))
+            // console.log(JSON.stringify(serverEvent))
+            this.updateSession(serverEvent)
         }
+        if (serverEvent.type === "response.output_item.added") {
+             this.setItemIdSession(serverEvent)
+        }
+
+        // if (serverEvent.type === "rate_limits.updated") {
+        //     console.log(JSON.stringify(serverEvent))
+        // }
+        // if (serverEvent.type === "response.function_call_arguments.delta") {
+        //     console.log(JSON.stringify(serverEvent))
+        // }
+        // if (serverEvent.type === "response.output_item.done") {
+        //     console.log(JSON.stringify(serverEvent))
+        // }
+        // if (serverEvent.type === "response.content_part.added") {
+        //     console.log(JSON.stringify(serverEvent))
+        // }
 
     }
 
@@ -163,8 +267,8 @@ export class OpenAiService implements OnModuleInit {
                         threshold: 0.5,
                         prefix_padding_ms: 300,
                         silence_duration_ms: 500,
-                        create_response: true,
-                        interrupt_response: true
+                        create_response: false,
+                        interrupt_response: false
                     },
                     temperature: 0.8,
                     max_response_output_tokens: 'inf',
@@ -243,19 +347,18 @@ export class OpenAiService implements OnModuleInit {
         }
     }
 
-    async rtAudioOutBandResponse(responseData: requestData) {
+    async rtAudioOutBandResponse(metadata: requestData) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-
-            const topic = `${responseData.address}:${responseData.port}`
             const event = {
                 type: "response.create",
-                conversation: "none",
                 response: {
+                    conversation: "none",
                     modalities: ["text", "audio"],
-                    conversation: 'none',
-                    metadata: {topic},
+                    metadata
                 }
             }
+
+          //  console.log("OUTBANDRESPONSE: ", event)
             this.ws.send(JSON.stringify(event));
         } else {
             console.log("error sending text. ws is closed")
@@ -265,7 +368,7 @@ export class OpenAiService implements OnModuleInit {
 
     async rtInitAudioResponse(metadata: requestData) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            const prompt = `This is a service request, don't say anything, just return an empty result.`;
+            const prompt = `This is a service request, don't do anything. Don't answer, just return empty response`;
 
             const event = {
                 type: "response.create",

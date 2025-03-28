@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
-import { AudioService } from './audio.service';
+import {StreamAudioService} from "./streamAudio.service";
 
 @Module({
-  providers: [AudioService]
+  providers: [StreamAudioService]
 })
 
 export class AudioModule {}

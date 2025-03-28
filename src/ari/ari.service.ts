@@ -1,9 +1,17 @@
-import {Injectable, Logger, OnModuleInit} from '@nestjs/common';
+import {Inject, Injectable, Logger, OnModuleInit} from '@nestjs/common';
 import * as ariClient from 'ari-client';
+import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
 
 interface chanVars {
     UNICASTRTP_LOCAL_PORT: number,
     UNICASTRTP_LOCAL_ADDRESS: string
+}
+
+interface channelData {
+    channelId: string,
+    address: string,
+    port: string,
+    init: string
 }
 
 class CallSession {
@@ -12,10 +20,12 @@ class CallSession {
     public playback: ariClient.Playback;
     private logger = new Logger(CallSession.name);
 
+
     constructor(
         private ari: ariClient.Client,
         private channel: ariClient.Channel,
-        private externalHost: string
+        private externalHost: string,
+        private rtpUdpServer: RtpUdpServerService
     ) {}
 
     async initialize() {
@@ -39,13 +49,18 @@ class CallSession {
                 this.logger.log('channelsVars is: ', channelVars);
                 this.logger.log('External Host is: ', this.externalHost);
                 this.bridge.addChannel({channel: chan.id});
-            });
+                const sessionUrl = `${channelVars.UNICASTRTP_LOCAL_ADDRESS}:${channelVars.UNICASTRTP_LOCAL_PORT}`
+                const sessionData: channelData = {
+                    channelId: this.channel.id,
+                    address: channelVars.UNICASTRTP_LOCAL_ADDRESS,
+                    port: String(channelVars.UNICASTRTP_LOCAL_PORT),
+                    init: 'false'
+                }
+                if(sessionData) {
+                    this.rtpUdpServer.sessions.set(sessionUrl, sessionData)
+                }
 
-            // Настраиваем обработчики внешнего канала
-            // this.externalChannel.on('StasisEnd', () => {
-            //     console.log("STASOS EEEEEEEEEENNNNNNNNNNNNNNND")
-            //     // this.cleanup()
-            // });
+            });
 
             this.playback = this.ari.Playback();
             await this.channel.play({
@@ -67,9 +82,6 @@ class CallSession {
             if (this.externalChannel.id !== undefined) {
                 await this.externalChannel.hangup();
             }
-            // if (this.channel) { // Добавляем завершение основного канала
-            //     await this.channel.hangup();
-            // }
         } catch (err) {
             this.logger.error('Error cleaning up session', err);
         }
@@ -86,6 +98,7 @@ export class AriService implements OnModuleInit {
 
     private sessions = new Map<string, CallSession>();
 
+    constructor(@Inject(RtpUdpServerService) private rtpUdpServer: RtpUdpServerService) {}
 
     async onModuleInit() {
             // Подключаемся к ARI
@@ -111,9 +124,9 @@ export class AriService implements OnModuleInit {
                 const session = new CallSession(
                     ari,
                     incoming,
-                    this.externalHost
+                    this.externalHost,
+                    this.rtpUdpServer
                 );
-
 
                 this.sessions.set(incoming.id, session);
 

@@ -6,15 +6,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { mulaw } from "x-law";
 import {AudioService} from "../audio/audio.service";
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import {StreamAudioService} from "../audio/streamAudio.service";
+import {OpenAiConnection} from "../open-ai/open-ai.connection";
 
 interface requestData {
     channelId?: string,
     address: string,
     port: string,
     init?: string
-    events?: object[]
+    openAiConn?: OpenAiConnection
+    events?: object[],
 }
 
 @Injectable()
@@ -26,19 +26,16 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
     public server: dgram.Socket;
     private writeStream: fs.WriteStream;
-    private externalAddress: string
-    private externalPort: number
     private external_local_Address: string
     private external_local_Port: number
     public sessions = new Map<string, requestData>();
     private logger = new Logger(RtpUdpServerService.name);
+    private activeChannels = new Set<string>();
 
     constructor(
         private openAi: OpenAiService,
         //        private vosk: VoskServerService,
         private audioService: AudioService,
-        private eventEmitter: EventEmitter2,
-        private readonly streamAudioService: StreamAudioService
     ) {}
 
 
@@ -52,15 +49,6 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         const fileInPath = path.join(audioDir, `audio_in_${Date.now()}.raw`);
         const fileOutPath = path.join(audioDir, `audio_out_${Date.now()}.raw`);
 
-        this.eventEmitter.on('audioDelta', async (outAudio: Buffer, serverData: requestData) => {
-            // console.log('streaming audio chunk')
-            const sessionId = `${serverData.address}:${serverData.port}`;
-            this.streamAudioService.addStream(sessionId, {
-                external_local_Address: serverData.address,
-                external_local_Port: Number(serverData.port),
-            });
-            await this.streamAudioService.streamAudio(sessionId, outAudio);
-        });
 
 
         this.server.on('message', async (msg, rinfo) => {
@@ -72,43 +60,50 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
                 currentSession.init = 'true';
                 this.external_local_Address = rinfo.address
                 this.external_local_Port = Number(rinfo.port)
-
-                console.log("CURRENT SESSION: ", currentSession)
+                // console.log("CURRENT SESSION: ", currentSession)
 
                 await this.openAi.rtInitAudioResponse(currentSession)
             }
 
             try {
-                const eventId = `${rinfo.address}:${rinfo.port}`
                 // this.writeStream.write(buf);
-                this.server.emit('data', msg, eventId);
+                this.server.emit('data', msg, currentSession.channelId);
             } catch (error) {
                 console.error(`Error processing RTP packet: ${error}`);
             }
         });
 
-        this.server.on('data', async (audioBuffer: Buffer, eventId: string) => {
-            //this.writeStream = fs.createWriteStream(fileInPath);
-            const audioChunk = this.audioService.removeRTPHeader(audioBuffer, false)
-            await this.openAi.rtInputAudioAppend(audioChunk, eventId)
+        this.server.on('data', async (audioBuffer: Buffer, channelId: string) => {
+            if (!channelId || this.activeChannels.has(channelId)) return;
 
-            // const transcription = await this.vosk.audioAppend(audioChunk);
-            // if (transcription) {
-            //     console.log('User text: ', transcription,)
-            //     // const aiText = await this.openAi.textResponse(transcription)
-            //     const aiText = await this.openAi.rtTextAppend(transcription)
+            this.activeChannels.add(channelId);
+
+            try {
+                //this.writeStream = fs.createWriteStream(fileInPath);
+                const audioChunk = this.audioService.removeRTPHeader(audioBuffer, false)
+                await this.openAi.rtInputAudioAppend(audioChunk, channelId)
+
+                // const transcription = await this.vosk.audioAppend(audioChunk);
+                // if (transcription) {
+                //     console.log('User text: ', transcription,)
+                //     // const aiText = await this.openAi.textResponse(transcription)
+                //     const aiText = await this.openAi.rtTextAppend(transcription)
 //                console.log(aiText)
-            // if (aiText) {
-            //     console.log('AI text: ', aiText)
-            //     const voice = await this.openAi.textToSpeech(aiText)
-            //     if (voice && this.externalAddress && this.externalPort) {
-            //         console.log('AI voice got')
-            //         // Отправляем назад поток
-            //         await this.convertAndStreamPCM(voice)
+                // if (aiText) {
+                //     console.log('AI text: ', aiText)
+                //     const voice = await this.openAi.textToSpeech(aiText)
+                //     if (voice && this.externalAddress && this.externalPort) {
+                //         console.log('AI voice got')
+                //         // Отправляем назад поток
+                //         await this.convertAndStreamPCM(voice)
 
-            // }
-            // }
+                // }
+                // }
 //            }
+            } finally {
+                this.activeChannels.delete(channelId);
+                // await this.handleSessionEnd(channelId)
+            }
         });
 
         this.server.on('error', (err) => {
@@ -123,6 +118,15 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
         this.server.bind(this.UDP_PORT);
 
+    }
+
+
+    public async handleSessionEnd(sessionId: string) {
+        const session = this.sessions.get(sessionId);
+        if (session) {
+            session.openAiConn?.close();
+            this.sessions.delete(sessionId);
+        }
     }
 
     onModuleDestroy() {

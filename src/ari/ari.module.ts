@@ -1,17 +1,33 @@
 import {forwardRef, Module} from '@nestjs/common';
-import { AriController } from './ari.controller';
-import { AriService } from './ari.service';
+import {AriController} from './ari.controller';
+import {AriService} from './ari.service';
 import {AuthModule} from "../auth/auth.module";
-import {WsServerModule} from "../ws-server/ws-server.module";
-import {RtpUdpServerModule} from "../rtp-udp-server/rtp-udp-server.module";
+import {OpenAiService} from "../open-ai/open-ai.service";
+import {StreamAudioService} from "../audio/streamAudio.service";
+import {AudioService} from "../audio/audio.service";
+import dgram from "dgram";
+import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
+import {WsServerGateway} from "../ws-server/ws-server.gateway";
+const udpSocket = dgram.createSocket('udp4');
 
 @Module({
-  controllers: [AriController],
-  providers: [AriService],
-  imports: [
-    forwardRef(() => AuthModule),
-      WsServerModule,
-      RtpUdpServerModule
-  ]
+    controllers: [AriController],
+    providers: [
+        RtpUdpServerService,
+        WsServerGateway,
+        AudioService,
+        AriService,
+        OpenAiService,
+        {
+            provide: StreamAudioService,
+            useFactory: (audioService: AudioService) => {
+                return new StreamAudioService(udpSocket);
+            }
+        }
+    ],
+    imports: [
+        forwardRef(() => AuthModule),
+    ]
 })
-export class AriModule {}
+export class AriModule {
+}

@@ -37,6 +37,7 @@
     "alawmulaw": "^6.0.0",
     "ari-client": "^2.2.0",
     "asterisk-manager": "^0.2.0",
+    "async-mutex": "^0.5.0",
     "audio-decode": "^2.2.2",
     "axios": "^1.7.9",
     "base64-arraybuffer": "^1.0.2",

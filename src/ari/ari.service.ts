@@ -1,49 +1,75 @@
 import {Inject, Injectable, Logger, OnModuleInit} from '@nestjs/common';
 import * as ariClient from 'ari-client';
 import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
+import {OpenAiService, sessionData} from "../open-ai/open-ai.service";
+import {OpenAiConnection} from "../open-ai/open-ai.connection";
+import {StreamAudioService} from "../audio/streamAudio.service";
 
 interface chanVars {
-    UNICASTRTP_LOCAL_PORT: number,
+    UNICASTRTP_LOCAL_PORT: number
     UNICASTRTP_LOCAL_ADDRESS: string
 }
 
 interface channelData {
-    channelId: string,
-    address: string,
-    port: string,
+    channelId: string
+    address: string
+    port: string
     init: string
+    openAiConn: OpenAiConnection
 }
 
+
 class CallSession {
-    public bridge: ariClient.Bridge;
-    public externalChannel: ariClient.Channel;
-    public playback: ariClient.Playback;
-    private logger = new Logger(CallSession.name);
+    public bridge: ariClient.Bridge
+    public externalChannel: ariClient.Channel
+    public playback: ariClient.Playback
+    private logger = new Logger(CallSession.name)
+    private readonly openAiConnection: OpenAiConnection
+    private readonly audioDeltaHandler: (outAudio: Buffer, serverData: sessionData) => Promise<void>
 
 
     constructor(
         private ari: ariClient.Client,
         private channel: ariClient.Channel,
         private externalHost: string,
-        private rtpUdpServer: RtpUdpServerService
-    ) {}
+        private rtpUdpServer: RtpUdpServerService,
+        private openAiService: OpenAiService,
+        private streamAudioService: StreamAudioService
+    ) {
+        this.openAiConnection = this.openAiService.createConnection(this.channel.id)
+
+        this.audioDeltaHandler = async (outAudio: Buffer, serverData: sessionData) => {
+            const sessionId = serverData.channelId
+            await this.streamAudioService.addStream(sessionId, {
+                external_local_Address: serverData.address,
+                external_local_Port: Number(serverData.port),
+            });
+            await this.streamAudioService.streamAudio(sessionId, outAudio);
+        };
+
+
+        this.openAiService.eventEmitter.on(
+            `openai.${this.channel.id}`,
+            (event) => this.openAiService.dataDecode(event, this.channel.id, this.channel.caller.number)
+        );
+
+        this.openAiService.eventEmitter.on(`audioDelta.${this.channel.id}`, this.audioDeltaHandler);
+
+    }
 
     async initialize() {
             try {
-
             // Создаем мост
             this.bridge = this.ari.Bridge();
             await this.bridge.create({ type: 'mixing' });
-
             // Добавляем входящий канал в мост
             await this.bridge.addChannel({ channel: this.channel.id });
-
             // Создаем канал для внешнего медиа
             this.externalChannel = this.ari.Channel();
             this.externalChannel.externalMedia({
                 app: 'voicebot',
                 external_host: this.externalHost,
-                format: 'ulaw'
+                format: 'alaw'
             }).then((chan) => {
                 const channelVars = chan.channelvars as chanVars;
                 this.logger.log('channelsVars is: ', channelVars);
@@ -54,7 +80,8 @@ class CallSession {
                     channelId: this.channel.id,
                     address: channelVars.UNICASTRTP_LOCAL_ADDRESS,
                     port: String(channelVars.UNICASTRTP_LOCAL_PORT),
-                    init: 'false'
+                    init: 'false',
+                    openAiConn: this.openAiConnection,
                 }
                 if(sessionData) {
                     this.rtpUdpServer.sessions.set(sessionUrl, sessionData)
@@ -74,7 +101,7 @@ class CallSession {
         }
     }
 
-    async cleanup() {
+async cleanup() {
         try {
             if (this.bridge.id !== undefined) {
                 await this.bridge.destroy();
@@ -82,6 +109,9 @@ class CallSession {
             if (this.externalChannel.id !== undefined) {
                 await this.externalChannel.hangup();
             }
+            this.openAiService.eventEmitter.off('audioDelta', this.audioDeltaHandler);
+            this.openAiService.closeConnection(this.channel.id);
+            await this.streamAudioService.removeStream(this.channel.id);
         } catch (err) {
             this.logger.error('Error cleaning up session', err);
         }
@@ -98,7 +128,11 @@ export class AriService implements OnModuleInit {
 
     private sessions = new Map<string, CallSession>();
 
-    constructor(@Inject(RtpUdpServerService) private rtpUdpServer: RtpUdpServerService) {}
+    constructor(
+        @Inject(RtpUdpServerService) private rtpUdpServer: RtpUdpServerService,
+        @Inject(OpenAiService) private openAiServer: OpenAiService,
+        @Inject(StreamAudioService) private readonly streamAudioService: StreamAudioService
+        ) {}
 
     async onModuleInit() {
             // Подключаемся к ARI
@@ -125,7 +159,9 @@ export class AriService implements OnModuleInit {
                     ari,
                     incoming,
                     this.externalHost,
-                    this.rtpUdpServer
+                    this.rtpUdpServer,
+                    this.openAiServer,
+                    this.streamAudioService
                 );
 
                 this.sessions.set(incoming.id, session);

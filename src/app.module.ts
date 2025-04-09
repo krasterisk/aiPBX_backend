@@ -81,7 +81,7 @@ import {EventEmitterModule} from "@nestjs/event-emitter";
         // ProvisioningModule,
         // PsModule,
 //        OpenAiModule,
-        WsServerModule,
+        // WsServerModule,
 //        RtpUdpServerModule,
         aiBotsModule,
 //        AudioResampleModule,

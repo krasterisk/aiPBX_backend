@@ -1,12 +1,12 @@
 import {
+  ConnectedSocket,
   MessageBody,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer, WsResponse
 } from '@nestjs/websockets';
 import {Logger} from "@nestjs/common";
-import {Server} from "socket.io";
-import {from, map, Observable} from "rxjs";
+import {Server, Socket} from "socket.io";
 
 @WebSocketGateway(3033,{
   cors: {
@@ -31,28 +31,24 @@ export class WsServerGateway {
     this.logger.log(`Client disconnected: ${client.id}`);
   }
 
-  @SubscribeMessage('events')
-  findAll(@MessageBody() data: any): Observable<WsResponse<number>> {
-    console.log('receive event events')
-    return from([1, 2, 3]).pipe(map(item => ({ event: 'events', data: item })));
+  @SubscribeMessage('join')
+  handleJoin(@MessageBody() channelId: string, @ConnectedSocket() client: Socket) {
+    client.join(channelId);
+    console.log(`Client ${client.id} joined room: ${channelId}`);
   }
 
-  @SubscribeMessage('identity')
-  async identity(@MessageBody() data: number): Promise<number> {
-    console.log('receive event identity')
-    console.log(`Received message from client ${data}`)
-    return data;
+  @SubscribeMessage('leave')
+  handleLeave(@MessageBody() channelId: string, @ConnectedSocket() client: Socket) {
+    client.leave(channelId);
+    console.log(`Client ${client.id} left room: ${channelId}`);
   }
 
-  @SubscribeMessage('message')
-  handleMessage(client: any, payload: any) {
-    this.logger.log(`Received message from client ${client.id}: ${payload}`);
-    console.log('receive event message')
-    console.log(`Received message from client ${client.id}: ${JSON.stringify(payload)}`)
-    return {
-      event: 'message',
-      data: payload,
-      timestamp: new Date().toISOString()
+  sendToClient(channelId: string, callerId: string, event: any) {
+    const fullEvent = {
+      channelId,
+      callerId,
+      ...event,
     };
+    this.server.emit('openai.event', fullEvent);
   }
 }

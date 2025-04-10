@@ -1,19 +1,19 @@
-import { Column, DataType, Model, Table } from "sequelize-typescript";
+import {BelongsTo, Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
 import { ApiProperty } from "@nestjs/swagger";
+import {User} from "../users/users.model";
 
 interface CreateAssistantAttr {
     name: string;
-    instruction: string; // Added to the model
     userId: number;
 }
 
-@Table({ tableName: "pbxAiBots" })
+@Table({ tableName: "aiAssistants" })
 export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: 'VoiceBot', description: "Ai Bot name" })
-    @Column({ type: DataType.STRING, unique: true, allowNull: false })
+    @Column({ type: DataType.STRING, allowNull: false })
     name: string;
     @ApiProperty({ example: 'Alloy', description: "TTS Voice" })
-    @Column({ type: DataType.STRING, unique: true, allowNull: false })
+    @Column({ type: DataType.STRING, allowNull: false })
     voice: string
     @ApiProperty({ example: 'pcm16', description: "Input audio format" })
     @Column({ type: DataType.STRING, allowNull: true })
@@ -51,7 +51,11 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: 'tools', description: "JSON object" })
     @Column({ type: DataType.TEXT, allowNull: true })
     tools: string
-    @ApiProperty({ example: '4', description: "user id" })
-    @Column({ type: DataType.INTEGER })
-    userId: number;
+
+    @ForeignKey(() => User)
+    @Column({type: DataType.INTEGER})
+    userId: number
+    @BelongsTo(() => User)
+    user: User
+
 }

@@ -1,6 +1,10 @@
-import {BelongsTo, Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
+import {BelongsTo, BelongsToMany, Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
 import { ApiProperty } from "@nestjs/swagger";
 import {User} from "../users/users.model";
+import {Role} from "../roles/roles.model";
+import {UserRoles} from "../roles/user-roles.model";
+import {AiTool} from "../ai-tools/ai-tool.model";
+import {AssistantToolsModel} from "../ai-tools/assistant-tools.model";
 
 interface CreateAssistantAttr {
     name: string;
@@ -45,17 +49,23 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: 'Auto', description: "Semantic eagerness(Low,Medium,High)" })
     @Column({ type: DataType.STRING, allowNull: true })
     semantic_eagerness: string
+    @ApiProperty({ example: 'none', description: "Type of noise reduction: none, near_field, far_field" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    input_audio_noise_reduction: string
     @ApiProperty({ example: '0.8', description: "Temperature" })
     @Column({ type: DataType.STRING, allowNull: true })
     temperature: string
-    @ApiProperty({ example: 'tools', description: "JSON object" })
-    @Column({ type: DataType.TEXT, allowNull: true })
-    tools: string
+    @ApiProperty({ example: 'inf', description: "Max tokens" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    max_response_output_tokens: string
 
     @ForeignKey(() => User)
     @Column({type: DataType.INTEGER})
     userId: number
     @BelongsTo(() => User)
     user: User
+
+    @BelongsToMany(() => AiTool, () => AssistantToolsModel)
+    tools: AiTool[]
 
 }

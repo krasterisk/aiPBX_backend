@@ -18,22 +18,10 @@ export class User extends Model<User, UserCreationAttrs> {
     username: string
     @ApiProperty({example: 'Ivan', description: "User firstname"})
     @Column({type: DataType.STRING, unique: false, allowNull: true})
-    firstname: string
-    @ApiProperty({example: 'Ivanov', description: "User lastname"})
-    @Column({type: DataType.STRING, unique: false, allowNull: true})
-    lastname: string
-    @ApiProperty({example: '22', description: "User Age"})
-    @Column({type: DataType.INTEGER, unique: false, allowNull: true})
-    age: number
-    @ApiProperty({example: 'Russia', description: "User Country"})
-    @Column({type: DataType.STRING, unique: false, allowNull: true})
-    country: number
+    name: string
     @ApiProperty({example: 'name@domain.com', description: "E-mail address"})
     @Column({type: DataType.STRING, unique: true, allowNull: true})
     email: string
-    @ApiProperty({example: 'RUB', description: "User currency"})
-    @Column({type: DataType.STRING, unique: false, allowNull: true})
-    currency: string
     @ApiProperty({example: '0', description: "feature flag"})
     @Column({type: DataType.BOOLEAN, unique: false, allowNull: true})
     designed: boolean
@@ -49,6 +37,15 @@ export class User extends Model<User, UserCreationAttrs> {
     @ApiProperty({example: 'Bad behavior', description: "Ban reason"})
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     banReason: string
+    @ApiProperty({example: '12345-12312-12345-12345-123345', description: "Activation link"})
+    @Column({type: DataType.STRING, unique: false, allowNull: true})
+    activationLink: string
+    @ApiProperty({example: '12345-12312-12345-12345-123345', description: "Reset password link"})
+    @Column({type: DataType.STRING, unique: false, allowNull: true})
+    resetPasswordLink: string
+    @ApiProperty({example: 'true', description: "is activated user"})
+    @Column({type: DataType.BOOLEAN, unique: false, allowNull: false, defaultValue: false})
+    isActivated: boolean
 
     @BelongsToMany(() => Role, () => UserRoles)
     roles: Role[]

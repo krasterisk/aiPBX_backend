@@ -11,9 +11,8 @@ import {getMysqlConfig} from "./config/mysql.config";
 import { AriModule } from "./ari/ari.module";
 import {AssistantsModule} from "./assistants/assistants.module";
 import {EventEmitterModule} from "@nestjs/event-emitter";
-import { AiModelsService } from './ai-models/ai-models.service';
-import { AiModelsController } from './ai-models/ai-models.controller';
 import { AiModelsModule } from './ai-models/ai-models.module';
+import { AiToolsModule } from './ai-tools/ai-tools.module';
 
 
 @Module({
@@ -36,8 +35,9 @@ import { AiModelsModule } from './ai-models/ai-models.module';
         AriModule,
         AssistantsModule,
         AiModelsModule,
+        AiToolsModule,
 //        VoskServerModule
-    ]
+    ],
 })
 
 export class AppModule {}

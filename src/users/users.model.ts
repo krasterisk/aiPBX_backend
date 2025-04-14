@@ -51,6 +51,6 @@ export class User extends Model<User, UserCreationAttrs> {
     roles: Role[]
 
     @ApiProperty({example: '4', description: "VPBX cabinet id"})
-    @Column({type: DataType.INTEGER, unique: false, allowNull: false})
+    @Column({type: DataType.INTEGER, unique: false, allowNull: true})
     vpbx_user_id: number
 }

@@ -1,8 +1,6 @@
-import {BelongsTo, BelongsToMany, Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
+import {BelongsTo, Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 import {User} from "../users/users.model";
-import {Assistant} from "../assistants/assistants.model";
-import {AssistantToolsModel} from "./assistant-tools.model";
 
 @Table({tableName: 'aiTools'})
 export class AiTool extends Model<AiTool> {
@@ -22,7 +20,7 @@ export class AiTool extends Model<AiTool> {
         example: '{name: book, price: 100}',
         description: "JSON schema defining the function's input arguments"
     })
-    @Column({type: DataType.TEXT, allowNull: true})
+    @Column({type: DataType.JSON, allowNull: true})
     parameters: string;
     @ApiProperty({example: 'true', description: "Whether to enforce strict mode for the function call"})
     @Column({type: DataType.BOOLEAN, allowNull: true})

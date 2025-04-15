@@ -1,4 +1,4 @@
-import {Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards} from '@nestjs/common';
+import {Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, UseGuards} from '@nestjs/common';
 import {AiToolsService} from "./ai-tools.service";
 import {ApiOperation, ApiResponse} from "@nestjs/swagger";
 import {Roles} from "../auth/roles-auth.decorator";
@@ -68,7 +68,7 @@ export class AiToolsController {
     @ApiResponse({status: 200, type: AiTool})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
-    @Put()
+    @Patch()
     update(@Body() dto: ToolDto) {
         return this.toolsService.update(dto)
     }

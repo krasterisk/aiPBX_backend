@@ -7,6 +7,7 @@ import * as path from 'path';
 import { mulaw } from "x-law";
 import {AudioService} from "../audio/audio.service";
 import {OpenAiConnection} from "../open-ai/open-ai.connection";
+import {Assistant} from "../assistants/assistants.model";
 
 interface requestData {
     channelId?: string,
@@ -15,6 +16,7 @@ interface requestData {
     init?: string
     openAiConn?: OpenAiConnection
     events?: object[],
+    assistant?: Assistant
 }
 
 @Injectable()

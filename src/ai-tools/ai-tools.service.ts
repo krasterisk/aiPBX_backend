@@ -81,13 +81,30 @@ export class AiToolsService {
             });
             return tools;
         } catch (e) {
-            throw new HttpException({ message: "[Casks]: Request error" } + e, HttpStatus.BAD_REQUEST);
+            throw new HttpException({ message: "[Tools]: Request error" } + e, HttpStatus.BAD_REQUEST);
         }
     }
 
-    async getAll() {
+    async getAll(realUserId: string, isAdmin: boolean) {
         try {
-            const tool = await this.toolsRepository.findAll()
+            if (!realUserId && !isAdmin) {
+                throw new HttpException({ message: "[Tools]:  userId must be set" }, HttpStatus.BAD_REQUEST);
+            }
+
+            const userId = isAdmin ? undefined : Number(realUserId);
+
+            const whereClause: any = userId ? { userId } : {}
+
+            const tool = await this.toolsRepository.findAll({
+                where: whereClause,
+                include: [
+                    {
+                        all: true,
+                        attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+                    }
+                ]
+            })
+
             if (tool) {
                 return tool
             }

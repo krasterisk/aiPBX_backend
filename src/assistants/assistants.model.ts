@@ -1,8 +1,6 @@
 import {BelongsTo, BelongsToMany, Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
 import { ApiProperty } from "@nestjs/swagger";
 import {User} from "../users/users.model";
-import {Role} from "../roles/roles.model";
-import {UserRoles} from "../roles/user-roles.model";
 import {AiTool} from "../ai-tools/ai-tool.model";
 import {AssistantToolsModel} from "../ai-tools/assistant-tools.model";
 
@@ -16,6 +14,9 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: 'VoiceBot', description: "Ai Bot name" })
     @Column({ type: DataType.STRING, allowNull: false })
     name: string;
+    @ApiProperty({ example: 'GPT-4o', description: "Model name" })
+    @Column({ type: DataType.STRING, allowNull: false })
+    model: string
     @ApiProperty({ example: 'Alloy', description: "TTS Voice" })
     @Column({ type: DataType.STRING, allowNull: false })
     voice: string
@@ -26,7 +27,7 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @Column({ type: DataType.STRING, allowNull: true })
     output_audio_format: string
     @ApiProperty({ example: 'You are a helpful consultant by name Alex', description: "Bot instructions" })
-    @Column({ type: DataType.STRING, allowNull: false })
+    @Column({ type: DataType.TEXT, allowNull: false })
     instruction: string;
     @ApiProperty({ example: 'whisper-1', description: "Input audio transcription model" })
     @Column({ type: DataType.STRING, allowNull: true })
@@ -58,6 +59,9 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: 'inf', description: "Max tokens" })
     @Column({ type: DataType.STRING, allowNull: true })
     max_response_output_tokens: string
+    @ApiProperty({ example: 'comment', description: "Any comments" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    comment: string
 
     @ForeignKey(() => User)
     @Column({type: DataType.INTEGER})

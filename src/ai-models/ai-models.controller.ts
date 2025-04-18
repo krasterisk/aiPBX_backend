@@ -12,8 +12,8 @@ export class AiModelsController {
     constructor(private aiModelService: AiModelsService) {}
     @ApiOperation({summary: "aiModels list"})
     @ApiResponse({status: 200, type: aiModel})
-    // @Roles('ADMIN')
-    // @UseGuards(RolesGuard)
+    @Roles('ADMIN','USER')
+    @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Get()
     getAll() {
@@ -31,8 +31,8 @@ export class AiModelsController {
 
     @ApiOperation({summary: "Create aiModel"})
     @ApiResponse({status: 200, type: aiModel})
-    // @Roles('ADMIN')
-    // @UseGuards(RolesGuard)
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()
     create(@Body() dto: AiModelDto) {

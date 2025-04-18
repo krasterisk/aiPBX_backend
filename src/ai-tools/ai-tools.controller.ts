@@ -10,6 +10,7 @@ import {GetToolsDto} from "./dto/getToolsDto";
 interface RequestWithUser extends Request {
     isAdmin?: boolean
     tokenUserId?: string
+    vpbxUserId?: string;
 }
 
 @Controller('tools')
@@ -23,8 +24,11 @@ export class AiToolsController {
     @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Get()
-    getAll() {
-        return this.toolsService.getAll()
+    getAll(@Req() request: RequestWithUser) {
+        const isAdmin = request.isAdmin
+        const tokenUserId = request.vpbxUserId || request.tokenUserId
+        const realUserId = !isAdmin && tokenUserId
+        return this.toolsService.getAll(realUserId, isAdmin)
     }
 
     @ApiOperation({summary: "Tools list page"})

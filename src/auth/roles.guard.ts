@@ -40,6 +40,7 @@ export class RolesGuard implements CanActivate {
             const user = this.jwtService.verify(token)
             req.isAdmin = user.roles.some(role => role.value === 'ADMIN')
             req.tokenUserId = user.id
+            req.vpbxUserId = user.vpbx_user_id
             return user.roles.some(role => requiredRoles.includes(role.value))
 
         } catch (e) {

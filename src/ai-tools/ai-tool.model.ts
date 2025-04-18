@@ -1,6 +1,8 @@
-import {BelongsTo, Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
+import {BelongsTo, BelongsToMany, Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
 import {User} from "../users/users.model";
+import {Assistant} from "../assistants/assistants.model";
+import {AssistantToolsModel} from "./assistant-tools.model";
 
 @Table({tableName: 'aiTools'})
 export class AiTool extends Model<AiTool> {
@@ -37,6 +39,7 @@ export class AiTool extends Model<AiTool> {
     userId: number
     @BelongsTo(() => User)
     user: User
-    // @BelongsToMany(() => Assistant, () => AssistantToolsModel)
-    // assistants: Assistant[]
+
+    @BelongsToMany(() => Assistant, () => AssistantToolsModel)
+    assistants: Assistant[]
 }

@@ -12,5 +12,6 @@ import {Assistant} from "./assistants.model";
         SequelizeModule.forFeature([Assistant]),
         forwardRef(() => AuthModule)
     ],
+    exports: [AssistantsService]
 })
 export class AssistantsModule {}

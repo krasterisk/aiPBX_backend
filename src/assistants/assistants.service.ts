@@ -10,10 +10,20 @@ export class AssistantsService {
 
     constructor(@InjectModel(Assistant) private assistantsRepository: typeof Assistant) {}
 
-    async create(dto: AssistantDto) {
+    async create(dto: AssistantDto[]) {
         try {
-            const assistant = await this.assistantsRepository.create(dto)
-            return assistant
+            const assistants = [];
+            for(const assistant of dto) {
+                const result = await this.assistantsRepository.create(assistant)
+
+                if(result && assistant.tools.length) {
+                    const toolsIds = assistant.tools.map((tool) => tool.id)
+                    await result.$set('tools', toolsIds)
+                    result.tools = assistant.tools
+                }
+                assistants.push(result)
+            }
+            return assistants
         } catch (e) {
             if (e.name === 'SequelizeUniqueConstraintError') {
                 throw new HttpException('Assistant already exists', HttpStatus.BAD_REQUEST)
@@ -23,20 +33,34 @@ export class AssistantsService {
     }
 
     async update(updates: Partial<Assistant>) {
-        const assistant = await this.assistantsRepository.findByPk(updates.id)
-        if (!assistant) {
-            throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
+        try {
+            const assistant = await this.assistantsRepository.findByPk(updates.id)
+            if (!assistant) {
+                throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
+            }
+            await assistant.update(updates)
+
+            if (updates.tools && updates.tools.length) {
+                const toolIds = updates.tools.map(tool => tool.id);
+                await assistant.$set('tools', toolIds);
+                assistant.tools = updates.tools;
+            } else if (updates.tools?.length === 0) {
+                await assistant.$set('tools', []);
+                assistant.tools = [];
+            }
+            return assistant
+        } catch (e) {
+            throw new HttpException('[Assistant]:  Request error' +e, HttpStatus.BAD_REQUEST)
+
         }
-        await assistant.update(updates)
-        return assistant
     }
 
-    async delete(ids: number[]) {
-        const deleted = await this.assistantsRepository.destroy({where: { id: ids } })
-        if(deleted === 0) {
-            throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
-        } else {
+    async delete(id: string) {
+        try {
+            await this.assistantsRepository.destroy({where: {id: id}})
             return {message: 'Assistant deleted successfully', statusCode: HttpStatus.OK}
+        } catch (e) {
+            throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
         }
     }
 
@@ -77,24 +101,38 @@ export class AssistantsService {
             });
             return assistants;
         } catch (e) {
-            throw new HttpException({ message: "[Casks]: Request error" } + e, HttpStatus.BAD_REQUEST);
+            throw new HttpException({ message: "[Assistants]: Request error" } + e, HttpStatus.BAD_REQUEST);
         }
     }
 
     async getAll() {
         try {
-            const assistant = await this.assistantsRepository.findAll()
+            const assistant = await this.assistantsRepository.findAll({
+                include: [
+                    {
+                        all: true,
+                        attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+                    }
+                ]
+            })
             if (assistant) {
                 return assistant
             }
-
         } catch (e) {
             throw new HttpException({message: '[Assistant]:  Request error'} +e, HttpStatus.BAD_REQUEST)
         }
     }
 
     async getById(id: number) {
-        const assistant = await this.assistantsRepository.findOne({where: {id}})
+        const assistant = await this.assistantsRepository.findOne({
+            where: {id},
+            include: [
+                {
+                    all: true,
+                    attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+                }
+            ]
+        })
         if(!assistant) {
             throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
         } else {

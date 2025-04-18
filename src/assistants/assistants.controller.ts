@@ -1,4 +1,4 @@
-import {Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards} from '@nestjs/common';
+import {Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards} from '@nestjs/common';
 import {AssistantsService} from "./assistants.service";
 import {ApiOperation, ApiResponse} from "@nestjs/swagger";
 import {Roles} from "../auth/roles-auth.decorator";
@@ -60,7 +60,7 @@ export class AssistantsController {
     @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()
-    create(@Body() dto: AssistantDto) {
+    create(@Body() dto: AssistantDto[]) {
         return this.assistantsService.create(dto)
     }
 
@@ -68,18 +68,17 @@ export class AssistantsController {
     @ApiResponse({status: 200, type: Assistant})
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
-    @Put()
+    @Patch()
     update(@Body() dto: AssistantDto) {
         return this.assistantsService.update(dto)
     }
 
     @ApiOperation({summary: "Delete assistant"})
     @ApiResponse({status: 200})
-    @Roles('ADMIN')
+    @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
-    @Delete()
-    delete(@Body() body: {ids: number[]}) {
-        const { ids } = body
-        return this.assistantsService.delete(ids)
+    @Delete('/:id')
+    delete(@Param('id') id: string) {
+        return this.assistantsService.delete(id)
     }
 }

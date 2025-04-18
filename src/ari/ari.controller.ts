@@ -7,10 +7,4 @@ import {ApiTags} from "@nestjs/swagger";
 export class AriController {
     constructor(private readonly ariService: AriService) {}
 
-    @Get('/endpoints')
-     getAll() {
-        const endpoints = this.ariService.getEndpoints()
-        return endpoints
-    }
-
 }

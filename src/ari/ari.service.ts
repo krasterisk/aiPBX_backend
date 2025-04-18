@@ -4,6 +4,8 @@ import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
 import {OpenAiService, sessionData} from "../open-ai/open-ai.service";
 import {OpenAiConnection} from "../open-ai/open-ai.connection";
 import {StreamAudioService} from "../audio/streamAudio.service";
+import {AssistantsService} from "../assistants/assistants.service";
+import {Assistant} from "../assistants/assistants.model";
 
 interface chanVars {
     UNICASTRTP_LOCAL_PORT: number
@@ -16,6 +18,7 @@ interface channelData {
     port: string
     init: string
     openAiConn: OpenAiConnection
+    assistant: Assistant
 }
 
 
@@ -34,9 +37,11 @@ class CallSession {
         private externalHost: string,
         private rtpUdpServer: RtpUdpServerService,
         private openAiService: OpenAiService,
-        private streamAudioService: StreamAudioService
-    ) {
-        this.openAiConnection = this.openAiService.createConnection(this.channel.id)
+        private streamAudioService: StreamAudioService,
+        private assistant: Assistant,
+
+) {
+        this.openAiConnection = this.openAiService.createConnection(this.channel.id, assistant)
 
         this.audioDeltaHandler = async (outAudio: Buffer, serverData: sessionData) => {
             const sessionId = serverData.channelId
@@ -57,8 +62,12 @@ class CallSession {
 
     }
 
-    async initialize() {
+    async initialize(botName: string, assistant: Assistant) {
             try {
+                if(!botName) {
+                    this.logger.error('Error initializing call session. Bot name is empty');
+                    return
+                }
             // Создаем мост
             this.bridge = this.ari.Bridge();
             await this.bridge.create({ type: 'mixing' });
@@ -67,7 +76,7 @@ class CallSession {
             // Создаем канал для внешнего медиа
             this.externalChannel = this.ari.Channel();
             this.externalChannel.externalMedia({
-                app: 'voicebot',
+                app: botName,
                 external_host: this.externalHost,
                 format: 'alaw'
             }).then((chan) => {
@@ -82,6 +91,7 @@ class CallSession {
                     port: String(channelVars.UNICASTRTP_LOCAL_PORT),
                     init: 'false',
                     openAiConn: this.openAiConnection,
+                    assistant
                 }
                 if(sessionData) {
                     this.rtpUdpServer.sessions.set(sessionUrl, sessionData)
@@ -109,6 +119,7 @@ async cleanup() {
             if (this.externalChannel.id !== undefined) {
                 await this.externalChannel.hangup();
             }
+            this.openAiService.dataDecode({type: 'call.hangup'}, this.channel.id, this.channel.caller.number)
             this.openAiService.eventEmitter.off('audioDelta', this.audioDeltaHandler);
             this.openAiService.closeConnection(this.channel.id);
             await this.streamAudioService.removeStream(this.channel.id);
@@ -131,17 +142,32 @@ export class AriService implements OnModuleInit {
     constructor(
         @Inject(RtpUdpServerService) private rtpUdpServer: RtpUdpServerService,
         @Inject(OpenAiService) private openAiServer: OpenAiService,
-        @Inject(StreamAudioService) private readonly streamAudioService: StreamAudioService
+        @Inject(StreamAudioService) private readonly streamAudioService: StreamAudioService,
+        @Inject(AssistantsService) private readonly assistantsService: AssistantsService
         ) {}
 
     async onModuleInit() {
-            // Подключаемся к ARI
-                await this.connectToARI();
+                const bots: Assistant[] = await this.assistantsService.getAll()
+                if(!bots) {
+                    this.logger.error('Error getting bots list');
+                    return
+                }
+                for(const assistant of bots) {
+                    await this.connectToARI(assistant);
+                }
+
+
     }
 
-    private async connectToARI() {
+    private async connectToARI(assistant: Assistant) {
+        if(!assistant.id) {
+            this.logger.warn(`Can't connect to assistant ${assistant.name}`);
+            return;
+        }
+
         const ari = await ariClient.connect(this.url, this.username, this.password);
-        await ari.start('voicebot');
+        const botName = 'voiceBot' + '_' + String(assistant.id)
+        await ari.start(botName);
 
         ari.on('StasisStart', async (event, incoming) => {
             if (this.sessions.has(incoming.id)) {
@@ -161,20 +187,19 @@ export class AriService implements OnModuleInit {
                     this.externalHost,
                     this.rtpUdpServer,
                     this.openAiServer,
-                    this.streamAudioService
+                    this.streamAudioService,
+                    assistant
                 );
 
                 this.sessions.set(incoming.id, session);
 
-                console.log("STARTING: ", incoming.id)
-                await session.initialize();
+                await session.initialize(botName, assistant);
 
                 incoming.on('StasisEnd', (event, channel) => {
 
                 });
 
             } catch (err) {
-                console.log(err)
                 this.logger.error('Error handling new call', err);
             }
         });
@@ -192,33 +217,4 @@ export class AriService implements OnModuleInit {
 
         })
     }
-
-    private streamAudioFromChannel(channel) {
-        console.log('WebSocket connection established for audio streaming');
-        channel.externalMedia({
-            app: 'voicebot',
-            external_host: this.externalHost,
-            format: 'alaw',
-        })
-        console.log('externalMedia Channel: ', channel)
-        // this.wsGateway.handleMessage('message', channel.data)
-    }
-
-    public async getEndpoints() {
-        // try {
-        //     // const endpoints_list = await this.client.endpoints.list()
-        //     return endpoints_list.map((endpoint: { technology: any; resource: any; state: any; channel_ids: any; }) => ({
-        //         technology: endpoint.technology,
-        //         resource: endpoint.resource,
-        //         state: endpoint.state,
-        //         channel_id: endpoint.channel_ids
-        //     }))
-        // } catch (e) {
-        //     console.log("error: " + e)
-        // }
-    }
-
 }
-
-
-

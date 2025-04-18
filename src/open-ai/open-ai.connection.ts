@@ -1,26 +1,44 @@
 import { WebSocket } from 'ws';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import {Assistant} from "../assistants/assistants.model";
+import {Logger} from "@nestjs/common";
 
 export class OpenAiConnection {
     private ws: WebSocket;
-    private readonly API_RT_URL = 'wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview-2024-12-17';
+    private readonly API_RT_URL = 'wss://api.openai.com/v1/realtime';
+    private readonly logger = new Logger(OpenAiConnection.name);
 
     constructor(
         private readonly apiKey: string,
         private readonly channelId: string,
-        private readonly eventEmitter: EventEmitter2
+        private readonly eventEmitter: EventEmitter2,
+        private readonly assistant: Assistant
     ) {
         this.connect();
     }
 
     private connect() {
-        this.ws = new WebSocket(this.API_RT_URL, {
+
+        if(!this.assistant) {
+            this.logger.error('Error initializing OpenAi Connection. Assistant is not configured');
+            return
+        }
+
+        if(!this.assistant.model) {
+            this.logger.error('Error initializing OpenAi Connection. Model name is empty');
+            return
+        }
+
+        const model = this.assistant.model
+        const api_url = this.API_RT_URL + '?model=' + model
+
+        this.ws = new WebSocket(api_url, {
             headers: {
                 Authorization: `Bearer ${this.apiKey}`,
                 "OpenAI-Beta": "realtime=v1",
             }
         });
-        console.log(`OpenAI Connection Started (${this.channelId})`);
+        this.logger.log(`Assistant ${this.assistant.name} Started (${this.channelId})`);
 
         this.ws.on('message', (data) => this.handleMessage(data));
         this.ws.on('error', (error) => this.handleError(error));
@@ -34,14 +52,13 @@ export class OpenAiConnection {
     }
 
     private handleError(error: Error) {
-        console.error(`OpenAI Connection Error (${this.channelId}):`, error);
+        this.logger.error(`Assistant ${this.assistant.name} Connection Error (${this.channelId}):`, error);
     }
 
     private handleClose() {
-        console.log(`OpenAI Connection Closed (${this.channelId})`);
+        this.logger.log(`Assistant ${this.assistant.name} Connection Closed (${this.channelId})`);
         this.eventEmitter.removeAllListeners(`openai.${this.channelId}`);
     }
-
     send(data: any) {
         if (this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify(data));

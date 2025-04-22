@@ -3,6 +3,7 @@ import {EventEmitter2} from '@nestjs/event-emitter';
 import {OpenAiConnection} from "./open-ai.connection";
 import {WsServerGateway} from "../ws-server/ws-server.gateway";
 import {Assistant} from "../assistants/assistants.model";
+import {AiCdrService} from "../ai-cdr/ai-cdr.service";
 
 
 export interface sessionData {
@@ -26,7 +27,8 @@ export class OpenAiService implements OnModuleInit {
 
     constructor(
         public eventEmitter: EventEmitter2,
-        @Inject(WsServerGateway) private readonly wsGateway: WsServerGateway
+        @Inject(WsServerGateway) private readonly wsGateway: WsServerGateway,
+        @Inject(AiCdrService) private readonly  aiCdrService: AiCdrService
     ) {}
 
     createConnection(channelId: string, assistant: Assistant): OpenAiConnection {
@@ -148,24 +150,34 @@ export class OpenAiService implements OnModuleInit {
         });
     }
 
-    public dataDecode(e, channelId: string, callerId: string) {
+    private async loggingEvents(channelId: string, callerId: string, event: any, assistant: Assistant) {
+        try {
+            if (channelId && assistant) {
+                this.wsGateway.sendToClient(channelId, callerId, event)
+                await this.aiCdrService.create({
+                    channelId,
+                    callerId,
+                    data: event,
+                    assistantId: assistant.id,
+                    assistantName: assistant.name,
+                    userId: assistant.userId,
+                    vPbxUserId: assistant.user.vpbx_user_id
+                })
+            }
+        } catch (e) {
+            this.logger.error(JSON.stringify(event))
+        }
+
+    }
+
+    public async dataDecode(e, channelId: string, callerId: string, assistant: Assistant) {
 
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
 
-        if (channelId) {
-            this.wsGateway.sendToClient(channelId, callerId, serverEvent)
-        }
-
-//        console.log(serverEvent.type)
-
-//        if (serverEvent.type !== "response.audio.delta") {
-//           console.log(serverEvent);
-//           console.log(JSON.stringify(Array.from(this.sessions.entries()), null, 2));
-//        }
-
-        if (serverEvent.type === "output_audio_buffer.speech.started") {
-            console.log(serverEvent);
-        }
+       if (serverEvent.type !== "response.audio.delta") {
+           await this.loggingEvents(channelId,callerId,e, assistant)
+          // console.log(JSON.stringify(Array.from(this.sessions.entries()), null, 2));
+       }
 
         if (serverEvent.type === "response.audio.delta") {
             const currentSession = this.getSessionByField('itemIds', serverEvent.item_id)
@@ -182,7 +194,8 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "error") {
-            console.log(JSON.stringify(serverEvent))
+            this.logger.error(JSON.stringify(serverEvent))
+            await this.loggingEvents(channelId,callerId,e, assistant)
         }
 
         if (serverEvent.type === "response.created") {
@@ -202,12 +215,6 @@ export class OpenAiService implements OnModuleInit {
             }
         }
 
-        // if (serverEvent.type === "conversation.item.created") {
-        //     console.log(serverEvent)
-        //     this.updateSession(serverEvent)
-        //
-        // }
-
         if (serverEvent.type === "response.done") {
             // console.log(JSON.stringify(serverEvent))
             this.updateSession(serverEvent)
@@ -216,20 +223,6 @@ export class OpenAiService implements OnModuleInit {
         if (serverEvent.type === "response.output_item.added") {
              this.updateSession(serverEvent)
         }
-
-        // if (serverEvent.type === "rate_limits.updated") {
-        //     console.log(JSON.stringify(serverEvent))
-        // }
-        // if (serverEvent.type === "response.function_call_arguments.delta") {
-        //     console.log(JSON.stringify(serverEvent))
-        // }
-        // if (serverEvent.type === "response.output_item.done") {
-        //     console.log(JSON.stringify(serverEvent))
-        // }
-        // if (serverEvent.type === "response.content_part.added") {
-        //     console.log(JSON.stringify(serverEvent))
-        // }
-
     }
 
     // public RTConnect() {
@@ -269,8 +262,6 @@ export class OpenAiService implements OnModuleInit {
 
 
     public updateRtAudioSession(session: sessionData) {
-
-
         if (session && session.openAiConn) {
             const connection = session.openAiConn
             const assistant = session.assistant
@@ -346,7 +337,7 @@ export class OpenAiService implements OnModuleInit {
             };
             connection.send(event)
         } else {
-            console.log("error sending text. ws is closed")
+            this.logger.error("error sending text. ws is closed")
         }
     }
 
@@ -370,7 +361,7 @@ export class OpenAiService implements OnModuleInit {
             }
             connection.send(event);
         } else {
-            console.log("error sending text. ws is closed")
+            this.logger.error("error sending text. ws is closed")
         }
     }
 
@@ -381,7 +372,14 @@ export class OpenAiService implements OnModuleInit {
 
             await this.updateRtAudioSession(metadata)
 
-            const prompt = `This is a service request, don't do anything. Don't answer anything, just return empty response`;
+            const greeting = metadata.assistant.greeting
+
+            const prompt = greeting
+                ? greeting
+                : `This is a service request, don't do anything. Don't answer anything, just return empty response`;
+
+
+            console.log(greeting)
 
             if (!metadata.channelId && !metadata.address && !metadata.port) return;
 
@@ -416,7 +414,7 @@ export class OpenAiService implements OnModuleInit {
             }
             metadata.openAiConn.send(event);
         } else {
-            console.log(`WS session ${metadata.channelId} do not exist`)
+            this.logger.error(`WS session ${metadata.channelId} do not exist`)
         }
     }
 

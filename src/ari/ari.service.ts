@@ -55,7 +55,7 @@ class CallSession {
 
         this.openAiService.eventEmitter.on(
             `openai.${this.channel.id}`,
-            (event) => this.openAiService.dataDecode(event, this.channel.id, this.channel.caller.number)
+            (event) => this.openAiService.dataDecode(event, this.channel.id, this.channel.caller.number, assistant)
         );
 
         this.openAiService.eventEmitter.on(`audioDelta.${this.channel.id}`, this.audioDeltaHandler);
@@ -119,7 +119,7 @@ async cleanup() {
             if (this.externalChannel.id !== undefined) {
                 await this.externalChannel.hangup();
             }
-            this.openAiService.dataDecode({type: 'call.hangup'}, this.channel.id, this.channel.caller.number)
+            await this.openAiService.dataDecode({type: 'call.hangup'}, this.channel.id, this.channel.caller.number, null)
             this.openAiService.eventEmitter.off('audioDelta', this.audioDeltaHandler);
             this.openAiService.closeConnection(this.channel.id);
             await this.streamAudioService.removeStream(this.channel.id);

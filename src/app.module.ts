@@ -13,6 +13,7 @@ import {AssistantsModule} from "./assistants/assistants.module";
 import {EventEmitterModule} from "@nestjs/event-emitter";
 import { AiModelsModule } from './ai-models/ai-models.module';
 import { AiToolsModule } from './ai-tools/ai-tools.module';
+import { AiCdrModule } from './ai-cdr/ai-cdr.module';
 
 
 @Module({
@@ -37,7 +38,7 @@ import { AiToolsModule } from './ai-tools/ai-tools.module';
         AiModelsModule,
         AiToolsModule,
 //        VoskServerModule
-    ],
+    ]
 })
 
 export class AppModule {}

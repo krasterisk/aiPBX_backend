@@ -14,6 +14,9 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: 'VoiceBot', description: "Ai Bot name" })
     @Column({ type: DataType.STRING, allowNull: false })
     name: string;
+    @ApiProperty({ example: 'Hello, what can i do for you?', description: "Greeting phrase" })
+    @Column({ type: DataType.STRING, allowNull: false })
+    greeting: string
     @ApiProperty({ example: 'GPT-4o', description: "Model name" })
     @Column({ type: DataType.STRING, allowNull: false })
     model: string

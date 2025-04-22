@@ -58,7 +58,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             const currentSession = this.sessions.get(sessionUrl);
 
             if (currentSession && currentSession.init === 'false') {
-                console.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port}`);
+                this.logger.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port}`);
                 currentSession.init = 'true';
                 this.external_local_Address = rinfo.address
                 this.external_local_Port = Number(rinfo.port)
@@ -71,7 +71,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
                 // this.writeStream.write(buf);
                 this.server.emit('data', msg, currentSession.channelId);
             } catch (error) {
-                console.error(`Error processing RTP packet: ${error}`);
+                this.logger.error(`Error processing RTP packet: ${error}`);
             }
         });
 
@@ -132,7 +132,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
     }
 
     onModuleDestroy() {
-        console.log('Closing RTP server and file stream...');
+        this.logger.log('Closing RTP server and file stream...');
         // this.writeStream.end(() => this.updateWavHeader());
         this.server.close();
         if (this.writeStream) {

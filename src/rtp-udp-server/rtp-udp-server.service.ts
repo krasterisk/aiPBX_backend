@@ -65,6 +65,8 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
                 // console.log("CURRENT SESSION: ", currentSession)
 
                 await this.openAi.rtInitAudioResponse(currentSession)
+                await this.openAi.updateRtAudioSession(currentSession)
+
             }
 
             try {

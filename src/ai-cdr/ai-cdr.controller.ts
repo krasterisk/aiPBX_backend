@@ -13,12 +13,12 @@ interface RequestWithUser extends Request {
     vPbxUserId?: string;
 }
 
-@Controller('ai-cdr')
+@Controller('reports')
 export class AiCdrController {
 
     constructor(private aiCdrService: AiCdrService) {}
 
-    @ApiOperation({summary: "ai-cdr list page"})
+    @ApiOperation({summary: "reports list page"})
     @ApiResponse({status: 200, type: AiTool})
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)

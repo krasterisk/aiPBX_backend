@@ -150,22 +150,22 @@ export class OpenAiService implements OnModuleInit {
         });
     }
 
-    private async loggingEvents(channelId: string, callerId: string, event: any, assistant: Assistant) {
+    private async loggingEvents(channelId: string, callerId: string, event: any, assistant?: Assistant) {
         try {
-            if (channelId && assistant) {
+            if (channelId) {
                 this.wsGateway.sendToClient(channelId, callerId, event)
                 await this.aiCdrService.create({
                     channelId,
                     callerId,
                     data: event,
-                    assistantId: assistant.id,
-                    assistantName: assistant.name,
-                    userId: assistant.userId,
-                    vPbxUserId: assistant.user.vpbx_user_id
+                    assistantId: assistant?.id,
+                    assistantName: assistant?.name,
+                    userId: assistant?.userId,
+                    vPbxUserId: assistant?.user.vpbx_user_id
                 })
             }
         } catch (e) {
-            this.logger.error(JSON.stringify(event))
+            this.logger.error(JSON.stringify(event), e)
         }
 
     }
@@ -174,8 +174,10 @@ export class OpenAiService implements OnModuleInit {
 
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
 
-       if (serverEvent.type !== "response.audio.delta") {
-           await this.loggingEvents(channelId,callerId,e, assistant)
+       if (serverEvent.type !== "response.audio.delta" &&
+           serverEvent.type !== "response.audio_transcript.delta"
+       ) {
+           await this.loggingEvents(channelId, callerId, e, assistant)
           // console.log(JSON.stringify(Array.from(this.sessions.entries()), null, 2));
        }
 
@@ -370,8 +372,6 @@ export class OpenAiService implements OnModuleInit {
 
         if (metadata.openAiConn) {
 
-            await this.updateRtAudioSession(metadata)
-
             const greeting = metadata.assistant.greeting
 
             const prompt = greeting
@@ -379,7 +379,7 @@ export class OpenAiService implements OnModuleInit {
                 : `This is a service request, don't do anything. Don't answer anything, just return empty response`;
 
 
-            console.log(greeting)
+            console.log(prompt)
 
             if (!metadata.channelId && !metadata.address && !metadata.port) return;
 
@@ -413,6 +413,7 @@ export class OpenAiService implements OnModuleInit {
                 }
             }
             metadata.openAiConn.send(event);
+            return
         } else {
             this.logger.error(`WS session ${metadata.channelId} do not exist`)
         }

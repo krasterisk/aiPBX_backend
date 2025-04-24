@@ -22,7 +22,6 @@ export class AiCdrService {
         }
     }
 
-
     async get(query: GetAiCdrDto, isAdmin: boolean) {
         try {
             const page = Number(query.page);
@@ -36,7 +35,7 @@ export class AiCdrService {
             let whereClause: any = {
                 [sequelize.Op.or]: [
                     {
-                        name: {
+                        callerId: {
                             [sequelize.Op.like]: `%${search}%`
                         }
                     }

@@ -43,10 +43,11 @@ export class WsServerGateway {
     console.log(`Client ${client.id} left room: ${channelId}`);
   }
 
-  sendToClient(channelId: string, callerId: string, event: any) {
+  sendToClient(channelId: string, callerId: string, assistant: string, event: any) {
     const fullEvent = {
       channelId,
       callerId,
+      assistant,
       ...event,
     };
     this.server.emit('openai.event', fullEvent);

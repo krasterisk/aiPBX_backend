@@ -150,16 +150,32 @@ export class OpenAiService implements OnModuleInit {
         });
     }
 
+    private async cdrCreateLog(channelId: string, callerId: string, assistant?: Assistant) {
+        try {
+            if (channelId) {
+                await this.aiCdrService.cdrCreate({
+                    channelId,
+                    callerId,
+                    assistantId: assistant?.id,
+                    assistantName: assistant?.name,
+                    userId: assistant?.userId,
+                    vPbxUserId: assistant?.user.vpbx_user_id
+                })
+            }
+        } catch (e) {
+            this.logger.error(e)
+        }
+    }
+
     private async loggingEvents(channelId: string, callerId: string, event: any, assistant?: Assistant) {
         try {
             if (channelId) {
-                this.wsGateway.sendToClient(channelId, callerId, event)
-                await this.aiCdrService.create({
+                const assistantName = assistant?.name || ''
+                this.wsGateway.sendToClient(channelId, callerId, assistantName, event)
+                await this.aiCdrService.eventCreate({
                     channelId,
                     callerId,
-                    data: event,
-                    assistantId: assistant?.id,
-                    assistantName: assistant?.name,
+                    events: event,
                     userId: assistant?.userId,
                     vPbxUserId: assistant?.user.vpbx_user_id
                 })
@@ -197,12 +213,28 @@ export class OpenAiService implements OnModuleInit {
 
         if (serverEvent.type === "error") {
             this.logger.error(JSON.stringify(serverEvent))
-            await this.loggingEvents(channelId,callerId,e, assistant)
+            await this.loggingEvents(channelId,callerId,e,assistant)
         }
 
         if (serverEvent.type === "response.created") {
             this.updateSession(serverEvent)
         }
+
+        if (serverEvent.type === "response.done") {
+            const tokens = serverEvent?.response?.usage?.total_tokens ?? 0
+            if(tokens) {
+                await this.aiCdrService.cdrUpdate({channelId,callerId,tokens})
+            }
+        }
+
+        if (serverEvent.type === "call.hangup") {
+            await this.aiCdrService.cdrHangup(channelId)
+        }
+
+        if (serverEvent.type === "session.created") {
+            await this.cdrCreateLog(channelId,callerId,assistant)
+        }
+
 
         if (serverEvent.type === "input_audio_buffer.committed") {
             this.updateSession(serverEvent)

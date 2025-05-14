@@ -12,6 +12,7 @@ export interface sessionData {
     address: string
     port: string
     openAiConn?: OpenAiConnection
+    currentResponseId?: string
     responseIds?: string[]
     itemIds?: string[]
     init?: string
@@ -109,6 +110,7 @@ export class OpenAiService implements OnModuleInit {
                 channelId: channelId || '',
                 address: serverEvent.response?.metadata?.address || '',
                 port: serverEvent.response?.metadata?.port || '',
+                currentResponseId: responseId ? responseId : '',
                 responseIds: responseId ? [responseId] : [],
                 itemIds: itemId ? [itemId] : [],
                 events: [],
@@ -122,6 +124,7 @@ export class OpenAiService implements OnModuleInit {
 
         // Добавляем новые responseIds и itemIds, избегая дубликатов
         if (responseId) {
+            existingSession.currentResponseId = responseId
             existingSession.responseIds = Array.isArray(existingSession.responseIds)
                 ? [...new Set([...existingSession.responseIds, responseId])]
                 : [responseId];
@@ -196,6 +199,28 @@ export class OpenAiService implements OnModuleInit {
            await this.loggingEvents(channelId, callerId, e, assistant)
           // console.log(JSON.stringify(Array.from(this.sessions.entries()), null, 2));
        }
+
+        if (serverEvent.type === "input_audio_buffer.speech_started") {
+            const currentSession = this.sessions.get(channelId);
+            console.log('SPEECH: ',currentSession.currentResponseId)
+            if(currentSession?.currentResponseId) {
+
+
+                const cancelEvent = {
+                    type: 'response.cancel',
+                    response_id: currentSession.currentResponseId
+                }
+                this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession)
+                this.sessions.set(channelId, {
+                    ...currentSession,
+                    currentResponseId: ''
+                })
+                // console.log(currentSession.currentResponseId, cancelEvent)
+//                await currentSession.openAiConn.send(cancelEvent)
+            }
+
+        }
+
 
         if (serverEvent.type === "response.audio.delta") {
             const currentSession = this.getSessionByField('itemIds', serverEvent.item_id)
@@ -382,8 +407,6 @@ export class OpenAiService implements OnModuleInit {
             //     type: "item_reference",
             //     id
             // })) || [];
-
-
             const event = {
                 type: "response.create",
                 response: {

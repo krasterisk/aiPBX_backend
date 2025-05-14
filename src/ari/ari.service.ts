@@ -29,6 +29,7 @@ class CallSession {
     private logger = new Logger(CallSession.name)
     private readonly openAiConnection: OpenAiConnection
     private readonly audioDeltaHandler: (outAudio: Buffer, serverData: sessionData) => Promise<void>
+    private readonly audioInterruptHandler: (serverData: sessionData) => Promise<void>
 
 
     constructor(
@@ -52,6 +53,11 @@ class CallSession {
             await this.streamAudioService.streamAudio(sessionId, outAudio);
         };
 
+        this.audioInterruptHandler = async (serverData: sessionData) => {
+            const sessionId = serverData.channelId
+            await this.streamAudioService.removeStream(sessionId);
+        };
+
 
         this.openAiService.eventEmitter.on(
             `openai.${this.channel.id}`,
@@ -59,6 +65,9 @@ class CallSession {
         );
 
         this.openAiService.eventEmitter.on(`audioDelta.${this.channel.id}`, this.audioDeltaHandler);
+
+        this.openAiService.eventEmitter.on(`audioInterrupt.${this.channel.id}`, this.audioInterruptHandler);
+
 
     }
 
@@ -120,7 +129,7 @@ async cleanup() {
                 await this.externalChannel.hangup();
             }
             await this.openAiService.dataDecode({type: 'call.hangup'}, this.channel.id, this.channel.caller.number, null)
-            this.openAiService.eventEmitter.off('audioDelta', this.audioDeltaHandler);
+            this.openAiService.eventEmitter.off(`audioDelta.${this.channel.id}`, this.audioDeltaHandler);
             this.openAiService.closeConnection(this.channel.id);
             await this.streamAudioService.removeStream(this.channel.id);
         } catch (err) {

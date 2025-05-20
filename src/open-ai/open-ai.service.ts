@@ -250,6 +250,11 @@ export class OpenAiService implements OnModuleInit {
             if(tokens) {
                 await this.aiCdrService.cdrUpdate({channelId,callerId,tokens})
             }
+
+            console.log(serverEvent?.response?.output)
+
+            if(serverEvent?.response?.output?.type === 'function_call')
+            console.log(serverEvent?.response?.output)
         }
 
         if (serverEvent.type === "call.hangup") {

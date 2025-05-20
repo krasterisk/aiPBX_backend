@@ -189,7 +189,7 @@ export class AiCdrService {
                 offset,
                 limit,
                 where: whereClause,
-                order: [['createdAt', 'ASC']]
+                order: [['createdAt', 'DESC']]
             });
 
             return {count, rows}

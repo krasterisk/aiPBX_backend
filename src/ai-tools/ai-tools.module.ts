@@ -14,6 +14,7 @@ import {AiToolsController} from "./ai-tools.controller";
         SequelizeModule.forFeature([AiTool, Assistant, AssistantToolsModel]),
         forwardRef(() => AuthModule)
     ],
+    exports: [AiToolsService]
 })
 export class AiToolsModule {
 }

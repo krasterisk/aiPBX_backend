@@ -123,4 +123,13 @@ export class AiToolsService {
         }
     }
 
+    async getToolByName(name: string, userId: number) {
+        const tool = await this.toolsRepository.findOne({where: {name, userId}})
+        if(!tool) {
+            throw new HttpException('Tool not found', HttpStatus.NOT_FOUND)
+        } else {
+            return tool
+        }
+    }
+
 }

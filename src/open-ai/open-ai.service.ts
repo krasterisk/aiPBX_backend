@@ -4,6 +4,8 @@ import {OpenAiConnection} from "./open-ai.connection";
 import {WsServerGateway} from "../ws-server/ws-server.gateway";
 import {Assistant} from "../assistants/assistants.model";
 import {AiCdrService} from "../ai-cdr/ai-cdr.service";
+import {AiToolsHandlersService} from "../ai-tools-handlers/ai-tools-handlers.service";
+import {response} from "express";
 
 
 export interface sessionData {
@@ -29,15 +31,17 @@ export class OpenAiService implements OnModuleInit {
     constructor(
         public eventEmitter: EventEmitter2,
         @Inject(WsServerGateway) private readonly wsGateway: WsServerGateway,
-        @Inject(AiCdrService) private readonly  aiCdrService: AiCdrService
-    ) {}
+        @Inject(AiCdrService) private readonly aiCdrService: AiCdrService,
+        @Inject(AiToolsHandlersService) private readonly aiToolsHandlersService: AiToolsHandlersService
+    ) {
+    }
 
     createConnection(channelId: string, assistant: Assistant): OpenAiConnection {
 
         const session: sessionData = this.sessions.get(channelId)
 
         if (session && session.openAiConn) {
-                return session.openAiConn
+            return session.openAiConn
         }
 
         const connection = new OpenAiConnection(
@@ -64,14 +68,14 @@ export class OpenAiService implements OnModuleInit {
 
     getConnection(channelId: string): OpenAiConnection | undefined {
         const session = this.sessions.get(channelId);
-        if(session.openAiConn) {
+        if (session.openAiConn) {
             return session.openAiConn
         }
     }
 
     closeConnection(channelId: string) {
         const session = this.sessions.get(channelId);
-        if(session.openAiConn) {
+        if (session.openAiConn) {
             const connection = session.openAiConn
             connection.close();
             this.sessions.delete(channelId);
@@ -193,17 +197,17 @@ export class OpenAiService implements OnModuleInit {
 
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
 
-       if (serverEvent.type !== "response.audio.delta" &&
-           serverEvent.type !== "response.audio_transcript.delta"
-       ) {
-           await this.loggingEvents(channelId, callerId, e, assistant)
-          // console.log(JSON.stringify(Array.from(this.sessions.entries()), null, 2));
-       }
+        if (serverEvent.type !== "response.audio.delta" &&
+            serverEvent.type !== "response.audio_transcript.delta"
+        ) {
+            await this.loggingEvents(channelId, callerId, e, assistant)
+            // console.log(JSON.stringify(Array.from(this.sessions.entries()), null, 2));
+        }
 
         if (serverEvent.type === "input_audio_buffer.speech_started") {
             const currentSession = this.sessions.get(channelId);
-            console.log('SPEECH: ',currentSession.currentResponseId)
-            if(currentSession?.currentResponseId) {
+            console.log('SPEECH: ', currentSession.currentResponseId)
+            if (currentSession?.currentResponseId) {
 
 
                 const cancelEvent = {
@@ -232,13 +236,13 @@ export class OpenAiService implements OnModuleInit {
                     address: currentSession.address,
                     port: Number(currentSession.port)
                 }
-                    this.eventEmitter.emit(`audioDelta.${currentSession.channelId}`, deltaBuffer, urlData)
+                this.eventEmitter.emit(`audioDelta.${currentSession.channelId}`, deltaBuffer, urlData)
             }
         }
 
         if (serverEvent.type === "error") {
             this.logger.error(JSON.stringify(serverEvent))
-            await this.loggingEvents(channelId,callerId,e,assistant)
+            await this.loggingEvents(channelId, callerId, e, assistant)
         }
 
         if (serverEvent.type === "response.created") {
@@ -247,14 +251,57 @@ export class OpenAiService implements OnModuleInit {
 
         if (serverEvent.type === "response.done") {
             const tokens = serverEvent?.response?.usage?.total_tokens ?? 0
-            if(tokens) {
-                await this.aiCdrService.cdrUpdate({channelId,callerId,tokens})
+            if (tokens) {
+                await this.aiCdrService.cdrUpdate({channelId, callerId, tokens})
             }
 
-            console.log(serverEvent?.response?.output)
+            const output = serverEvent?.response?.output;
 
-            if(serverEvent?.response?.output?.type === 'function_call')
-            console.log(serverEvent?.response?.output)
+            if (Array.isArray(output)) {
+                const currentSession = this.sessions.get(channelId);
+                for (const item of output) {
+                    if (
+                        item.type === "function_call"
+                    ) {
+                        const result = await this.aiToolsHandlersService.functionHandler(item.name, item.arguments, assistant)
+
+                        if (result) {
+
+                            const functionEvent = {
+                                type: "conversation.item.create",
+                                item: {
+                                    type: "function_call_output",
+                                    call_id: item.call_id,
+                                    output: typeof result === 'string' ? result : JSON.stringify(result)
+                                }
+                            }
+
+                            await currentSession.openAiConn.send(functionEvent)
+
+                            const metadata: sessionData = {
+                                channelId: currentSession.channelId,
+                                address: currentSession.address,
+                                port: currentSession.port
+                            }
+                            this.rtAudioOutBandResponseCreate(metadata, currentSession)
+                        }
+                        // try {
+                        //     funcArgs = JSON.parse(item.arguments);
+                        // } catch (error) {
+                        //     this.logger.error(`Ошибка парсинга аргументов функции: ${item.arguments}`);
+                        //     continue;
+                        // }
+
+
+                        // Вызов функции напрямую, через DI или map
+//                        const result = await this.functionHandler.execute(funcName, funcArgs, channelId, callerId);
+
+                        // Добавь result в сессию, лог или продолжение потока
+                        // или отправь результат в OpenAI Realtime, если нужно
+                    }
+                }
+            }
+
         }
 
         if (serverEvent.type === "call.hangup") {
@@ -262,7 +309,7 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "session.created") {
-            await this.cdrCreateLog(channelId,callerId,assistant)
+            await this.cdrCreateLog(channelId, callerId, assistant)
         }
 
 
@@ -275,7 +322,7 @@ export class OpenAiService implements OnModuleInit {
                     address: currentSession.address,
                     port: currentSession.port
                 }
-                this.rtAudioOutBandResponseCreate(metadata,currentSession)
+                this.rtAudioOutBandResponseCreate(metadata, currentSession)
             }
         }
 
@@ -285,7 +332,7 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "response.output_item.added") {
-             this.updateSession(serverEvent)
+            this.updateSession(serverEvent)
         }
     }
 
@@ -329,14 +376,14 @@ export class OpenAiService implements OnModuleInit {
         if (session && session.openAiConn) {
             const connection = session.openAiConn
             const assistant = session.assistant
-            if(!assistant) {
+            if (!assistant) {
                 this.logger.error(`Can't update session, not assistant data`)
             }
 
             const tools = (assistant.tools || []).map(tool => {
                 const data = tool.toJSON?.() || tool.dataValues;
-                const { type, name, description, parameters } = data;
-                return { type, name, description, parameters };
+                const {type, name, description, parameters} = data;
+                return {type, name, description, parameters};
             });
             const initAudioSession = {
                 type: 'session.update',

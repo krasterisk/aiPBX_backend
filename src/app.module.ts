@@ -13,7 +13,9 @@ import {AssistantsModule} from "./assistants/assistants.module";
 import {EventEmitterModule} from "@nestjs/event-emitter";
 import { AiModelsModule } from './ai-models/ai-models.module';
 import { AiToolsModule } from './ai-tools/ai-tools.module';
-import { AiCdrModule } from './ai-cdr/ai-cdr.module';
+import { AiToolsHandlersService } from './ai-tools-handlers/ai-tools-handlers.service';
+import { AiToolsHandlersModule } from './ai-tools-handlers/ai-tools-handlers.module';
+import {HttpModule} from "@nestjs/axios";
 
 
 @Module({
@@ -37,7 +39,12 @@ import { AiCdrModule } from './ai-cdr/ai-cdr.module';
         AssistantsModule,
         AiModelsModule,
         AiToolsModule,
-//        VoskServerModule
+        AiToolsHandlersModule,
+//        VoskServerModule,
+        HttpModule.register({
+            timeout: 5000,
+            maxRedirects: 5
+        })
     ]
 })
 

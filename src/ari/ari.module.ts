@@ -10,6 +10,8 @@ import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
 import {WsServerGateway} from "../ws-server/ws-server.gateway";
 import {AssistantsModule} from "../assistants/assistants.module";
 import {AiCdrModule} from "../ai-cdr/ai-cdr.module";
+import {AiToolsHandlersService} from "../ai-tools-handlers/ai-tools-handlers.service";
+import {AiToolsHandlersModule} from "../ai-tools-handlers/ai-tools-handlers.module";
 const udpSocket = dgram.createSocket('udp4');
 
 @Module({
@@ -30,7 +32,8 @@ const udpSocket = dgram.createSocket('udp4');
     imports: [
         forwardRef(() => AuthModule),
         AssistantsModule,
-        AiCdrModule
+        AiCdrModule,
+        AiToolsHandlersModule
     ]
 })
 export class AriModule {

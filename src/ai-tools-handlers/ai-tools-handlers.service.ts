@@ -30,9 +30,7 @@ export class AiToolsHandlersService {
         } catch (err) {
             throw new HttpException('Invalid function arguments format', HttpStatus.BAD_REQUEST);
         }
-
-        console.log("PARAMS: ", parsedArgs)
-
+        this.logger.log('Webhook detected: ${tool.webhook}',JSON.stringify(parsedArgs));
         try {
             const response = await firstValueFrom(
                 this.httpService.get(tool.webhook, {
@@ -47,10 +45,16 @@ export class AiToolsHandlersService {
         } catch (error) {
             // Логируем, но не прерываем выполнение
             const axiosError = error as AxiosError;
-            console.error('Webhook call failed:', axiosError.message);
+            this.logger.error(`Webhook ${tool.webhook} call failed:`,
+                `${axiosError.response?.status}, 
+                ${axiosError.response?.statusText},
+                ${JSON.stringify(axiosError.response?.data)},
+                ${axiosError.message},
+                ${axiosError.status},
+                ${axiosError.toString()}`);
 
             // Возвращаем текст ошибки вместо остановки
-            return `Function call failed: ${axiosError.response?.status} ${axiosError.message}`
+            return `Function call failed: ${axiosError.response?.status} ${JSON.stringify(axiosError.response?.data)}`
         }
     }
 }

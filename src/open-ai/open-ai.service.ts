@@ -5,7 +5,6 @@ import {WsServerGateway} from "../ws-server/ws-server.gateway";
 import {Assistant} from "../assistants/assistants.model";
 import {AiCdrService} from "../ai-cdr/ai-cdr.service";
 import {AiToolsHandlersService} from "../ai-tools-handlers/ai-tools-handlers.service";
-import {response} from "express";
 
 
 export interface sessionData {
@@ -263,41 +262,37 @@ export class OpenAiService implements OnModuleInit {
                     if (
                         item.type === "function_call"
                     ) {
-                        const result = await this.aiToolsHandlersService.functionHandler(item.name, item.arguments, assistant)
+                     console.log(item.name)
+                        if(item.name === 'transfer_call') {
+                            this.logger.log('Переводим вызов на сотрудника')
+                            this.eventEmitter.emit(`transferToDialplan.${currentSession.channelId}`)
+                        } else {
 
-                        if (result) {
+                            const result = await this.aiToolsHandlersService.functionHandler(item.name, item.arguments, assistant)
 
-                            const functionEvent = {
-                                type: "conversation.item.create",
-                                item: {
-                                    type: "function_call_output",
-                                    call_id: item.call_id,
-                                    output: typeof result === 'string' ? result : JSON.stringify(result)
+                            if (result) {
+
+                                console.log("RESULT:", typeof result === 'string' ? result : JSON.stringify(result))
+
+                                const functionEvent = {
+                                    type: "conversation.item.create",
+                                    item: {
+                                        type: "function_call_output",
+                                        call_id: item.call_id,
+                                        output: typeof result === 'string' ? result : JSON.stringify(result)
+                                    }
                                 }
-                            }
 
-                            await currentSession.openAiConn.send(functionEvent)
+                                await currentSession.openAiConn.send(functionEvent)
 
-                            const metadata: sessionData = {
-                                channelId: currentSession.channelId,
-                                address: currentSession.address,
-                                port: currentSession.port
+                                const metadata: sessionData = {
+                                    channelId: currentSession.channelId,
+                                    address: currentSession.address,
+                                    port: currentSession.port
+                                }
+                                this.rtAudioOutBandResponseCreate(metadata, currentSession)
                             }
-                            this.rtAudioOutBandResponseCreate(metadata, currentSession)
                         }
-                        // try {
-                        //     funcArgs = JSON.parse(item.arguments);
-                        // } catch (error) {
-                        //     this.logger.error(`Ошибка парсинга аргументов функции: ${item.arguments}`);
-                        //     continue;
-                        // }
-
-
-                        // Вызов функции напрямую, через DI или map
-//                        const result = await this.functionHandler.execute(funcName, funcArgs, channelId, callerId);
-
-                        // Добавь result в сессию, лог или продолжение потока
-                        // или отправь результат в OpenAI Realtime, если нужно
                     }
                 }
             }
@@ -385,6 +380,7 @@ export class OpenAiService implements OnModuleInit {
                 const {type, name, description, parameters} = data;
                 return {type, name, description, parameters};
             });
+
             const initAudioSession = {
                 type: 'session.update',
                 session: {

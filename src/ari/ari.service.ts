@@ -40,8 +40,7 @@ class CallSession {
         private openAiService: OpenAiService,
         private streamAudioService: StreamAudioService,
         private assistant: Assistant,
-
-) {
+    ) {
         this.openAiConnection = this.openAiService.createConnection(this.channel.id, assistant)
 
         this.audioDeltaHandler = async (outAudio: Buffer, serverData: sessionData) => {
@@ -61,27 +60,30 @@ class CallSession {
 
         this.openAiService.eventEmitter.on(
             `openai.${this.channel.id}`,
-            (event) => this.openAiService.dataDecode(event, this.channel.id, this.channel.caller.number, assistant)
+            (event) => this.openAiService.dataDecode(event, this.channel.id,
+                this.channel.caller.number, assistant)
         );
 
         this.openAiService.eventEmitter.on(`audioDelta.${this.channel.id}`, this.audioDeltaHandler);
 
         this.openAiService.eventEmitter.on(`audioInterrupt.${this.channel.id}`, this.audioInterruptHandler);
 
+        this.openAiService.eventEmitter.on(`transferToDialplan.${this.channel.id}`,
+            this.redirectToDialplan.bind(this));
 
     }
 
     async initialize(botName: string, assistant: Assistant) {
-            try {
-                if(!botName) {
-                    this.logger.error('Error initializing call session. Bot name is empty');
-                    return
-                }
+        try {
+            if (!botName) {
+                this.logger.error('Error initializing call session. Bot name is empty');
+                return
+            }
             // Создаем мост
             this.bridge = this.ari.Bridge();
-            await this.bridge.create({ type: 'mixing' });
+            await this.bridge.create({type: 'mixing'});
             // Добавляем входящий канал в мост
-            await this.bridge.addChannel({ channel: this.channel.id });
+            await this.bridge.addChannel({channel: this.channel.id});
             // Создаем канал для внешнего медиа
             this.externalChannel = this.ari.Channel();
             this.externalChannel.externalMedia({
@@ -102,7 +104,7 @@ class CallSession {
                     openAiConn: this.openAiConnection,
                     assistant
                 }
-                if(sessionData) {
+                if (sessionData) {
                     this.rtpUdpServer.sessions.set(sessionUrl, sessionData)
                 }
 
@@ -120,7 +122,7 @@ class CallSession {
         }
     }
 
-async cleanup() {
+    async cleanup() {
         try {
             if (this.bridge.id !== undefined) {
                 await this.bridge.destroy();
@@ -135,6 +137,22 @@ async cleanup() {
         } catch (err) {
             this.logger.error('Error cleaning up session', err);
         }
+    }
+
+    async redirectToDialplan(context: string = 'sip-out0', extension: string = '200', priority: number = 1) {
+        if (!this.channel) {
+            this.logger.warn('Cannot redirect: channel is undefined');
+            return;
+        }
+            await this.channel.continueInDialplan({
+                context,
+                extension,
+                priority
+            }, err => console.log(err));
+
+                console.log(JSON.stringify(context))
+
+            this.logger.log(`Channel ${this.channel.id} redirected to ${context},${extension},${priority}`);
     }
 }
 
@@ -153,23 +171,24 @@ export class AriService implements OnModuleInit {
         @Inject(OpenAiService) private openAiServer: OpenAiService,
         @Inject(StreamAudioService) private readonly streamAudioService: StreamAudioService,
         @Inject(AssistantsService) private readonly assistantsService: AssistantsService
-        ) {}
+    ) {
+    }
 
     async onModuleInit() {
-                const bots: Assistant[] = await this.assistantsService.getAll()
-                if(!bots) {
-                    this.logger.error('Error getting bots list');
-                    return
-                }
-                for(const assistant of bots) {
-                    await this.connectToARI(assistant);
-                }
+        const bots: Assistant[] = await this.assistantsService.getAll()
+        if (!bots) {
+            this.logger.error('Error getting bots list');
+            return
+        }
+        for (const assistant of bots) {
+            await this.connectToARI(assistant);
+        }
 
 
     }
 
     private async connectToARI(assistant: Assistant) {
-        if(!assistant.id) {
+        if (!assistant.id) {
             this.logger.warn(`Can't connect to assistant ${assistant.name}`);
             return;
         }
@@ -223,7 +242,15 @@ export class AriService implements OnModuleInit {
             } catch (e) {
                 this.logger.error('Error from stasis end', e);
             }
+        })
 
+        ari.on('ChannelDialplan', (event, channel) => {
+            try {
+                console.log(event,channel)
+            } catch (e) {
+                console.log(e,event,channel)
+            }
         })
     }
+
 }

@@ -1,11 +1,16 @@
-FROM node:18-alpine
-WORKDIR /opt/app
-ADD package.json package.json
-RUN npm install
-ADD . .
+FROM node:22-slim
+
+WORKDIR /app/aiPBX_backend
+
+# Установка зависимостей
+COPY package*.json ./
+RUN npm install -g pm2 && npm install
+
+# Копируем код и билдим
+COPY . .
 RUN npm run build
+
+# Удаляем dev-зависимости
 RUN npm prune --production
-CMD ["node", "./dist/main.js"]
 
-
-
+CMD ["pm2-runtime", "start", "ecosystem.config.js"]

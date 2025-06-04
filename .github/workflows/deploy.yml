@@ -3,7 +3,7 @@ name: Deploy aiPBX backend
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   deploy:

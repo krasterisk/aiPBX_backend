@@ -12,6 +12,7 @@ services:
     ports:
       - "7002:7002"
       - "3032:3032"
+      - "3033:3033"
 
 #  nginx:
 #    image: nginx:alpine

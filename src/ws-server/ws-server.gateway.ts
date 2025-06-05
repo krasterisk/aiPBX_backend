@@ -8,7 +8,7 @@ import {
 import {Logger} from "@nestjs/common";
 import {Server, Socket} from "socket.io";
 
-@WebSocketGateway(443,{
+@WebSocketGateway(3033,{
   cors: {
     origin: '*',
   },
@@ -16,7 +16,7 @@ import {Server, Socket} from "socket.io";
 export class WsServerGateway {
   private readonly logger = new Logger(WebSocketGateway.name);
   @WebSocketServer() server: Server;
-  public port: number = 443;
+  public port: number = 3033;
 
   afterInit() {
     this.logger.log('WebSocket сервер инициализирован');

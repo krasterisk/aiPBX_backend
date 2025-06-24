@@ -165,8 +165,11 @@ export class AiCdrService {
             const limit = Number(query.limit);
             const offset = (page - 1) * limit;
             const search = query.search;
+            const endDate = query.endDate;
+            const startDate = query.startDate;
 
-            const userId = !query.userId && isAdmin ? undefined : query.userId;
+            const userId = !query.userId && isAdmin ? undefined : Number(query.userId);
+
 
             // Prepare the where clause
             let whereClause: any = {
@@ -181,6 +184,29 @@ export class AiCdrService {
                     }
                 ]
             };
+
+            // Обработка случаев, когда указаны оба параметра startDate и endDate
+            if (startDate && endDate) {
+                whereClause.createdAt = {
+                    // [sequelize.Op.gte]: sequelize.literal(`DATE('${startDate}')`),
+                    // [sequelize.Op.lte]: sequelize.literal(`DATE('${endDate}')`)
+                    [sequelize.Op.between]: [startDate + " 00:00", endDate + " 23:59"]
+                };
+            }
+            // Обработка случая, когда указан только startDate
+            else if (startDate) {
+                whereClause.createdAt = {
+                    [sequelize.Op.gte]: sequelize.literal(`DATE('${startDate}')`)
+                };
+            }
+            // Обработка случая, когда указан только endDate
+            else if (endDate) {
+                whereClause.createdAt = {
+                    [sequelize.Op.lte]: sequelize.literal(`DATE('${endDate}')`)
+                };
+            }
+
+
             if (userId !== undefined) {
                 whereClause.userId = userId;
             }

@@ -6,6 +6,7 @@ import {GetToolsDto} from "../ai-tools/dto/getToolsDto";
 import {AiCdrService} from "./ai-cdr.service";
 import {AiEvents} from "./ai-events.model";
 import {AiCdr} from "./ai-cdr.model";
+import {GetAiCdrDto} from "./dto/getAiCdr.dto";
 
 interface RequestWithUser extends Request {
     isAdmin?: boolean
@@ -24,7 +25,7 @@ export class AiCdrController {
     @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Get('page')
-    get(@Query() query: GetToolsDto,
+    get(@Query() query: GetAiCdrDto,
         @Req() request: RequestWithUser) {
         const isAdmin = request.isAdmin
         try {

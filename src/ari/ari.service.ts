@@ -31,7 +31,6 @@ class CallSession {
     private readonly audioDeltaHandler: (outAudio: Buffer, serverData: sessionData) => Promise<void>
     private readonly audioInterruptHandler: (serverData: sessionData) => Promise<void>
 
-
     constructor(
         private ari: ariClient.Client,
         private channel: ariClient.Channel,
@@ -71,6 +70,8 @@ class CallSession {
         this.openAiService.eventEmitter.on(`transferToDialplan.${this.channel.id}`,
             this.redirectToDialplan.bind(this));
 
+        this.openAiService.eventEmitter.on(`hangupCall.${this.channel.id}`,
+            this.hangupCall.bind(this))
     }
 
     async initialize(botName: string, assistant: Assistant) {
@@ -153,6 +154,16 @@ class CallSession {
                 console.log(JSON.stringify(context))
 
             this.logger.log(`Channel ${this.channel.id} redirected to ${context},${extension},${priority}`);
+    }
+
+    async hangupCall() {
+        if (!this.channel) {
+            this.logger.warn('Cannot hangup: channel is undefined');
+            return;
+        }
+            await this.cleanup()
+
+            this.logger.log(`Channel ${this.channel.id} hangup`);
     }
 }
 

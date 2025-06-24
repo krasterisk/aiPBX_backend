@@ -266,12 +266,13 @@ export class OpenAiService implements OnModuleInit {
                         if(item.name === 'transfer_call') {
                             this.logger.log('Переводим вызов на сотрудника')
                             this.eventEmitter.emit(`transferToDialplan.${currentSession.channelId}`)
+                        } else if (item.name === 'hangup_call') {
+                            this.logger.log('Завершаем вызов')
+                            this.eventEmitter.emit(`HangupCall.${currentSession.channelId}`)
                         } else {
 
                             const result = await this.aiToolsHandlersService.functionHandler(item.name, item.arguments, assistant)
-
                             if (result) {
-
                                 console.log("RESULT:", typeof result === 'string' ? result : JSON.stringify(result))
 
                                 const functionEvent = {

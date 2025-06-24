@@ -177,13 +177,16 @@ export class AiCdrService {
                     {
                         callerId: {
                             [sequelize.Op.like]: `%${search}%`
-                        },
+                        }
+                    },
+                    {
                         assistantName: {
                             [sequelize.Op.like]: `%${search}%`
                         }
                     }
                 ]
             };
+
 
             // Обработка случаев, когда указаны оба параметра startDate и endDate
             if (startDate && endDate) {

@@ -186,7 +186,7 @@ export class AriService implements OnModuleInit {
     }
 
     async onModuleInit() {
-        const bots: Assistant[] = await this.assistantsService.getAll()
+        const bots: Assistant[] = await this.assistantsService.getAll('0', true)
         if (!bots) {
             this.logger.error('Error getting bots list');
             return

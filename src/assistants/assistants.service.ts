@@ -105,9 +105,19 @@ export class AssistantsService {
         }
     }
 
-    async getAll() {
+    async getAll(realUserId: string, isAdmin: boolean) {
         try {
+
+            if (!realUserId && !isAdmin) {
+                throw new HttpException({ message: "[Assistants]:  userId must be set" }, HttpStatus.BAD_REQUEST);
+            }
+
+            const userId = isAdmin ? undefined : Number(realUserId);
+
+            const whereClause: any = userId ? { userId } : {}
+
             const assistant = await this.assistantsRepository.findAll({
+                where: whereClause,
                 include: [
                     {
                         all: true,

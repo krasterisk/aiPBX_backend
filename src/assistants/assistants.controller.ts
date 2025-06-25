@@ -10,8 +10,8 @@ import {GetAssistantsDto} from "./dto/getAssistants.dto";
 interface RequestWithUser extends Request {
     isAdmin?: boolean
     tokenUserId?: string
+    vpbxUserId?: string;
 }
-
 @Controller('assistants')
 export class AssistantsController {
 
@@ -19,12 +19,15 @@ export class AssistantsController {
 
     @ApiOperation({summary: "assistants list"})
     @ApiResponse({status: 200, type: Assistant})
-    @Roles('ADMIN')
+    @Roles('ADMIN','USER')
     @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Get()
-    getAll() {
-        return this.assistantsService.getAll()
+    getAll(@Req() request: RequestWithUser) {
+        const isAdmin = request.isAdmin
+        const tokenUserId = request.vpbxUserId || request.tokenUserId
+        const realUserId = !isAdmin && tokenUserId
+        return this.assistantsService.getAll(realUserId, isAdmin)
     }
 
     @ApiOperation({summary: "Assistants list page"})

@@ -5,7 +5,7 @@ export class GetAiCdrDto {
     userId: string = '0'
     @IsString({message: 'Must be a string!'})
     search?: string
-    tab?: string
+    assistantId?: string
     startDate?: string
     endDate?: string
     page: number | string = 1

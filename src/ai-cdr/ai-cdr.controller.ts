@@ -28,8 +28,10 @@ export class AiCdrController {
     get(@Query() query: GetAiCdrDto,
         @Req() request: RequestWithUser) {
         const isAdmin = request.isAdmin
+        const tokenUserId = request.vPbxUserId || request.tokenUserId
+        const realUserId = !isAdmin && tokenUserId
         try {
-            return this.aiCdrService.get(query, isAdmin)
+            return this.aiCdrService.get(query, isAdmin, realUserId)
 
         } catch (e) {
             console.log(e)

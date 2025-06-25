@@ -1,6 +1,7 @@
 import {NestFactory} from "@nestjs/core";
 import {AppModule} from "./app.module";
 import {DocumentBuilder, SwaggerModule} from "@nestjs/swagger";
+import {ValidationPipe} from "@nestjs/common";
 
 async function start() {
     console.log(`${process.env.NODE_ENV}`)
@@ -17,6 +18,7 @@ async function start() {
         SwaggerModule.setup('/api/docs', app, document)
 
 //    app.useGlobalPipes(new ValidationPipe())
+
     // Enable Cors
     app.enableCors()
 

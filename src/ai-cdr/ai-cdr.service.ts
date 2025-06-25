@@ -1,7 +1,7 @@
 import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
 import {AiCdrDto} from "./dto/ai-cdr.dto";
-import sequelize from "sequelize";
+import sequelize, {Op} from "sequelize";
 import {GetAiCdrDto} from "./dto/getAiCdr.dto";
 import {AiCdr} from "./ai-cdr.model";
 import {AiEvents} from "./ai-events.model";
@@ -159,7 +159,7 @@ export class AiCdrService {
         }
     }
 
-    async get(query: GetAiCdrDto, isAdmin: boolean) {
+    async get(query: GetAiCdrDto, isAdmin: boolean, realUserId: string) {
         try {
             const page = Number(query.page);
             const limit = Number(query.limit);
@@ -168,8 +168,15 @@ export class AiCdrService {
             const endDate = query.endDate;
             const startDate = query.startDate;
 
-            const userId = !query.userId && isAdmin ? undefined : Number(query.userId);
+            if (!realUserId && !isAdmin) {
+                throw new HttpException({ message: "[Report]:  userId must be set" }, HttpStatus.BAD_REQUEST);
+            }
 
+            const userId = !query.userId && isAdmin
+                ? undefined
+                : !isAdmin
+                    ? realUserId
+                    : Number(query.userId);
 
             // Prepare the where clause
             let whereClause: any = {
@@ -186,7 +193,6 @@ export class AiCdrService {
                     }
                 ]
             };
-
 
             // Обработка случаев, когда указаны оба параметра startDate и endDate
             if (startDate && endDate) {
@@ -209,9 +215,22 @@ export class AiCdrService {
                 };
             }
 
-
             if (userId !== undefined) {
                 whereClause.userId = userId;
+            }
+
+            const assistantIds = Array.isArray(query.assistantId)
+                ? query.assistantId
+                : typeof query.assistantId === 'string'
+                    ? query.assistantId.split(',').map(id => id.trim()).filter(Boolean)
+                    : [];
+
+            console.log(assistantIds)
+
+            if (assistantIds && assistantIds.length > 0) {
+                whereClause.assistantId = {
+                    [Op.in]: assistantIds
+                };
             }
 
             const {count, rows} = await this.aiCdrRepository.findAndCountAll({

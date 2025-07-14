@@ -225,8 +225,6 @@ export class AiCdrService {
                     ? query.assistantId.split(',').map(id => id.trim()).filter(Boolean)
                     : [];
 
-            console.log(assistantIds)
-
             if (assistantIds && assistantIds.length > 0) {
                 whereClause.assistantId = {
                     [Op.in]: assistantIds

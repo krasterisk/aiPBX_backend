@@ -6,6 +6,7 @@ import {GetAiCdrDto} from "./dto/getAiCdr.dto";
 import {AiCdr} from "./ai-cdr.model";
 import {AiEvents} from "./ai-events.model";
 import {AiEventDto} from "./dto/ia-events.dto";
+import {GetDashboardAllData, GetDashboardData, GetDashboardDoneData, GetDashboardDto} from "./dto/getDashboardDto";
 
 interface AudioTranscriptionEvent {
     type: 'conversation.item.input_audio_transcription.completed';
@@ -106,7 +107,6 @@ export class AiCdrService {
             throw new HttpException('[AiEvents]: Get events error' + e, HttpStatus.BAD_REQUEST)
         }
     }
-
 
     async getDialogs(channelId: string) {
         try {
@@ -242,6 +242,83 @@ export class AiCdrService {
 
         } catch (e) {
             throw new HttpException({message: "[AiCdr]: Request error", error: e}, HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    async getDashboardData(query: GetDashboardDto, isAdmin: boolean) {
+        const assistantId = query.assistantId || "";
+        const startDate = query.startDate || "";
+        const endDate = query.endDate || "";
+        const tab = query.tab || "";
+
+        const userId = !query.userId && isAdmin ? undefined : Number(query.userId);
+
+        // const userId = undefined;
+
+        if (!startDate || !endDate) {
+            throw new HttpException({ message: "[Dashboard]: Request error" }, HttpStatus.BAD_REQUEST);
+        }
+
+        const dateArray = [];
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        while (start <= end) {
+            dateArray.push(start.getDate());
+            start.setDate(start.getDate() + 1);
+        }
+
+
+        let whereClause: string = `WHERE (DATE(createdAt) between DATE('${startDate}') AND DATE('${endDate}'))`;
+        let whereAddClause: string = "";
+        let groupByClause = "";
+        let dopAttr = "";
+
+        if (dateArray.length <= 31) {
+            groupByClause = "GROUP by DAY(createdAt)";
+            dopAttr = "DATE(createdAt) as label";
+        } else if (dateArray.length > 31 && dateArray.length <= 366) {
+            groupByClause = "GROUP by MONTH(createdAt)";
+            dopAttr = "DATE_FORMAT(createdAt, '%Y-%m') as label";
+        } else if (dateArray.length > 366) {
+            groupByClause = "GROUP by YEAR(createdAt)";
+            dopAttr = "DATE_FORMAT(createdAt, '%Y') as label";
+        }
+
+        if (userId) {
+            whereAddClause += `AND userId = ${userId} `;
+        }
+
+        if (assistantId) {
+            whereAddClause += `AND assistantId IN (${assistantId}) `;
+        }
+
+        const attrPeriodClause = `${dopAttr}, COUNT(*) as allCount, SUM(tokens) as tokensCount, SUM(duration) as durationCount`;
+        const attrTotalClause = `COUNT(*) as allCount, SUM(tokens) as allTokensCount, SUM(duration) as allDurationCount`;
+
+        const requestPeriod = `SELECT ${attrPeriodClause} FROM aiCdr ${whereClause} ${whereAddClause} ${groupByClause}`;
+        const request = `SELECT ${attrTotalClause} FROM aiCdr ${whereClause} ${whereAddClause}`;
+
+        try {
+            const chartData = await this.aiCdrRepository.sequelize.query(requestPeriod, {
+                type: sequelize.QueryTypes.SELECT
+            }) as GetDashboardDoneData[];
+
+            const totalData = await this.aiCdrRepository.sequelize.query(request, {
+                type: sequelize.QueryTypes.SELECT
+            }) as GetDashboardAllData;
+
+            const casksDashboardData: GetDashboardData = {
+                chartData,
+                allCount: totalData[0].allCount ?? 0,
+                allTokensCount: totalData[0].allTokensCount ?? 0,
+                allDurationCount: totalData[0].allDurationCount ?? 0
+            };
+
+            return casksDashboardData;
+
+
+        } catch (e) {
+            throw new HttpException({ message: "[Dashboard]: Request error" } + e, HttpStatus.BAD_REQUEST);
         }
     }
 

@@ -161,8 +161,9 @@ class CallSession {
             this.logger.warn('Cannot hangup: channel is undefined');
             return;
         }
+            this.logger.log(`Channel ${this.channel.id} hangup`);
             await this.cleanup()
-
+            await this.channel.hangup()
             this.logger.log(`Channel ${this.channel.id} hangup`);
     }
 }

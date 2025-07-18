@@ -91,6 +91,7 @@ export class AssistantsService {
             const assistants = await this.assistantsRepository.findAndCountAll({
                 offset,
                 limit,
+                distinct: true,
                 include: [
                     {
                         all: true,

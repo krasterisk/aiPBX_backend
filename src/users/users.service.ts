@@ -81,6 +81,7 @@ export class UsersService {
             const users = await this.usersRepository.findAndCountAll({
                     offset,
                     limit,
+                    distinct: true,
                     order: [
                         [sort, order]
                     ],
@@ -148,6 +149,26 @@ export class UsersService {
         }
         await user.update(updates);
         return user;
+    }
+
+    async updateUserBalance(id: string, amountToAdd: number) {
+
+        if(!id && !amountToAdd) {
+                console.log('id or amount not found');
+                return false
+        }
+        const [affectedRows] = await this.usersRepository.increment('balance', {
+            by: amountToAdd,
+            where: { id }
+        });
+
+        if (affectedRows.length === 0) {
+            console.log('user not found');
+            return false
+        }
+
+        return true
+
     }
 
     async getUserByUsername(username: string) {

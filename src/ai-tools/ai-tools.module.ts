@@ -16,5 +16,4 @@ import {AiToolsController} from "./ai-tools.controller";
     ],
     exports: [AiToolsService]
 })
-export class AiToolsModule {
-}
+export class AiToolsModule {}

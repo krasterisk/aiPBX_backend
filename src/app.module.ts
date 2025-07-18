@@ -16,6 +16,9 @@ import { AiToolsModule } from './ai-tools/ai-tools.module';
 import { AiToolsHandlersService } from './ai-tools-handlers/ai-tools-handlers.service';
 import { AiToolsHandlersModule } from './ai-tools-handlers/ai-tools-handlers.module';
 import {HttpModule} from "@nestjs/axios";
+import { PaymentsService } from './payments/payments.service';
+import { PaymentsController } from './payments/payments.controller';
+import { PaymentsModule } from './payments/payments.module';
 
 
 @Module({
@@ -44,8 +47,9 @@ import {HttpModule} from "@nestjs/axios";
         HttpModule.register({
             timeout: 5000,
             maxRedirects: 5
-        })
-    ]
+        }),
+        PaymentsModule
+    ],
 })
 
 export class AppModule {}

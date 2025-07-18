@@ -71,6 +71,7 @@ export class AiToolsService {
             const tools = await this.toolsRepository.findAndCountAll({
                 offset,
                 limit,
+                distinct: true,
                 include: [
                     {
                         all: true,

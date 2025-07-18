@@ -234,6 +234,7 @@ export class AiCdrService {
             const {count, rows} = await this.aiCdrRepository.findAndCountAll({
                 offset,
                 limit,
+                distinct: true,
                 where: whereClause,
                 order: [['createdAt', 'DESC']]
             });

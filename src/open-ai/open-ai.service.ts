@@ -32,8 +32,7 @@ export class OpenAiService implements OnModuleInit {
         @Inject(WsServerGateway) private readonly wsGateway: WsServerGateway,
         @Inject(AiCdrService) private readonly aiCdrService: AiCdrService,
         @Inject(AiToolsHandlersService) private readonly aiToolsHandlersService: AiToolsHandlersService
-    ) {
-    }
+    ) {}
 
     createConnection(channelId: string, assistant: Assistant): OpenAiConnection {
 

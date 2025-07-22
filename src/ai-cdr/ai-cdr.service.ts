@@ -1,4 +1,4 @@
-import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
+import {HttpException, HttpStatus, Inject, Injectable} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
 import {AiCdrDto} from "./dto/ai-cdr.dto";
 import sequelize, {Op} from "sequelize";
@@ -7,6 +7,9 @@ import {AiCdr} from "./ai-cdr.model";
 import {AiEvents} from "./ai-events.model";
 import {AiEventDto} from "./dto/ia-events.dto";
 import {GetDashboardAllData, GetDashboardData, GetDashboardDoneData, GetDashboardDto} from "./dto/getDashboardDto";
+import {Prices} from "../prices/prices.model";
+import {PaymentsService} from "../payments/payments.service";
+import {UsersService} from "../users/users.service";
 
 interface AudioTranscriptionEvent {
     type: 'conversation.item.input_audio_transcription.completed';
@@ -29,9 +32,10 @@ export class AiCdrService {
 
     constructor(
         @InjectModel(AiCdr) private aiCdrRepository: typeof AiCdr,
-        @InjectModel(AiEvents) private aiEventsRepository: typeof AiEvents
-    ) {
-    }
+        @InjectModel(AiEvents) private aiEventsRepository: typeof AiEvents,
+        @InjectModel(Prices) private readonly pricesRepository: typeof Prices,
+        private readonly usersService: UsersService
+) {}
 
     async cdrCreate(dto: AiCdrDto) {
         try {
@@ -61,7 +65,7 @@ export class AiCdrService {
         }
     }
 
-    async cdrHangup(channelId) {
+    async cdrHangup(channelId: string) {
         try {
             const aiCdr = await this.aiCdrRepository.findOne({
                 where: {channelId}
@@ -74,7 +78,21 @@ export class AiCdrService {
             const createdAt = new Date(aiCdr.createdAt);
             const duration = Math.floor((now.getTime() - createdAt.getTime()) / 1000);
 
-            await aiCdr.update({duration})
+            const tokens = aiCdr.tokens
+            let cost: number = 0
+            if(tokens>0) {
+                const userId = aiCdr.userId
+                const price = await this.pricesRepository.findOne({
+                    where: { userId }
+                })
+                cost = tokens * (price.price/1000000)
+                if(cost>0) {
+                    await this.usersService.decrementUserBalance(userId, cost)
+                }
+
+            }
+
+            await aiCdr.update({duration, cost})
             return aiCdr
         } catch (e) {
             throw new HttpException('[AiCdr]: Update error' + e, HttpStatus.BAD_REQUEST)

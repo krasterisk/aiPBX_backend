@@ -56,7 +56,6 @@ class CallSession {
             await this.streamAudioService.removeStream(sessionId);
         };
 
-
         this.openAiService.eventEmitter.on(
             `openai.${this.channel.id}`,
             (event) => this.openAiService.dataDecode(event, this.channel.id,

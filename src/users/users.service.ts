@@ -166,10 +166,27 @@ export class UsersService {
             console.log('user not found');
             return false
         }
-
         return true
-
     }
+
+    async decrementUserBalance(id: string, amountToDec: number) {
+
+        if(!id && !amountToDec) {
+            console.log('id or amount not found');
+            return false
+        }
+        const [affectedRows] = await this.usersRepository.decrement('balance', {
+            by: amountToDec,
+            where: { id }
+        });
+
+        if (affectedRows.length === 0) {
+            console.log('user not found');
+            return false
+        }
+        return true
+    }
+
 
     async getUserByUsername(username: string) {
         try {
@@ -182,6 +199,19 @@ export class UsersService {
         } catch (e) {
             throw new HttpException("User not found" + e, HttpStatus.NOT_FOUND);
         }
+    }
+
+    async getUserBalance(id: string) {
+        const user = await this.usersRepository.findOne({
+            where: { id },
+            attributes: ['balance']
+        });
+
+        if (!user) {
+            throw new HttpException('[Users] User not found', HttpStatus.NOT_FOUND);
+        }
+
+        return user.balance as number;
     }
 
     async getUserById(id: string | number,tokenId: string | number, isAdmin: boolean) {
@@ -305,7 +335,7 @@ export class UsersService {
             throw new HttpException("[User] Reset password link user not found!", HttpStatus.NOT_FOUND);
         }
         const hashPassword = await bcrypt.hash(dto.password, 5);
-        console.log(hashPassword);
+
         user.password = hashPassword;
         await user.save();
         return user;

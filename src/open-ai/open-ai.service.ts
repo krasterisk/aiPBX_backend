@@ -5,6 +5,8 @@ import {WsServerGateway} from "../ws-server/ws-server.gateway";
 import {Assistant} from "../assistants/assistants.model";
 import {AiCdrService} from "../ai-cdr/ai-cdr.service";
 import {AiToolsHandlersService} from "../ai-tools-handlers/ai-tools-handlers.service";
+import {Prices} from "../prices/prices.model";
+import {PricesService} from "../prices/prices.service";
 
 
 export interface sessionData {

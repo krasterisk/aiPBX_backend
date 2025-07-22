@@ -19,7 +19,7 @@ export class PaymentsService {
                     throw new HttpException('[Payments]: UserId must be set', HttpStatus.BAD_REQUEST)
                 }
 
-                const isPayed = await this.usersService.updateUserBalance(payment.userId, payment.summa)
+                const isPayed = await this.usersService.updateUserBalance(payment.userId, payment.amount)
                 if(isPayed) {
                     const result = await this.paymentsRepository.create(payment)
                     payments.push(result)

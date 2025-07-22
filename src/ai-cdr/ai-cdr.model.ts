@@ -27,6 +27,9 @@ export class AiCdr extends Model<AiCdr, CreateAiCdr> {
     @ApiProperty({example: '10', description: "call duration seconds"})
     @Column({type: DataType.INTEGER, allowNull: true})
     duration: number
+    @ApiProperty({example: '10', description: "call duration seconds"})
+    @Column({type: DataType.FLOAT, allowNull: false, defaultValue: 0})
+    cost: number
     @ApiProperty({example: '1', description: "UserId"})
     @Column({type: DataType.STRING, allowNull: true})
     userId: string

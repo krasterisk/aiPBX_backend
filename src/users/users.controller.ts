@@ -107,7 +107,7 @@ export class UsersController {
     }
 
     @ApiOperation({summary: "Get user balance"})
-    @ApiResponse({status: 200, type: User})
+    @ApiResponse({status: 200, type: String})
     @Roles('ADMIN','USER')
     @UseGuards(RolesGuard)
     @Get('balance')

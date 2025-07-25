@@ -204,14 +204,17 @@ export class UsersService {
     async getUserBalance(id: string) {
         const user = await this.usersRepository.findOne({
             where: { id },
-            attributes: ['balance']
+            attributes: ['balance', 'currency']
         });
 
         if (!user) {
             throw new HttpException('[Users] User not found', HttpStatus.NOT_FOUND);
         }
 
-        return user.balance as number;
+        return {
+            balance: user.balance,
+            currency: user.currency
+        }
     }
 
     async getUserById(id: string | number,tokenId: string | number, isAdmin: boolean) {

@@ -52,7 +52,6 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         const fileOutPath = path.join(audioDir, `audio_out_${Date.now()}.raw`);
 
 
-
         this.server.on('message', async (msg, rinfo) => {
             const sessionUrl = `${rinfo.address}:${rinfo.port}`
             const currentSession = this.sessions.get(sessionUrl);
@@ -70,7 +69,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             }
 
             try {
-                // this.writeStream.write(buf);
+                // this.writeStream.write(msg);
                 this.server.emit('data', msg, currentSession.channelId);
             } catch (error) {
                 this.logger.error(`Error processing RTP packet: ${error}`);

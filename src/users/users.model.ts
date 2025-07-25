@@ -40,6 +40,9 @@ export class User extends Model<User, UserCreationAttrs> {
     @ApiProperty({example: '40', description: "User balance"})
     @Column({type: DataType.FLOAT, unique: false, allowNull: false, defaultValue: 0})
     balance: number
+    @ApiProperty({example: 'USD', description: "Currency"})
+    @Column({type: DataType.STRING, unique: false, allowNull: true})
+    currency: string
     @ApiProperty({example: '12345-12312-12345-12345-123345', description: "Activation link"})
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     activationLink: string

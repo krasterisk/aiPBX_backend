@@ -1,13 +1,14 @@
 import {Injectable, Logger, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
 import * as dgram from "dgram";
-import {OpenAiService} from "../open-ai/open-ai.service";
+import {OpenAiService, sessionData} from "../open-ai/open-ai.service";
 import {VoskServerService} from "../vosk-server/vosk-server.service";
+import * as wav from 'wav';
 import * as fs from 'fs';
 import * as path from 'path';
-import { mulaw } from "x-law";
 import {AudioService} from "../audio/audio.service";
 import {OpenAiConnection} from "../open-ai/open-ai.connection";
 import {Assistant} from "../assistants/assistants.model";
+import {alaw} from "x-law";
 
 interface requestData {
     channelId?: string,
@@ -17,6 +18,9 @@ interface requestData {
     openAiConn?: OpenAiConnection
     events?: object[],
     assistant?: Assistant
+
+    writeStreamIn?: wav.FileWriter;
+    inFilePath?: string;
 }
 
 @Injectable()
@@ -27,7 +31,6 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 //     ) + Number(process.env.UDP_SERVER_PORT);
 
     public server: dgram.Socket;
-    private writeStream: fs.WriteStream;
     private external_local_Address: string
     private external_local_Port: number
     public sessions = new Map<string, requestData>();
@@ -48,9 +51,6 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         if (!fs.existsSync(audioDir)) {
             fs.mkdirSync(audioDir);
         }
-        const fileInPath = path.join(audioDir, `audio_in_${Date.now()}.raw`);
-        const fileOutPath = path.join(audioDir, `audio_out_${Date.now()}.raw`);
-
 
         this.server.on('message', async (msg, rinfo) => {
             const sessionUrl = `${rinfo.address}:${rinfo.port}`
@@ -61,6 +61,15 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
                 currentSession.init = 'true';
                 this.external_local_Address = rinfo.address
                 this.external_local_Port = Number(rinfo.port)
+
+                const inFilePath = path.join(audioDir, `audio_in_${currentSession.channelId}.wav`);
+                const writer = new wav.FileWriter(inFilePath, {
+                    sampleRate: 8000,
+                    channels: 1,
+                    bitDepth: 16,
+                });
+                currentSession.writeStreamIn = writer;
+
                 // console.log("CURRENT SESSION: ", currentSession)
 
                 await this.openAi.rtInitAudioResponse(currentSession)
@@ -69,8 +78,14 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             }
 
             try {
-                // this.writeStream.write(msg);
-                this.server.emit('data', msg, currentSession.channelId);
+                const audioChunk = this.audioService.removeRTPHeader(msg, false)
+                if (currentSession.writeStreamIn) {
+                    const pcmArray = alaw.decode(audioChunk);
+                    const pcmBuffer = Buffer.from(pcmArray.buffer);
+                    currentSession.writeStreamIn.write(pcmBuffer);
+                }
+
+                this.server.emit('data', audioChunk, currentSession.channelId);
             } catch (error) {
                 this.logger.error(`Error processing RTP packet: ${error}`);
             }
@@ -82,9 +97,8 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             this.activeChannels.add(channelId);
 
             try {
-                //this.writeStream = fs.createWriteStream(fileInPath);
-                const audioChunk = this.audioService.removeRTPHeader(audioBuffer, false)
-                await this.openAi.rtInputAudioAppend(audioChunk, channelId)
+
+                await this.openAi.rtInputAudioAppend(audioBuffer, channelId)
 
                 // const transcription = await this.vosk.audioAppend(audioChunk);
                 // if (transcription) {
@@ -123,11 +137,23 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
     }
 
+    private getSessionByField(field: keyof sessionData, value: any) {
+        return [...this.sessions.values()].find(session => {
+            if (Array.isArray(session[field])) {
+                return (session[field] as string[]).includes(value);
+            }
+            return session[field] === value;
+        });
+    }
 
     public async handleSessionEnd(sessionId: string) {
-        const session = this.sessions.get(sessionId);
+        const session = this.sessions.get(sessionId) ||
+            this.getSessionByField('channelId', sessionId);
+
         if (session) {
             session.openAiConn?.close();
+            this.logger.log(`Closing ${sessionId} and write stream...`);
+            if (session.writeStreamIn) session.writeStreamIn.end();
             this.sessions.delete(sessionId);
         }
     }
@@ -136,9 +162,6 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         this.logger.log('Closing RTP server and file stream...');
         // this.writeStream.end(() => this.updateWavHeader());
         this.server.close();
-        if (this.writeStream) {
-            this.writeStream.end();
-        }
     }
 
 }

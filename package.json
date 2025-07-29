@@ -62,6 +62,7 @@
     "swagger-ui-express": "^5.0.1",
     "uuid": "^11.0.5",
     "vosk-koffi": "^1.1.0",
+    "wav": "^1.0.2",
     "ws": "^8.18.0",
     "x-law": "^0.3.1",
     "yauzl": "^3.2.0"
@@ -85,6 +86,7 @@
     "@types/supertest": "^6.0.2",
     "@types/validator": "^13.12.2",
     "@types/vosk": "^0.3.1",
+    "@types/wav": "^1.0.4",
     "@types/ws": "^8.5.14",
     "@types/yargs": "^17.0.33",
     "@typescript-eslint/eslint-plugin": "^8.24.1",

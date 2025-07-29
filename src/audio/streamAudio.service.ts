@@ -25,6 +25,7 @@ export class StreamAudioService {
 
     constructor(private server: dgram.Socket) {}
 
+
     // Добавление потока с инициализацией состояния
     public async addStream(sessionId: string, streamData: StreamData) {
         const release = this.mutex.acquire();
@@ -69,6 +70,7 @@ export class StreamAudioService {
                 this.logger.error(`Stream ${sessionId} not found`);
                 return;
             }
+
 
             state.bufferQueue.push(outputBuffer);
             if (!state.isProcessing) {
@@ -139,15 +141,43 @@ export class StreamAudioService {
             state.seq,
             state.timestamp,
             this.RTP_SSRC,
-            0x08 // a-law u-law: 0x00
+            0x08 // a-law: 0x08 u-law: 0x00
         );
 
         state.seq = (state.seq + 1) & 0xffff;
         state.timestamp += 160;
 
+        // this.debugRtpHeader(rtpPacket);
         this.server.send(rtpPacket, external_local_Port, external_local_Address, (err) => {
             if (err) this.logger.error(`Send error [${sessionId}]: ${err}`);
         });
+    }
+
+// debug RTP packet
+    private debugRtpHeader(buffer: Buffer) {
+        const version = (buffer[0] >> 6) & 0b11;
+        const padding = (buffer[0] >> 5) & 0b1;
+        const extension = (buffer[0] >> 4) & 0b1;
+        const csrcCount = buffer[0] & 0b1111;
+
+        const marker = (buffer[1] >> 7) & 0b1;
+        const payloadType = buffer[1] & 0b01111111;
+
+        const sequenceNumber = buffer.readUInt16BE(2);
+        const timestamp = buffer.readUInt32BE(4);
+        const ssrc = buffer.readUInt32BE(8);
+
+        console.log('--- RTP Header ---');
+        console.log('Version:', version);
+        console.log('Padding:', padding);
+        console.log('Extension:', extension);
+        console.log('CSRC Count:', csrcCount);
+        console.log('Marker:', marker);
+        console.log('Payload Type:', payloadType);
+        console.log('Sequence Number:', sequenceNumber);
+        console.log('Timestamp:', timestamp);
+        console.log('SSRC:', '0x' + ssrc.toString(16));
+        console.log('Payload Length:', buffer.length - 12);
     }
 
 

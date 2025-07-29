@@ -21,7 +21,6 @@ interface channelData {
     assistant: Assistant
 }
 
-
 class CallSession {
     public bridge: ariClient.Bridge
     public externalChannel: ariClient.Channel
@@ -69,7 +68,7 @@ class CallSession {
         this.openAiService.eventEmitter.on(`transferToDialplan.${this.channel.id}`,
             this.redirectToDialplan.bind(this));
 
-        this.openAiService.eventEmitter.on(`hangupCall.${this.channel.id}`,
+        this.openAiService.eventEmitter.on(`HangupCall.${this.channel.id}`,
             this.hangupCall.bind(this))
     }
 
@@ -89,6 +88,7 @@ class CallSession {
             this.externalChannel.externalMedia({
                 app: botName,
                 external_host: this.externalHost,
+                // format: 'slin16'
                 format: 'alaw'
             }).then((chan) => {
                 const channelVars = chan.channelvars as chanVars;
@@ -131,8 +131,9 @@ class CallSession {
                 await this.externalChannel.hangup();
             }
             await this.openAiService.dataDecode({type: 'call.hangup'}, this.channel.id, this.channel.caller.number, null)
-            this.openAiService.eventEmitter.off(`audioDelta.${this.channel.id}`, this.audioDeltaHandler);
-            this.openAiService.closeConnection(this.channel.id);
+            await this.openAiService.eventEmitter.off(`audioDelta.${this.channel.id}`, this.audioDeltaHandler);
+            await this.rtpUdpServer.handleSessionEnd(this.channel.id)
+            await this.openAiService.closeConnection(this.channel.id);
             await this.streamAudioService.removeStream(this.channel.id);
         } catch (err) {
             this.logger.error('Error cleaning up session', err);
@@ -161,9 +162,7 @@ class CallSession {
             return;
         }
             this.logger.log(`Channel ${this.channel.id} hangup`);
-            await this.cleanup()
             await this.channel.hangup()
-            this.logger.log(`Channel ${this.channel.id} hangup`);
     }
 }
 

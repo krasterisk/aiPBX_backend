@@ -2,13 +2,12 @@ import {Injectable, Logger, OnModuleDestroy, OnModuleInit} from '@nestjs/common'
 import * as dgram from "dgram";
 import {OpenAiService, sessionData} from "../open-ai/open-ai.service";
 import {VoskServerService} from "../vosk-server/vosk-server.service";
-import * as wav from 'wav';
 import * as fs from 'fs';
 import * as path from 'path';
 import {AudioService} from "../audio/audio.service";
 import {OpenAiConnection} from "../open-ai/open-ai.connection";
 import {Assistant} from "../assistants/assistants.model";
-import {alaw} from "x-law";
+import { FileWriter } from 'wav'
 
 interface requestData {
     channelId?: string,
@@ -19,7 +18,7 @@ interface requestData {
     events?: object[],
     assistant?: Assistant
 
-    writeStreamIn?: wav.FileWriter;
+    writeStreamIn?: FileWriter;
     inFilePath?: string;
 }
 
@@ -62,12 +61,8 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
                 this.external_local_Address = rinfo.address
                 this.external_local_Port = Number(rinfo.port)
 
-                const inFilePath = path.join(audioDir, `audio_in_${currentSession.channelId}.wav`);
-                const writer = new wav.FileWriter(inFilePath, {
-                    sampleRate: 8000,
-                    channels: 1,
-                    bitDepth: 16,
-                });
+                const filePath = path.join(audioDir, `audio_${currentSession.channelId}.wav`);
+                const writer = this.audioService.createWavWriteStream(filePath);
                 currentSession.writeStreamIn = writer;
 
                 // console.log("CURRENT SESSION: ", currentSession)
@@ -80,9 +75,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             try {
                 const audioChunk = this.audioService.removeRTPHeader(msg, false)
                 if (currentSession.writeStreamIn) {
-                    const pcmArray = alaw.decode(audioChunk);
-                    const pcmBuffer = Buffer.from(pcmArray.buffer);
-                    currentSession.writeStreamIn.write(pcmBuffer);
+                    this.audioService.writeChunkToStream(currentSession.writeStreamIn, audioChunk);
                 }
 
                 this.server.emit('data', audioChunk, currentSession.channelId);

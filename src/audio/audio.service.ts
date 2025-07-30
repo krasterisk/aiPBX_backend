@@ -1,12 +1,42 @@
-import { Injectable } from '@nestjs/common';
+import {Injectable, Logger} from '@nestjs/common';
+import * as wav from 'wav';
+import { alaw } from 'x-law';
 
 export interface ResampleOptions {
     bitDepth?: number;
     numChannels?: number;
 }
 
+interface WriteToWavOptions {
+    sampleRate?: number;
+    channels?: number;
+    bitDepth?: number;
+}
+
 @Injectable()
 export class AudioService {
+
+    private logger = new Logger(AudioService.name);
+
+    public createWavWriteStream(filePath: string, options: WriteToWavOptions = {}): wav.FileWriter {
+        const { sampleRate = 8000, channels = 1, bitDepth = 16 } = options;
+
+        return new wav.FileWriter(filePath, {
+            sampleRate,
+            channels,
+            bitDepth,
+        });
+    }
+
+    public writeChunkToStream(stream: wav.FileWriter, alawBuffer: Buffer): void {
+        try {
+            const pcmArray = alaw.decode(alawBuffer);
+            const pcmBuffer = Buffer.from(pcmArray.buffer);
+            stream.write(pcmBuffer);
+        } catch (err) {
+            this.logger.error('Failed to write audio chunk to stream:', err);
+        }
+    }
 
     public resamplePCM(
         inputBuffer: Buffer,

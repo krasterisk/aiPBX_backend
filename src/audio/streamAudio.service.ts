@@ -74,7 +74,7 @@ export class StreamAudioService {
                 state.abortController.abort();
                 this.streams.delete(sessionId);
                 if (state.writeStreamOut) {
-                    const audioDir = path.join(__dirname, '..', 'audio_files');
+                    const audioDir = path.join(__dirname, '..', 'static');
                     if (!fs.existsSync(audioDir)) {
                         fs.mkdirSync(audioDir);
                     }

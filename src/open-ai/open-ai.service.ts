@@ -486,7 +486,7 @@ export class OpenAiService implements OnModuleInit {
                 : `This is a service request, don't do anything. Don't answer anything, just return empty response`;
 
 
-            console.log(prompt)
+            // console.log(prompt)
 
             if (!metadata.channelId && !metadata.address && !metadata.port) return;
 

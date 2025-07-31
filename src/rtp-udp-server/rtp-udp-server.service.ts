@@ -46,7 +46,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
     onModuleInit() {
         this.server = dgram.createSocket('udp4');
 
-        const audioDir = path.join(__dirname, '..', 'audio_files');
+        const audioDir = path.join(__dirname, '..', 'static');
         if (!fs.existsSync(audioDir)) {
             fs.mkdirSync(audioDir);
         }

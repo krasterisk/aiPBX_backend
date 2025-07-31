@@ -1,6 +1,7 @@
 import {Injectable, Logger} from '@nestjs/common';
 import * as wav from 'wav';
 import { alaw } from 'x-law';
+import * as fs from "fs";
 
 export interface ResampleOptions {
     bitDepth?: number;
@@ -37,6 +38,73 @@ export class AudioService {
             this.logger.error('Failed to write audio chunk to stream:', err);
         }
     }
+
+    //mix in\out wav files
+    public async mixWavFiles(inputPath1: string, inputPath2: string, outputPath: string): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const reader1 = new wav.Reader();
+            const reader2 = new wav.Reader();
+
+            const fileStream1 = fs.createReadStream(inputPath1);
+            const fileStream2 = fs.createReadStream(inputPath2);
+
+            let headerInfo: wav.Format;
+            let buffer1: Buffer[] = [];
+            let buffer2: Buffer[] = [];
+
+            reader1.on('format', (format) => {
+                headerInfo = format;
+            });
+
+            reader1.on('data', (chunk) => {
+                buffer1.push(chunk);
+            });
+
+            reader2.on('data', (chunk) => {
+                buffer2.push(chunk);
+            });
+
+            let done = 0;
+            const finish = () => {
+                if (++done < 2) return;
+
+                const audio1 = Buffer.concat(buffer1);
+                const audio2 = Buffer.concat(buffer2);
+
+                const minLength = Math.min(audio1.length, audio2.length);
+                const interleaved = Buffer.alloc(minLength * 2);
+
+                for (let i = 0; i < minLength; i += 2) {
+                    // Left channel (audio1)
+                    interleaved.writeInt16LE(audio1.readInt16LE(i), i * 2);
+                    // Right channel (audio2)
+                    interleaved.writeInt16LE(audio2.readInt16LE(i), i * 2 + 2);
+                }
+
+                const writer = new wav.FileWriter(outputPath, {
+                    channels: 2,
+                    sampleRate: headerInfo.sampleRate,
+                    bitDepth: 16
+                });
+
+                writer.write(interleaved);
+                writer.end(() => {
+                    this.logger.log(`Mixed file written to ${outputPath}`);
+                    resolve();
+                });
+            };
+
+            reader1.on('end', finish);
+            reader2.on('end', finish);
+
+            reader1.on('error', reject);
+            reader2.on('error', reject);
+
+            fileStream1.pipe(reader1);
+            fileStream2.pipe(reader2);
+        });
+    }
+
 
     public resamplePCM(
         inputBuffer: Buffer,

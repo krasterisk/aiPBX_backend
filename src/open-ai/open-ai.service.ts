@@ -207,19 +207,22 @@ export class OpenAiService implements OnModuleInit {
             console.log('SPEECH: ', currentSession.currentResponseId)
             if (currentSession?.currentResponseId) {
 
-
-                const cancelEvent = {
-                    type: 'response.cancel',
-                    response_id: currentSession.currentResponseId
-                }
-
                 this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession)
+
+
+                // const cancelEvent = {
+                //     type: 'response.cancel',
+                //     response_id: currentSession.currentResponseId
+                // }
+                //
+                // // console.log(currentSession.currentResponseId, cancelEvent)
+                // await currentSession.openAiConn.send(cancelEvent)
+
                 this.sessions.set(channelId, {
                     ...currentSession,
                     currentResponseId: ''
                 })
-                // console.log(currentSession.currentResponseId, cancelEvent)
-//                await currentSession.openAiConn.send(cancelEvent)
+
             }
 
         }

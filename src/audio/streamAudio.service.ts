@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as dgram from 'dgram';
 import { Mutex } from 'async-mutex';
+import {FileWriter} from "wav";
+import path from "path";
+import {AudioService} from "./audio.service";
+import fs from "fs";
 
 interface StreamState {
     bufferQueue: Buffer[];
@@ -9,6 +13,8 @@ interface StreamState {
     timestamp: number;
     abortController: AbortController;
     streamData: StreamData;
+    writeStreamOut?: FileWriter;
+    outFilePath?: string;
 }
 
 interface StreamData {
@@ -23,7 +29,10 @@ export class StreamAudioService {
     private mutex = new Mutex();
     private RTP_SSRC = Math.floor(Math.random() * 0xffffffff);
 
-    constructor(private server: dgram.Socket) {}
+    constructor(
+        private server: dgram.Socket,
+        private audioService: AudioService,
+    ) {}
 
 
     // Добавление потока с инициализацией состояния
@@ -31,13 +40,23 @@ export class StreamAudioService {
         const release = this.mutex.acquire();
         try {
             if (!this.streams.has(sessionId)) {
+                const audioDir = path.join(__dirname, '..', 'audio_files');
+                if (!fs.existsSync(audioDir)) {
+                    fs.mkdirSync(audioDir);
+                }
+
+                const filePath = path.join(audioDir, `audio_out_${sessionId}.wav`);
+                const writer = this.audioService.createWavWriteStream(filePath);
+
                 this.streams.set(sessionId, {
                     bufferQueue: [],
                     isProcessing: false,
                     seq: Math.floor(Math.random() * 65535),
                     timestamp: 0,
                     abortController: new AbortController(),
-                    streamData
+                    streamData,
+                    writeStreamOut: writer,
+                    outFilePath: filePath
                 });
                 this.logger.log(`Stream ${sessionId} initialized for ${streamData.external_local_Address}:${streamData.external_local_Port}`);
             }
@@ -54,10 +73,46 @@ export class StreamAudioService {
             if (state) {
                 state.abortController.abort();
                 this.streams.delete(sessionId);
+                if (state.writeStreamOut) {
+                    const audioDir = path.join(__dirname, '..', 'audio_files');
+                    if (!fs.existsSync(audioDir)) {
+                        fs.mkdirSync(audioDir);
+                    }
+                    const audioIn = path.join(audioDir, `audio_in_${sessionId}.wav`);
+                    const audioFile = path.join(audioDir, `audio_mixed_${sessionId}.wav`);
+                    await state.writeStreamOut.end();
+                    await this.audioService.mixWavFiles(audioIn, state.outFilePath, audioFile)
+                }
+
                 this.logger.log(`Stream ${sessionId} removed`);
             }
         } finally {
             (await release)();
+        }
+    }
+
+    // Удаление потока с отменой текущих операций
+    public async interruptStream(sessionId: string) {
+        const release = await this.mutex.acquire();
+        try {
+            const state = this.streams.get(sessionId);
+            if (state) {
+                // Прервать текущую обработку
+                state.abortController.abort();
+
+                // Очистить очередь аудиобуфера
+                state.bufferQueue.length = 0;
+
+                // Создать новый AbortController для возобновления потока
+                state.abortController = new AbortController();
+
+                // Сбросить статус обработки (иначе не запустится при следующем вызове)
+                state.isProcessing = false;
+
+                this.logger.log(`Stream ${sessionId} was interrupted and reset`);
+            }
+        } finally {
+            release();
         }
     }
 
@@ -70,8 +125,6 @@ export class StreamAudioService {
                 this.logger.error(`Stream ${sessionId} not found`);
                 return;
             }
-
-
             state.bufferQueue.push(outputBuffer);
             if (!state.isProcessing) {
                 state.isProcessing = true;
@@ -148,6 +201,11 @@ export class StreamAudioService {
         state.timestamp += 160;
 
         // this.debugRtpHeader(rtpPacket);
+
+        if (state.writeStreamOut) {
+            this.audioService.writeChunkToStream(state.writeStreamOut, chunk);
+        }
+
         this.server.send(rtpPacket, external_local_Port, external_local_Address, (err) => {
             if (err) this.logger.error(`Send error [${sessionId}]: ${err}`);
         });

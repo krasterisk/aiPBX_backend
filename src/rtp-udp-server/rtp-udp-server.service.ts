@@ -61,14 +61,14 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
                 this.external_local_Address = rinfo.address
                 this.external_local_Port = Number(rinfo.port)
 
-                const filePath = path.join(audioDir, `audio_${currentSession.channelId}.wav`);
+                const filePath = path.join(audioDir, `audio_in_${currentSession.channelId}.wav`);
                 const writer = this.audioService.createWavWriteStream(filePath);
                 currentSession.writeStreamIn = writer;
 
                 // console.log("CURRENT SESSION: ", currentSession)
 
-                await this.openAi.rtInitAudioResponse(currentSession)
                 await this.openAi.updateRtAudioSession(currentSession)
+                await this.openAi.rtInitAudioResponse(currentSession)
 
             }
 

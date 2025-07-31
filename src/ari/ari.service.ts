@@ -52,7 +52,7 @@ class CallSession {
 
         this.audioInterruptHandler = async (serverData: sessionData) => {
             const sessionId = serverData.channelId
-            await this.streamAudioService.removeStream(sessionId);
+            await this.streamAudioService.interruptStream(sessionId);
         };
 
         this.openAiService.eventEmitter.on(
@@ -111,9 +111,10 @@ class CallSession {
             });
 
             this.playback = this.ari.Playback();
+            // wait this.channel.answer()
             await this.channel.play({
-                media: 'sound:hello-world',
-                lang: 'ru'
+                 media: 'sound:hello-world',
+                 lang: 'ru'
             }, this.playback);
 
         } catch (err) {
@@ -135,6 +136,7 @@ class CallSession {
             await this.rtpUdpServer.handleSessionEnd(this.channel.id)
             await this.openAiService.closeConnection(this.channel.id);
             await this.streamAudioService.removeStream(this.channel.id);
+
         } catch (err) {
             this.logger.error('Error cleaning up session', err);
         }

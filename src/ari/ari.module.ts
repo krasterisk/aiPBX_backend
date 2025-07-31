@@ -10,7 +10,6 @@ import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
 import {WsServerGateway} from "../ws-server/ws-server.gateway";
 import {AssistantsModule} from "../assistants/assistants.module";
 import {AiCdrModule} from "../ai-cdr/ai-cdr.module";
-import {AiToolsHandlersService} from "../ai-tools-handlers/ai-tools-handlers.service";
 import {AiToolsHandlersModule} from "../ai-tools-handlers/ai-tools-handlers.module";
 const udpSocket = dgram.createSocket('udp4');
 
@@ -25,8 +24,9 @@ const udpSocket = dgram.createSocket('udp4');
         {
             provide: StreamAudioService,
             useFactory: (audioService: AudioService) => {
-                return new StreamAudioService(udpSocket);
-            }
+                return new StreamAudioService(udpSocket, audioService);
+            },
+            inject: [AudioService]
         }
     ],
     imports: [

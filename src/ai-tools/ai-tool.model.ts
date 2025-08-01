@@ -16,7 +16,7 @@ export class AiTool extends Model<AiTool> {
         example: 'to get price call this function',
         description: "Details on when and how to use the function"
     })
-    @Column({type: DataType.STRING, allowNull: false})
+    @Column({type: DataType.TEXT, allowNull: false})
     description: string;
     @ApiProperty({
         example: '{name: book, price: 100}',

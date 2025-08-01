@@ -83,7 +83,6 @@ export class StreamAudioService {
                     await state.writeStreamOut.end();
                     await this.audioService.mixWavFiles(audioIn, state.outFilePath, audioFile)
                 }
-
                 this.logger.log(`Stream ${sessionId} removed`);
             }
         } finally {

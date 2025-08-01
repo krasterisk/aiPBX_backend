@@ -257,7 +257,13 @@ export class AiCdrService {
                 order: [['createdAt', 'DESC']]
             });
 
-            return {count, rows}
+            const totalCostRaw = await this.aiCdrRepository.sum('cost', {
+                where: whereClause
+            });
+            const totalCost = parseFloat((totalCostRaw || 0).toFixed(2));
+
+
+            return {count, totalCost, rows}
 
         } catch (e) {
             throw new HttpException({message: "[AiCdr]: Request error", error: e}, HttpStatus.BAD_REQUEST);

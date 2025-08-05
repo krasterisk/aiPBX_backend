@@ -317,8 +317,8 @@ export class AiCdrService {
             whereAddClause += `AND assistantId IN (${assistantId}) `;
         }
 
-        const attrPeriodClause = `${dopAttr}, COUNT(*) as allCount, SUM(tokens) as tokensCount, SUM(duration) as durationCount`;
-        const attrTotalClause = `COUNT(*) as allCount, SUM(tokens) as allTokensCount, SUM(duration) as allDurationCount`;
+        const attrPeriodClause = `${dopAttr}, COUNT(*) as allCount, SUM(tokens) as tokensCount, SUM(duration) as durationCount, SUM(cost) as amount`;
+        const attrTotalClause = `COUNT(*) as allCount, SUM(tokens) as allTokensCount, SUM(duration) as allDurationCount, SUM(cost) as allCost`;
 
         const requestPeriod = `SELECT ${attrPeriodClause} FROM aiCdr ${whereClause} ${whereAddClause} ${groupByClause}`;
         const request = `SELECT ${attrTotalClause} FROM aiCdr ${whereClause} ${whereAddClause}`;
@@ -336,7 +336,8 @@ export class AiCdrService {
                 chartData,
                 allCount: totalData[0].allCount ?? 0,
                 allTokensCount: totalData[0].allTokensCount ?? 0,
-                allDurationCount: totalData[0].allDurationCount ?? 0
+                allDurationCount: totalData[0].allDurationCount ?? 0,
+                allCost: totalData[0].allCost ?? 0
             };
 
             return casksDashboardData;

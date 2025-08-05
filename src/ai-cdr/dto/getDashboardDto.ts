@@ -15,7 +15,8 @@ export class GetDashboardAllData {
 export class GetDashboardDoneData {
     label?: string
     tokensCount?: number
-    durationCount?: number
+    amount?: number
+
 }
 
 
@@ -24,4 +25,5 @@ export class GetDashboardData {
     allCount?: number
     allTokensCount?: number
     allDurationCount?: number
+    allCost?: number
 }

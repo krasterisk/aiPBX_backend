@@ -341,12 +341,8 @@ export class AiCdrService {
             };
 
             return casksDashboardData;
-
-
         } catch (e) {
             throw new HttpException({ message: "[Dashboard]: Request error" } + e, HttpStatus.BAD_REQUEST);
         }
     }
-
-
 }

@@ -116,7 +116,15 @@ export class AiToolsService {
     }
 
     async getById(id: number) {
-        const tool = await this.toolsRepository.findOne({where: {id}})
+        const  tool = await this.toolsRepository.findOne({
+            where: { id },
+            include: [
+                {
+                    all: true,
+                    attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+                }
+            ]
+        })
         if(!tool) {
             throw new HttpException('Tool not found', HttpStatus.NOT_FOUND)
         } else {

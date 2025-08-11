@@ -14,6 +14,7 @@ interface chanVars {
 
 interface channelData {
     channelId: string
+    callerId: string
     address: string
     port: string
     init: string
@@ -98,6 +99,7 @@ class CallSession {
                 const sessionUrl = `${channelVars.UNICASTRTP_LOCAL_ADDRESS}:${channelVars.UNICASTRTP_LOCAL_PORT}`
                 const sessionData: channelData = {
                     channelId: this.channel.id,
+                    callerId: this.channel.caller.number,
                     address: channelVars.UNICASTRTP_LOCAL_ADDRESS,
                     port: String(channelVars.UNICASTRTP_LOCAL_PORT),
                     init: 'false',

@@ -395,7 +395,9 @@ export class OpenAiService implements OnModuleInit {
                     output_audio_format: assistant.output_audio_format,
                     input_audio_transcription: {
                         model: assistant.input_audio_transcription_model,
-                        language: assistant.input_audio_transcription_language
+                        ...(assistant.input_audio_transcription_language && {
+                            language: assistant.input_audio_transcription_language
+                        })
                     },
                     turn_detection: {
                         type: assistant.turn_detection_type,
@@ -479,14 +481,19 @@ export class OpenAiService implements OnModuleInit {
 
         if (metadata.openAiConn) {
 
-            const greeting = metadata.assistant.greeting
+            const customer_phone = metadata.callerId
+                ? 'Customer phone number is ' + metadata.callerId + '. ' +
+                'Use it if necessary, example, when calling the create order function.'
+                : ''
+
+            const greeting = metadata.assistant.greeting;
 
             const prompt = greeting
-                ? greeting
-                : `This is a service request, don't do anything. Don't answer anything, just return empty response`;
+                ? greeting  + customer_phone
+                : `This is a service request, don't do anything. Don't answer anything, just return empty response.`
+                + customer_phone;
 
-
-            // console.log(prompt)
+            console.log(prompt)
 
             if (!metadata.channelId && !metadata.address && !metadata.port) return;
 

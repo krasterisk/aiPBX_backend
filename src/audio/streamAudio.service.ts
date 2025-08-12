@@ -40,7 +40,7 @@ export class StreamAudioService {
         const release = this.mutex.acquire();
         try {
             if (!this.streams.has(sessionId)) {
-                const audioDir = path.join(__dirname, '..', 'audio_files');
+                const audioDir = path.join(__dirname, '..', 'static');
                 if (!fs.existsSync(audioDir)) {
                     fs.mkdirSync(audioDir);
                 }

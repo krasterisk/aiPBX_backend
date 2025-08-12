@@ -42,6 +42,9 @@ export class AudioService {
     //mix in\out wav files
     public async mixWavFiles(inputPath1: string, inputPath2: string, outputPath: string): Promise<void> {
         return new Promise((resolve, reject) => {
+
+            this.logger.log(`Mixed files:  ${inputPath1} and ${inputPath2}`);
+
             const reader1 = new wav.Reader();
             const reader2 = new wav.Reader();
 

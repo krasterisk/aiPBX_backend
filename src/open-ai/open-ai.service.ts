@@ -188,7 +188,6 @@ export class OpenAiService implements OnModuleInit {
         } catch (e) {
             this.logger.error(JSON.stringify(event), e)
         }
-
     }
 
     public async dataDecode(e, channelId: string, callerId: string, assistant: Assistant) {
@@ -224,9 +223,7 @@ export class OpenAiService implements OnModuleInit {
                 })
 
             }
-
         }
-
 
         if (serverEvent.type === "response.audio.delta") {
             const currentSession = this.getSessionByField('itemIds', serverEvent.item_id)
@@ -300,7 +297,6 @@ export class OpenAiService implements OnModuleInit {
                     }
                 }
             }
-
         }
 
         if (serverEvent.type === "call.hangup") {

@@ -146,7 +146,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         if (session) {
             session.openAiConn?.close();
             this.logger.log(`Closing ${sessionId} and write stream...`);
-            if (session.writeStreamIn) session.writeStreamIn.end();
+            if (session.writeStreamIn) await session.writeStreamIn.end();
             this.sessions.delete(sessionId);
         }
     }

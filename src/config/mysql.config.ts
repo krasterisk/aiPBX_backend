@@ -17,7 +17,7 @@ export const getMysqlConfig = async (): Promise<SequelizeModuleOptions> => {
             UserRoles,
             VpbxUser,
         ],
-        logging: false,
+        logging: true,
         // logging: (...msg) => console.log(msg),
         autoLoadModels: true,
         // sync: {alter: true}

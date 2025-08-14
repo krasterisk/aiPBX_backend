@@ -375,6 +375,15 @@ export class OpenAiService implements OnModuleInit {
                 this.logger.error(`Can't update session, not assistant data`)
             }
 
+            const customer_phone = session.callerId
+                ? 'Customer phone number is ' + session.callerId + '. ' +
+                'Use customer phone if necessary, example, when calling the create order tool.'
+                : ''
+
+            const instructions = assistant.instruction + customer_phone
+
+            console.log(instructions)
+
             const tools = (assistant.tools || []).map(tool => {
                 const data = tool.toJSON?.() || tool.dataValues;
                 const {type, name, description, parameters} = data;
@@ -385,7 +394,7 @@ export class OpenAiService implements OnModuleInit {
                 type: 'session.update',
                 session: {
                     modalities: ['text', 'audio'],
-                    instructions: assistant.instruction,
+                    instructions,
                     voice: assistant.voice,
                     input_audio_format: assistant.input_audio_format,
                     output_audio_format: assistant.output_audio_format,

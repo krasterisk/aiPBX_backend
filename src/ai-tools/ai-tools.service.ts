@@ -136,7 +136,7 @@ export class AiToolsService {
         console.log(name,userId)
         const tool = await this.toolsRepository.findOne({where: {name, userId}})
         if(!tool) {
-            throw new HttpException('Tool not found', HttpStatus.NOT_FOUND)
+            new HttpException('Tool not found', HttpStatus.NOT_FOUND)
         } else {
             return tool
         }

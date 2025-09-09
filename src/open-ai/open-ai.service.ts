@@ -72,11 +72,21 @@ export class OpenAiService implements OnModuleInit {
     }
 
     closeConnection(channelId: string) {
-        const session = this.sessions.get(channelId);
-        if (session.openAiConn) {
-            const connection = session.openAiConn
-            connection.close();
-            this.sessions.delete(channelId);
+        if (!channelId) {
+            return;
+        }
+            const session = this.sessions.get(channelId);
+            if(!session) {
+                return;
+            }
+            if (session.openAiConn) {
+                try {
+                    session.openAiConn.close()
+                } catch (e) {
+                    this.logger.error(`Error closing OpenAI connection for ${channelId}:`, e);
+
+                }
+                this.sessions.delete(channelId);
         }
     }
 
@@ -262,9 +272,10 @@ export class OpenAiService implements OnModuleInit {
                     if (
                         item.type === "function_call"
                     ) {
-                     console.log(item.name)
                         if(item.name === 'transfer_call') {
                             this.logger.log('Переводим вызов на сотрудника')
+
+                            console.log(item.name,item.arguments)
                             this.eventEmitter.emit(`transferToDialplan.${currentSession.channelId}`)
                         } else if (item.name === 'hangup_call') {
                             this.logger.log('Завершаем вызов')

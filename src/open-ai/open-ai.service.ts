@@ -275,13 +275,26 @@ export class OpenAiService implements OnModuleInit {
                         if(item.name === 'transfer_call') {
                             this.logger.log('Переводим вызов на сотрудника')
 
-                            console.log(item.name,item.arguments)
+                            let args: any = {};
+                            try {
+                                args = typeof item.arguments === 'string'
+                                    ? JSON.parse(item.arguments)
+                                    : item.arguments;
+                            } catch (e) {
+                                this.logger.error('Ошибка парсинга arguments:', e);
+                            }
+
+                            const hasExtension = args?.exten && args.exten.trim() !== '';
+
+                            console.log(item.arguments, !!hasExtension)
+
+
+
                             this.eventEmitter.emit(`transferToDialplan.${currentSession.channelId}`)
                         } else if (item.name === 'hangup_call') {
                             this.logger.log('Завершаем вызов')
                             this.eventEmitter.emit(`HangupCall.${currentSession.channelId}`)
                         } else {
-
                             const result = await this.aiToolsHandlersService.functionHandler(item.name, item.arguments, assistant)
                             if (result) {
                                 console.log("RESULT:", typeof result === 'string' ? result : JSON.stringify(result))
@@ -405,7 +418,7 @@ export class OpenAiService implements OnModuleInit {
                 type: 'session.update',
                 session: {
                     modalities: ['text', 'audio'],
-                    instructions,
+                    // instructions,
                     voice: assistant.voice,
                     input_audio_format: assistant.input_audio_format,
                     output_audio_format: assistant.output_audio_format,
@@ -502,14 +515,14 @@ export class OpenAiService implements OnModuleInit {
                 'Use it if necessary, example, when calling the create order function.'
                 : ''
 
-            const greeting = metadata.assistant.greeting;
+            const greeting = metadata.assistant.greeting + metadata.assistant.instruction;
 
             const prompt = greeting
                 ? greeting  + customer_phone
                 : `This is a service request, don't do anything. Don't answer anything, just return empty response.`
                 + customer_phone;
 
-            // console.log(prompt)
+            console.log(prompt)
 
             if (!metadata.channelId && !metadata.address && !metadata.port) return;
 

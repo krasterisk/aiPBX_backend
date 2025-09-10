@@ -19,7 +19,7 @@ export class AiToolsHandlersService {
     async functionHandler(name: string, rawArguments: string, assistant: Assistant) {
         const tool = await this.aiToolsService.getToolByName(name, assistant.userId);
         if (!tool || !tool.webhook) {
-            throw new HttpException('Tools webhook not found', HttpStatus.NOT_FOUND);
+            return `Function call failed: tool not found, try again later`
         }
 
         let parsedArgs: Record<string, any> = {};
@@ -28,7 +28,7 @@ export class AiToolsHandlersService {
                 parsedArgs = JSON.parse(rawArguments);
             }
         } catch (err) {
-            throw new HttpException('Invalid function arguments format', HttpStatus.BAD_REQUEST);
+            return 'Invalid function arguments format';
         }
         this.logger.log('Webhook detected: ${tool.webhook}',JSON.stringify(parsedArgs));
         try {

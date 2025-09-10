@@ -117,7 +117,7 @@ export class CallSession {
             this.playback = this.ari.Playback();
             // wait this.channel.answer()
             await this.channel.play({
-                media: 'sound:hello-world',
+                media: 'sound:silence/1',
                 lang: 'ru'
             }, this.playback);
 
@@ -180,9 +180,8 @@ export class CallSession {
             context,
             extension,
             priority
-        }, err => console.log(err));
+        }, err => this.logger.log(err));
 
-        console.log(JSON.stringify(context))
 
         this.logger.log(`Channel ${this.channel.id} redirected to ${context},${extension},${priority}`);
     }

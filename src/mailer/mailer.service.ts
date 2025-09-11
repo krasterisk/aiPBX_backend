@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import {HttpException, HttpStatus, Injectable, Logger} from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class MailerService {
     private transporter;
+    private readonly logger = new Logger(MailerService.name);
 
     constructor() {
         this.transporter = nodemailer.createTransport({
@@ -18,20 +19,37 @@ export class MailerService {
     }
 
     async sendActivationMail(to: string, link: string) {
-        const activationLink = `${process.env.API_URL}/api/users/activate/${link}`
-        await this.transporter.sendMail({
-            from: process.env.MAIL_USER,
-            to,
-            subject: 'Ai PBX. Activation account',
-            text: '',
-            html: `
-                <div>
-                    <h3>Activation account</h3>
-                    <p>For finish activation go to <a href="${activationLink}" target="_blank"> link</a></p>
-                </div>
+        if (!to || !link) {
+            this.logger.error(`Error send mail to: ${to}, code: ${link}`)
+            throw new HttpException("Error sending email", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+        try {
+            await this.transporter.sendMail({
+                from: process.env.MAIL_USER,
+                to,
+                subject: `AiPBX activation code: ${link}`,
+                text: '',
+                html: `
+                <body>
+                    <div>
+                        <p>
+                            <h2>Your activation code is: ${link}</h2>
+                            <h4>For your security, this code will expire in a few minutes.</h4>
+                        </p>
+                        <p>
+                            <h5>AI PBX team</h5>
+                        </p>
+                    </div>
+                </body>
             `,
-        });
+            });
+        } catch (e) {
+            this.logger.error('Error send mail' + e)
+            throw new HttpException("Error sending email", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
+
     async sendResetPasswordMail(to: string, link: string) {
         const resetPasswordLink = `${process.env.API_URL}/api/users/resetPassword/${link}`
         await this.transporter.sendMail({

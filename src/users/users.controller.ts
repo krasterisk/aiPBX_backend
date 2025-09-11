@@ -41,15 +41,15 @@ export class UsersController {
                 private authService: AuthService) {}
 
 
-    @Get('/activate/:link')
-    @Redirect('', 302)
-    activate(@Param('link') link: string) {
+    @ApiOperation({summary: "activation user"})
+    @Patch('activation')
+    activate(@Body() link: string) {
         const user = this.userService.activate(link)
         if(!user) {
             throw new HttpException('Activation error!', HttpStatus.BAD_REQUEST)
         }
         // console.log(user)
-        return { url: `${process.env.CLIENT_URL}/activated` }
+        return { success: true }
     }
 
     @Get('/resetPassword/:link')

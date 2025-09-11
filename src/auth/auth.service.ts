@@ -29,16 +29,11 @@ export class AuthService {
                 throw new HttpException('Email already exist!', HttpStatus.BAD_REQUEST)
             }
 
-            const candidateUsername = await this.userService.getUserByEmail(userDto.username)
-            if (candidateUsername) {
-                throw new HttpException('Username already exist!', HttpStatus.BAD_REQUEST)
-            }
-
             const activationLink = uuidv4()
             const roles: CreateRoleDto[] = [
                 {
                     value: 'USER',
-                    description: 'Клиент'
+                    description: 'Customer'
                 }
             ]
             const hashPassword = await bcrypt.hash(userDto.password, 5)

@@ -286,11 +286,17 @@ export class OpenAiService implements OnModuleInit {
 
                             const hasExtension = args?.exten && args.exten.trim() !== '';
 
-                            console.log(item.arguments, !!hasExtension)
+                            if(hasExtension) {
 
+                                const params = {
+                                    extension: args.exten
+                                    // context: 'sip-out'+assistant.userId
+                                }
 
+                                // console.log(params)
 
-                            this.eventEmitter.emit(`transferToDialplan.${currentSession.channelId}`)
+                                this.eventEmitter.emit(`transferToDialplan.${currentSession.channelId}`, params)
+                            }
                         } else if (item.name === 'hangup_call') {
                             this.logger.log('Завершаем вызов')
                             this.eventEmitter.emit(`HangupCall.${currentSession.channelId}`)

@@ -66,7 +66,7 @@ export class CallSession {
         this.openAiService.eventEmitter.on(`audioInterrupt.${this.channel.id}`, this.audioInterruptHandler);
 
         this.openAiService.eventEmitter.on(`transferToDialplan.${this.channel.id}`,
-            this.redirectToDialplan.bind(this));
+            (params) => this.redirectToDialplan(params))
 
         this.openAiService.eventEmitter.on(`HangupCall.${this.channel.id}`,
             this.hangupCall.bind(this))
@@ -171,20 +171,34 @@ export class CallSession {
         }
     }
 
-    async redirectToDialplan(context: string = 'sip-out0', extension: string = '200', priority: number = 1) {
+    async redirectToDialplan(params) {
+
         if (!this.channel) {
             this.logger.warn('Cannot redirect: channel is undefined');
             return;
         }
-        await this.channel.continueInDialplan({
-            context,
-            extension,
-            priority
-        }, err => this.logger.log(err));
 
+        const {
+            context = 'sip-out0',
+            extension,
+            priority = 1,
+        } = params;
+
+        console.log(params)
+
+        if (!extension) {
+            this.logger.warn('Cannot redirect: extension is empty');
+            return;
+        }
+
+        await this.channel.continueInDialplan(
+            { context, extension, priority },
+            err => this.logger.error('Call failed',err),
+        );
 
         this.logger.log(`Channel ${this.channel.id} redirected to ${context},${extension},${priority}`);
     }
+
 
     async hangupCall() {
         if (!this.channel) {

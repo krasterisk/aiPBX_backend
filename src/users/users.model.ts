@@ -6,7 +6,6 @@ import {UserRoles} from "../roles/user-roles.model";
 
 interface UserCreationAttrs {
     email: string
-    username: string
     password: string
     vpbx_user_id: number
 }
@@ -14,13 +13,13 @@ interface UserCreationAttrs {
 @Table({tableName: 'users'})
 export class User extends Model<User, UserCreationAttrs> {
     @ApiProperty({example: 'Username', description: "Username. Required"})
-    @Column({type: DataType.STRING, unique: true, allowNull: false})
+    @Column({type: DataType.STRING, unique: false, allowNull: true})
     username: string
     @ApiProperty({example: 'Ivan', description: "User firstname"})
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     name: string
     @ApiProperty({example: 'name@domain.com', description: "E-mail address"})
-    @Column({type: DataType.STRING, unique: true, allowNull: true})
+    @Column({type: DataType.STRING, unique: true, allowNull: false})
     email: string
     @ApiProperty({example: '0', description: "feature flag"})
     @Column({type: DataType.BOOLEAN, unique: false, allowNull: true})

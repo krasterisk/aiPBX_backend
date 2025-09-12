@@ -1,16 +1,18 @@
-import {HttpException, HttpStatus, Injectable, UnauthorizedException} from '@nestjs/common';
+import {HttpException, HttpStatus, Injectable, Logger, UnauthorizedException} from '@nestjs/common';
 import {CreateUserDto} from "../users/dto/create-user.dto";
 import {UsersService} from "../users/users.service";
 import {JwtService} from "@nestjs/jwt";
 import * as bcrypt from 'bcryptjs'
 import {User} from "../users/users.model";
-import { MailerService } from "../mailer/mailer.service";
-import { v4 as uuidv4 } from 'uuid';
-import { CreateRoleDto } from "../roles/dto/create-role.dto";
-import { ResetPasswordDto } from "../users/dto/resetPassword.dto";
+import {MailerService} from "../mailer/mailer.service";
+import {v4 as uuidv4} from 'uuid';
+import {CreateRoleDto} from "../roles/dto/create-role.dto";
+import {ResetPasswordDto} from "../users/dto/resetPassword.dto";
 
 @Injectable()
 export class AuthService {
+
+    private readonly logger = new Logger(AuthService.name);
 
     constructor(private userService: UsersService,
                 private jwtService: JwtService,
@@ -23,36 +25,32 @@ export class AuthService {
     }
 
     async registration(userDto: CreateUserDto) {
-        try {
-            const candidateEmail = await this.userService.getUserByEmail(userDto.email)
-            if (candidateEmail) {
-                throw new HttpException('Email already exist!', HttpStatus.BAD_REQUEST)
-            }
+        const candidateEmail = await this.userService.getCandidateByEmail(userDto.email)
 
-            const activationLink = uuidv4()
-            const roles: CreateRoleDto[] = [
-                {
-                    value: 'USER',
-                    description: 'Customer'
-                }
-            ]
-            const hashPassword = await bcrypt.hash(userDto.password, 5)
-
-            const user = await this.userService.create({...userDto, password: hashPassword, roles, activationLink})
-
-            if(user) {
-                await this.mailerService.sendActivationMail(userDto.email, activationLink)
-                return { success: true }
-            } else {
-                return { success: false }
-            }
-
-            // return this.generateToken(user)
-
-
-        } catch (e) {
-            throw new HttpException('[user] Create user error!' + e, HttpStatus.BAD_REQUEST)
+        if (candidateEmail) {
+            this.logger.warn("Email already exist!", candidateEmail.email)
+            throw new HttpException('Email already exist!', HttpStatus.BAD_REQUEST)
         }
+
+        const activationLink = uuidv4()
+        const roles: CreateRoleDto[] = [
+            {
+                value: 'USER',
+                description: 'Customer'
+            }
+        ]
+        const hashPassword = await bcrypt.hash(userDto.password, 5)
+
+        const user = await this.userService.create({...userDto, password: hashPassword, roles, activationLink})
+
+        if (user) {
+            await this.mailerService.sendActivationMail(userDto.email, activationLink)
+            return {success: true}
+        } else {
+            return {success: false}
+        }
+
+        // return this.generateToken(user)
     }
 
     async create(userDto: CreateUserDto) {
@@ -66,16 +64,15 @@ export class AuthService {
             const user = await this.userService.create({...userDto, password: hashPassword})
             return user
         } catch (e) {
-            throw new HttpException('[user] Create user error!' + e, HttpStatus.BAD_REQUEST)
+            throw new HttpException('[user] Create user error!', HttpStatus.BAD_REQUEST)
         }
     }
 
     private async generateToken(user: User) {
         const payload = {
-            username: user.username,
+            name: user?.name,
             email: user.email,
             id: user.id,
-            avatar: user.avatar,
             roles: user.roles,
             vpbx_user_id: user.vpbx_user_id,
         }
@@ -87,15 +84,19 @@ export class AuthService {
     }
 
     private async validateUser(userDto: CreateUserDto) {
-        const user = await this.userService.getUserByUsername(userDto.username)
-        if (!user) {
-            throw new UnauthorizedException({message: 'Username or password is wrong!'})
+        const user = await this.userService.getUserByEmail(userDto.email)
+
+        try {
+            const passwordEquals = await bcrypt.compare(userDto.password, user.password)
+            if (user && passwordEquals) {
+                return user
+            }
+
+        } catch (e) {
+            this.logger.warn("Password Compare Error", e)
+            throw new UnauthorizedException({message: "Authorization Error"});
+
         }
-        const passwordEquals = await bcrypt.compare(userDto.password, user.password)
-        if (user && passwordEquals) {
-            return user
-        }
-        throw new UnauthorizedException({message: 'Username or password is wrong!'})
     }
 
     async forgotPassword(forgotPasswordDto: ResetPasswordDto) {
@@ -103,7 +104,8 @@ export class AuthService {
             const user = await this.userService.getUserByEmail(forgotPasswordDto.email)
 
             if (!user) {
-                throw new HttpException('User not found', HttpStatus.NOT_FOUND)
+                this.logger.warn('User not found')
+                throw new UnauthorizedException('User not found')
             }
 
             const resetPasswordLink = uuidv4()
@@ -113,9 +115,10 @@ export class AuthService {
 
             await this.mailerService.sendResetPasswordMail(user.email, resetPasswordLink)
 
-            return { message: 'Reset password link sent' }
+            return {message: 'Reset password link sent'}
         } catch (e) {
-            throw new HttpException('[auth] Reset password error!' + e, HttpStatus.BAD_REQUEST)
+            this.logger.warn('Reset password error!', e)
+            throw new HttpException('Reset password error!', HttpStatus.BAD_REQUEST)
         }
     }
 

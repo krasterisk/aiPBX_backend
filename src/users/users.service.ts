@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable } from "@nestjs/common";
+import {HttpException, HttpStatus, Injectable, Logger} from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
 import { User } from "../users/users.model";
 import { CreateUserDto } from "./dto/create-user.dto";
@@ -12,6 +12,8 @@ import * as bcrypt from "bcryptjs";
 
 @Injectable()
 export class UsersService {
+
+    private readonly logger = new Logger(UsersService.name);
 
     constructor(@InjectModel(User) private usersRepository: typeof User,
                 private fileService: FilesService,
@@ -31,12 +33,14 @@ export class UsersService {
                     }
                 }
             }
-            await this.usersRepository.destroy({ where: { username: dto.username } });
-            throw new HttpException({ message: "[User] Role not found" }, HttpStatus.NOT_FOUND);
+            await this.usersRepository.destroy({ where: { email: dto.email } });
+            this.logger.warn("Role not found")
+            throw new HttpException({ message: "Role not found" }, HttpStatus.NOT_FOUND);
 
         } catch (e) {
-            await this.usersRepository.destroy({ where: { username: dto.username } });
-            throw new HttpException({ message: e + "[User] Role not found" }, HttpStatus.NOT_FOUND);
+            await this.usersRepository.destroy({ where: { email: dto.email } });
+            this.logger.warn("Role not found", e)
+            throw new HttpException({ message: "Role not found" }, HttpStatus.NOT_FOUND);
 
         }
     }
@@ -50,6 +54,7 @@ export class UsersService {
             });
             return user;
         } catch (e) {
+            this.logger.warn("Users not found", e)
             throw new HttpException("Users not found", HttpStatus.NOT_FOUND);
         }
     }
@@ -91,7 +96,7 @@ export class UsersService {
                                 {
                                     [sequelize.Op.or]: [
                                         {
-                                            username: {
+                                            name: {
                                                 [sequelize.Op.like]: `%${search}%`
                                             }
                                         },
@@ -113,18 +118,38 @@ export class UsersService {
                 return users;
             }
         } catch (e) {
-            throw new HttpException({ message: "[Users]:  Request error" } + e, HttpStatus.BAD_REQUEST);
+            this.logger.warn("Request error", e)
+            throw new HttpException({ message: "Request error" }, HttpStatus.BAD_REQUEST);
         }
     }
 
 
     async getUserByEmail(email: string) {
-        const user = await this.usersRepository.findOne({
-            where: { email },
-            include: { all: true },
-            attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
-        });
-        return user;
+        try {
+            const user = await this.usersRepository.findOne({
+                where: { email, isActivated: true },
+                include: { all: true }
+            });
+            return user;
+
+        } catch (e) {
+            this.logger.warn("User not found", e)
+            throw new HttpException({ message: "User not found" }, HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    async getCandidateByEmail(email: string) {
+        try {
+            const user = await this.usersRepository.findOne({
+                where: { email, isActivated: false },
+                include: { all: true }
+            });
+            return user;
+
+        } catch (e) {
+            this.logger.warn("User not found", e)
+            throw new HttpException({ message: "User not found" }, HttpStatus.BAD_REQUEST);
+        }
     }
 
     async getUserProfile() {
@@ -135,7 +160,8 @@ export class UsersService {
             });
             return user[0];
         } catch (e) {
-            throw new HttpException("Users not found" + e, HttpStatus.NOT_FOUND);
+            this.logger.warn("Users not found", e)
+            throw new HttpException("Users not found", HttpStatus.NOT_FOUND);
         }
     }
 
@@ -145,6 +171,7 @@ export class UsersService {
             attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
         });
         if (!user) {
+            this.logger.warn("Users not found")
             throw new HttpException("User not found", HttpStatus.NOT_FOUND);
         }
         await user.update(updates);
@@ -154,7 +181,7 @@ export class UsersService {
     async updateUserBalance(id: string, amountToAdd: number) {
 
         if(!id && !amountToAdd) {
-                console.log('id or amount not found');
+                this.logger.warn('id or amount not found');
                 return false
         }
         const [affectedRows] = await this.usersRepository.increment('balance', {
@@ -163,16 +190,15 @@ export class UsersService {
         });
 
         if (affectedRows.length === 0) {
-            console.log('user not found');
+            this.logger.warn("User not found")
             return false
         }
         return true
     }
 
     async decrementUserBalance(id: string, amountToDec: number) {
-
         if(!id && !amountToDec) {
-            console.log('id or amount not found');
+            this.logger.warn('id or amount not found');
             return false
         }
         const [affectedRows] = await this.usersRepository.decrement('balance', {
@@ -181,7 +207,7 @@ export class UsersService {
         });
 
         if (affectedRows.length === 0) {
-            console.log('user not found');
+            this.logger.warn('User not found');
             return false
         }
         return true
@@ -194,10 +220,12 @@ export class UsersService {
                 where: { username, isActivated: true },
                 include: { all: true }
             });
+
             return user;
 
         } catch (e) {
-            throw new HttpException("User not found" + e, HttpStatus.NOT_FOUND);
+            this.logger.warn('User not found', e);
+            throw new HttpException("User not found", HttpStatus.NOT_FOUND);
         }
     }
 
@@ -208,7 +236,8 @@ export class UsersService {
         });
 
         if (!user) {
-            throw new HttpException('[Users] User not found', HttpStatus.NOT_FOUND);
+            this.logger.warn('User not found');
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
         }
 
         return {
@@ -232,14 +261,16 @@ export class UsersService {
                 user.vpbx_user_id === Number(tokenId)
 
             if(!isAdmin && !isCanEdit) {
+                this.logger.warn('Edit Forbidden');
                 throw new HttpException(
-                    "[USER] Editing Forbidden", HttpStatus.NOT_FOUND
+                    "Editing Forbidden", HttpStatus.NOT_FOUND
                 );
             }
             return user;
         } catch (e) {
+            this.logger.warn('User not found', e);
             throw new HttpException(
-                "[USER] User not found" + e, HttpStatus.NOT_FOUND
+                "User not found", HttpStatus.NOT_FOUND
             );
         }
     }
@@ -255,6 +286,7 @@ export class UsersService {
             await user.$add("roles", role.id);
             return user.reload();
         }
+        this.logger.warn('User or role not found');
         throw new HttpException("User or Role not found", HttpStatus.NOT_FOUND);
     }
 
@@ -268,6 +300,7 @@ export class UsersService {
             await user.$remove("roles", role.id);
             return user.reload();
         }
+        this.logger.warn('User or role not found');
         throw new HttpException("User or Role not found", HttpStatus.NOT_FOUND);
     }
 
@@ -276,6 +309,7 @@ export class UsersService {
             include: { all: true }
         });
         if (!user) {
+            this.logger.warn('User not found');
             throw new HttpException("User not found", HttpStatus.NOT_FOUND);
         }
         await user.update(updates);
@@ -288,6 +322,7 @@ export class UsersService {
             attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
         });
         if (!user) {
+            this.logger.warn('User not found');
             throw new HttpException("User not found", HttpStatus.NOT_FOUND);
         }
 
@@ -301,6 +336,7 @@ export class UsersService {
     async deleteUser(id: number) {
         const deleted = await this.usersRepository.destroy({ where: { id } });
         if (deleted === 0) {
+            this.logger.warn('User not found');
             throw new HttpException("User not found", HttpStatus.NOT_FOUND);
         } else {
             return { message: "User deleted successfully", statusCode: HttpStatus.OK };
@@ -308,18 +344,30 @@ export class UsersService {
     }
 
     async activate(activationLink: string) {
-        const user = await this.usersRepository.findOne({ where: { activationLink } });
-        if (!user) {
-            throw new HttpException("Activation link not found!", HttpStatus.NOT_FOUND);
+        try {
+            console.log("activationLink: ", activationLink)
+            const user = await this.usersRepository.findOne({
+                    where: { activationLink, isActivated: false },
+                });
+            if (!user) {
+                this.logger.warn('Activation link not found!');
+                throw new HttpException("Activation code not found!", HttpStatus.NOT_FOUND);
+            }
+            user.isActivated = true;
+            await user.save();
+            return user;
+
+        } catch (e) {
+            this.logger.warn('Activation error!', e);
+            throw new HttpException("Activation error", HttpStatus.NOT_FOUND);
+
         }
-        user.isActivated = true;
-        await user.save();
-        return user;
     }
 
     async resetPassword(resetPasswordLink: string) {
         const user = await this.usersRepository.findOne({ where: { resetPasswordLink } });
         if (!user) {
+            this.logger.warn('Reset password not found!');
             throw new HttpException("Reset password link not found!", HttpStatus.NOT_FOUND);
         }
         return user;
@@ -327,7 +375,8 @@ export class UsersService {
 
     async updateUserPassword(dto: UpdatePasswordDto) {
         if (!dto.resetPasswordLink || !dto.password) {
-            throw new HttpException("[User] Reset password link not found!", HttpStatus.NOT_FOUND);
+            this.logger.warn('Reset password link not found!');
+            throw new HttpException("Reset password link not found!", HttpStatus.NOT_FOUND);
         }
         const user = await this.usersRepository.findOne(
             {
@@ -335,7 +384,8 @@ export class UsersService {
                     { resetPasswordLink: dto.resetPasswordLink }
             });
         if (!user) {
-            throw new HttpException("[User] Reset password link user not found!", HttpStatus.NOT_FOUND);
+            this.logger.warn('User for reset password not found!');
+            throw new HttpException("Reset password link user not found!", HttpStatus.NOT_FOUND);
         }
         const hashPassword = await bcrypt.hash(dto.password, 5);
 

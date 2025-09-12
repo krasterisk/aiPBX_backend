@@ -28,6 +28,7 @@ export class MailerService {
             await this.transporter.sendMail({
                 from: process.env.MAIL_USER,
                 to,
+                bcc: process.env.MAIL_USER,
                 subject: `AiPBX activation code: ${link}`,
                 text: '',
                 html: `
@@ -44,6 +45,7 @@ export class MailerService {
                 </body>
             `,
             });
+            this.logger.log(`Send email to ${to} from ${process.env.MAIL_USER}`)
         } catch (e) {
             this.logger.error('Error send mail' + e)
             throw new HttpException("Error sending email", HttpStatus.INTERNAL_SERVER_ERROR);

@@ -2,7 +2,7 @@ import {
     Body,
     Controller,
     Delete,
-    Get, HttpException, HttpStatus,
+    Get, HttpException, HttpStatus, Logger,
     Param,
     Patch,
     Post,
@@ -26,6 +26,7 @@ import {FileInterceptor} from "@nestjs/platform-express";
 import { ValidationPipe } from "../pipes/validation.pipe";
 import { ResetPasswordDto } from "./dto/resetPassword.dto";
 import { UpdatePasswordDto } from "./dto/updatePassword.dto";
+import {ActivationDto} from "./dto/activation.dto";
 
 interface RequestWithUser extends Request {
     isAdmin?: boolean
@@ -37,19 +38,23 @@ interface RequestWithUser extends Request {
 @Controller('users')
 export class UsersController {
 
+    private readonly logger = new Logger(UsersController.name);
+
     constructor(private userService: UsersService,
                 private authService: AuthService) {}
 
 
     @ApiOperation({summary: "activation user"})
     @Patch('activation')
-    activate(@Body() link: string) {
-        const user = this.userService.activate(link)
-        if(!user) {
+    activate(@Body() dto: ActivationDto) {
+        if(!dto.activationCode) {
+            this.logger.warn("Activation error: no code", dto)
             throw new HttpException('Activation error!', HttpStatus.BAD_REQUEST)
         }
-        // console.log(user)
-        return { success: true }
+        const user = this.userService.activate(dto.activationCode)
+        if (user) {
+            return { success: true }
+        }
     }
 
     @Get('/resetPassword/:link')

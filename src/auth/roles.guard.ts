@@ -3,7 +3,7 @@ import {
     ExecutionContext,
     HttpException,
     HttpStatus,
-    Injectable,
+    Injectable, Logger,
     UnauthorizedException
 } from "@nestjs/common";
 import {Observable} from "rxjs";
@@ -14,6 +14,8 @@ import {ROLES_KEY} from "./roles-auth.decorator";
 
 @Injectable()
 export class RolesGuard implements CanActivate {
+
+    private readonly logger = new Logger(RolesGuard.name);
 
     constructor(private jwtService: JwtService,
                 private reflector: Reflector){}
@@ -34,6 +36,7 @@ export class RolesGuard implements CanActivate {
             const token = authHeader.split(' ')[1]
 
             if (bearer !== 'Bearer' || !token) {
+                this.logger.warn("User not authorized!")
                 throw new UnauthorizedException({message: 'User not authorized!'})
             }
 
@@ -45,9 +48,10 @@ export class RolesGuard implements CanActivate {
 
         } catch (e) {
             if (e == 'TokenExpiredError: jwt expired') {
-                throw new HttpException({ message: 'TokenExpiredError' }, HttpStatus.FORBIDDEN)
+                this.logger.warn("TokenExpiredError", e)
             }
-            throw new HttpException('Access denied!' +e, HttpStatus.FORBIDDEN)
+            this.logger.warn('Access denied!', e)
+            throw new HttpException('Access denied!', HttpStatus.FORBIDDEN)
         }
     }
 

@@ -1,4 +1,4 @@
-import {HttpException, HttpStatus, Injectable, Logger} from "@nestjs/common";
+import {HttpException, HttpStatus, Injectable, Logger, UnauthorizedException} from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
 import { User } from "../users/users.model";
 import { CreateUserDto } from "./dto/create-user.dto";
@@ -123,32 +123,36 @@ export class UsersService {
         }
     }
 
-
     async getUserByEmail(email: string) {
         try {
             const user = await this.usersRepository.findOne({
                 where: { email, isActivated: true },
                 include: { all: true }
             });
+
+            if(!user) {
+                this.logger.warn("User not found")
+                throw new UnauthorizedException({ message: "Authorization Error"});
+            }
             return user;
 
         } catch (e) {
             this.logger.warn("User not found", e)
-            throw new HttpException({ message: "User not found" }, HttpStatus.BAD_REQUEST);
+            throw new UnauthorizedException({ message: "Authorization Error"});
         }
     }
 
     async getCandidateByEmail(email: string) {
         try {
             const user = await this.usersRepository.findOne({
-                where: { email, isActivated: false },
+                where: { email },
                 include: { all: true }
             });
             return user;
 
         } catch (e) {
             this.logger.warn("User not found", e)
-            throw new HttpException({ message: "User not found" }, HttpStatus.BAD_REQUEST);
+            throw new UnauthorizedException({ message: "Authorization Error"});
         }
     }
 

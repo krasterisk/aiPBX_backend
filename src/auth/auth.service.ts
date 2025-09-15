@@ -8,6 +8,7 @@ import {MailerService} from "../mailer/mailer.service";
 import {v4 as uuidv4} from 'uuid';
 import {CreateRoleDto} from "../roles/dto/create-role.dto";
 import {ResetPasswordDto} from "../users/dto/resetPassword.dto";
+import {UpdatePasswordDto} from "../users/dto/updatePassword.dto";
 
 @Injectable()
 export class AuthService {
@@ -21,7 +22,12 @@ export class AuthService {
 
     async login(userDto: CreateUserDto) {
         const user = await this.validateUser(userDto)
-        return this.generateToken(user)
+        if (!user) {
+            this.logger.warn("Password Compare Error")
+            throw new UnauthorizedException({message: "Authorization Error"});
+        }
+        const token = await this.generateToken(user)
+        return { token }
     }
 
     async registration(userDto: CreateUserDto) {
@@ -64,7 +70,8 @@ export class AuthService {
             const user = await this.userService.create({...userDto, password: hashPassword})
             return user
         } catch (e) {
-            throw new HttpException('[user] Create user error!', HttpStatus.BAD_REQUEST)
+            this.logger.warn('Create user error!', e)
+            throw new HttpException('Create user error!', HttpStatus.BAD_REQUEST)
         }
     }
 
@@ -84,14 +91,15 @@ export class AuthService {
     }
 
     private async validateUser(userDto: CreateUserDto) {
-        const user = await this.userService.getUserByEmail(userDto.email)
-
         try {
-            const passwordEquals = await bcrypt.compare(userDto.password, user.password)
-            if (user && passwordEquals) {
-                return user
+            const email = userDto.email.trim()
+            const user = await this.userService.getUserByEmail(email)
+            if(user) {
+                const passwordEquals = await bcrypt.compare(userDto.password, user.password)
+                if (user && passwordEquals) {
+                    return user
+                }
             }
-
         } catch (e) {
             this.logger.warn("Password Compare Error", e)
             throw new UnauthorizedException({message: "Authorization Error"});
@@ -121,6 +129,5 @@ export class AuthService {
             throw new HttpException('Reset password error!', HttpStatus.BAD_REQUEST)
         }
     }
-
 
 }

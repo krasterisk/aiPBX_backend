@@ -43,41 +43,6 @@ export class UsersController {
     constructor(private userService: UsersService,
                 private authService: AuthService) {}
 
-
-    @ApiOperation({summary: "activation user"})
-    @Patch('activation')
-    activate(@Body() dto: ActivationDto) {
-        if(!dto.activationCode) {
-            this.logger.warn("Activation error: no code", dto)
-            throw new HttpException('Activation error!', HttpStatus.BAD_REQUEST)
-        }
-        const user = this.userService.activate(dto.activationCode)
-        if (user) {
-            return { success: true }
-        }
-    }
-
-    @Get('/resetPassword/:link')
-    @Redirect('', 302)
-    resetPassword(@Param('link') link: string) {
-        const user = this.userService.resetPassword(link)
-        if(!user) {
-            throw new HttpException('Reset Password error!', HttpStatus.BAD_REQUEST)
-        }
-        // console.log(user)
-        return { url: `${process.env.CLIENT_URL}/resetPassword/${link}` }
-    }
-
-    @ApiOperation({summary: "forgot user password"})
-    @ApiResponse({status: 200, type: User})
-    @UsePipes(ValidationPipe)
-//     @Roles('ADMIN')
-//     @UseGuards(RolesGuard)
-    @Post('forgotPassword')
-    forgotPassword(@Body() dto: ResetPasswordDto) {
-        return this.authService.forgotPassword(dto)
-    }
-
     @ApiOperation({summary: "Create user"})
     @ApiResponse({status: 200, type: User})
 //    @UsePipes(ValidationPipe)
@@ -87,16 +52,6 @@ export class UsersController {
     create(@Body() dto: CreateUserDto) {
         const activatedDto = {...dto, isActivated: true}
         return this.authService.create(activatedDto)
-    }
-
-    @ApiOperation({summary: "Create user"})
-    @ApiResponse({status: 200, type: User})
-    @UsePipes(ValidationPipe)
-//     @Roles('ADMIN')
-//     @UseGuards(RolesGuard)
-    @Post('register')
-    register(@Body() dto: CreateUserDto) {
-        return this.authService.registration(dto)
     }
 
     @ApiOperation({summary: "Get users by page"})
@@ -237,5 +192,41 @@ export class UsersController {
     UpdateUserPassword(@Body() updatePassword: UpdatePasswordDto) {
         return this.userService.updateUserPassword(updatePassword)
     }
+
+    @ApiOperation({summary: "activation user"})
+    @Patch('activation')
+    activate(@Body() dto: ActivationDto) {
+        if(!dto.activationCode) {
+            this.logger.warn("Activation error: no code", dto)
+            throw new HttpException('Activation error!', HttpStatus.BAD_REQUEST)
+        }
+        const user = this.userService.activate(dto.activationCode)
+        if (user) {
+            return { success: true }
+        }
+    }
+
+    @Get('/resetPassword/:link')
+    @Redirect('', 302)
+    resetPassword(@Param('link') link: string) {
+        const user = this.userService.resetPassword(link)
+        if(!user) {
+            throw new HttpException('Reset Password error!', HttpStatus.BAD_REQUEST)
+        }
+        // console.log(user)
+        return { url: `${process.env.CLIENT_URL}/resetPassword/${link}` }
+    }
+
+    @ApiOperation({summary: "forgot user password"})
+    @ApiResponse({status: 200, type: User})
+    @UsePipes(ValidationPipe)
+//     @Roles('ADMIN')
+//     @UseGuards(RolesGuard)
+    @Post('forgotPassword')
+    forgotPassword(@Body() dto: ResetPasswordDto) {
+        return this.authService.forgotPassword(dto)
+    }
+
+
 
 }

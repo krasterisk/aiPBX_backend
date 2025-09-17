@@ -8,16 +8,19 @@ import {MailerService} from "../mailer/mailer.service";
 import {v4 as uuidv4} from 'uuid';
 import {CreateRoleDto} from "../roles/dto/create-role.dto";
 import {ResetPasswordDto} from "../users/dto/resetPassword.dto";
-import {UpdatePasswordDto} from "../users/dto/updatePassword.dto";
+import { OAuth2Client } from 'google-auth-library';
+
 
 @Injectable()
 export class AuthService {
 
     private readonly logger = new Logger(AuthService.name);
+    private googleClient: OAuth2Client;
 
     constructor(private userService: UsersService,
                 private jwtService: JwtService,
                 private mailerService: MailerService) {
+        this.googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
     }
 
     async login(userDto: CreateUserDto) {
@@ -30,7 +33,7 @@ export class AuthService {
         return { token }
     }
 
-    async registration(userDto: CreateUserDto) {
+    async signup(userDto: CreateUserDto) {
         const candidateEmail = await this.userService.getCandidateByEmail(userDto.email)
 
         if (candidateEmail) {
@@ -130,4 +133,48 @@ export class AuthService {
         }
     }
 
+    async loginWithGoogle(idToken: string) {
+        const ticket = await this.googleClient.verifyIdToken({
+            idToken,
+            audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+
+        if (!payload) {
+            this.logger.warn('Invalid Google token')
+            throw new UnauthorizedException('Invalid Google token');
+        }
+
+        const { sub: googleId, email, name, picture, email_verified } = payload;
+
+        if (!email_verified) {
+            throw new UnauthorizedException('Google email not verified');
+        }
+
+        // Ищем юзера в базе
+        let user = await this.userService.getUserByEmail(email);
+
+        if (!user) {
+            // если нет — создаём
+            user = await this.userService.create({
+                email,
+                name,
+                password: null,
+                roles: [{ value: 'USER', description: 'Customer' }],
+                googleId,
+                avatar: picture,
+            });
+        }
+
+        // Генерируем JWT
+        const token = this.jwtService.sign({
+            id: user.id,
+            name: user?.name,
+            email: user.email,
+            roles: user.roles,
+            vpbx_user_id: user.vpbx_user_id,
+        });
+        return { token, user };
+    }
 }
+

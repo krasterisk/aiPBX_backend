@@ -15,6 +15,12 @@ export class CreateUserDto {
     @IsString({message: 'Must be a string'})
     @IsEmail({},{message: 'Incorrect email'})
     readonly email: string
+    @ApiProperty({example: 'avatar.png', description: "User avatar"})
+    @IsString({message: 'Must be a string'})
+    readonly avatar?: string
+    @ApiProperty({example: '123', description: "GoogleId for google auth"})
+    @IsString({message: 'Must be a string'})
+    readonly googleId?: string
     @ApiProperty({example: '1234-1234-1234-1234', description: "activation link"})
     // @IsString({message: 'Must be a string'})
     readonly activationLink?: string

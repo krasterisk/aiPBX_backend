@@ -20,9 +20,15 @@ export class AuthController {
         return this.authService.login(userDto)
     }
 
-    @Post('/registration')
-    registration(@Body() userDto: CreateUserDto) {
-        return this.authService.registration(userDto)
+    @Post('/signup')
+    signup(@Body() userDto: CreateUserDto) {
+        return this.authService.signup(userDto)
     }
+
+    @Post('/google')
+    async googleLogin(@Body('id_token') idToken: string) {
+        return this.authService.loginWithGoogle(idToken);
+    }
+
 
 }

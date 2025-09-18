@@ -27,6 +27,7 @@ export class AuthController {
 
     @Post('/google')
     async googleLogin(@Body('id_token') idToken: string) {
+        console.log('google');
         return this.authService.loginWithGoogle(idToken);
     }
 

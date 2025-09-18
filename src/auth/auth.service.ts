@@ -8,7 +8,7 @@ import {MailerService} from "../mailer/mailer.service";
 import {v4 as uuidv4} from 'uuid';
 import {CreateRoleDto} from "../roles/dto/create-role.dto";
 import {ResetPasswordDto} from "../users/dto/resetPassword.dto";
-import { OAuth2Client } from 'google-auth-library';
+import {OAuth2Client} from 'google-auth-library';
 
 
 @Injectable()
@@ -30,7 +30,7 @@ export class AuthService {
             throw new UnauthorizedException({message: "Authorization Error"});
         }
         const token = await this.generateToken(user)
-        return { token }
+        return {token}
     }
 
     async signup(userDto: CreateUserDto) {
@@ -97,7 +97,7 @@ export class AuthService {
         try {
             const email = userDto.email.trim()
             const user = await this.userService.getUserByEmail(email)
-            if(user) {
+            if (user) {
                 const passwordEquals = await bcrypt.compare(userDto.password, user.password)
                 if (user && passwordEquals) {
                     return user
@@ -134,47 +134,47 @@ export class AuthService {
     }
 
     async loginWithGoogle(idToken: string) {
-        const ticket = await this.googleClient.verifyIdToken({
-            idToken,
-            audience: process.env.GOOGLE_CLIENT_ID,
-        });
-        const payload = ticket.getPayload();
-
-        if (!payload) {
-            this.logger.warn('Invalid Google token')
-            throw new UnauthorizedException('Invalid Google token');
-        }
-
-        const { sub: googleId, email, name, picture, email_verified } = payload;
-
-        if (!email_verified) {
-            throw new UnauthorizedException('Google email not verified');
-        }
-
-        // Ищем юзера в базе
-        let user = await this.userService.getUserByEmail(email);
-
-        if (!user) {
-            // если нет — создаём
-            user = await this.userService.create({
-                email,
-                name,
-                password: null,
-                roles: [{ value: 'USER', description: 'Customer' }],
-                googleId,
-                avatar: picture,
+        try {
+            const ticket = await this.googleClient.verifyIdToken({
+                idToken,
+                audience: process.env.GOOGLE_CLIENT_ID,
             });
-        }
+            const payload = ticket.getPayload();
 
-        // Генерируем JWT
-        const token = this.jwtService.sign({
-            id: user.id,
-            name: user?.name,
-            email: user.email,
-            roles: user.roles,
-            vpbx_user_id: user.vpbx_user_id,
-        });
-        return { token, user };
+            if (!payload) {
+                this.logger.warn('Invalid Google token')
+                throw new UnauthorizedException('Invalid Google token');
+            }
+
+            const {sub: googleId, email, name, picture, email_verified} = payload;
+
+            if (!email_verified) {
+                throw new UnauthorizedException('Google email not verified');
+            }
+
+            // Ищем юзера в базе
+            const user = await this.userService.getUserByEmail(email);
+
+            if (!user) {
+                this.logger.warn('Google email not verified')
+                throw new UnauthorizedException('Google email not verified');
+            }
+
+            // Генерируем JWT
+            const token = this.jwtService.sign({
+                id: user.id,
+                name: user?.name,
+                email: user.email,
+                roles: user.roles,
+                vpbx_user_id: user.vpbx_user_id,
+            });
+
+            this.logger.log('User successfully auth via google', user.email)
+            return {token, user};
+        } catch (e) {
+            this.logger.warn('Google Authorization Error', e)
+            throw new UnauthorizedException('Google Authorization Error');
+        }
     }
 }
 

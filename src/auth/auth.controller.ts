@@ -25,10 +25,24 @@ export class AuthController {
         return this.authService.signup(userDto)
     }
 
-    @Post('/google')
+    @Post('/login/google')
     async googleLogin(@Body('id_token') idToken: string) {
-        console.log('google');
         return this.authService.loginWithGoogle(idToken);
+    }
+
+    @Post('/signup/google')
+    async googleSignup(@Body('id_token') idToken: string) {
+        return this.authService.signupWithGoogle(idToken);
+    }
+
+    @Post('/login/telegram')
+    async telegramLogin(@Body('id_token') idToken: string) {
+        return this.authService.loginWithTelegram(idToken);
+    }
+
+    @Post('/signup/telegram')
+    async telegramSignup(@Body('id_token') idToken: string) {
+        return this.authService.signupWithTelegram(idToken);
     }
 
 

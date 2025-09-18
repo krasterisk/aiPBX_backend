@@ -398,4 +398,37 @@ export class UsersService {
         return user;
     }
 
+    async getUserByTelegramId(telegramId: string) {
+        try {
+            const user = await this.usersRepository.findOne({
+                where: { telegramId, isActivated: true },
+                include: { all: true }
+            });
+
+            if(!user) {
+                this.logger.warn("User not found by TelegramId")
+                throw new UnauthorizedException({ message: "Authorization Error"});
+            }
+            return user;
+
+        } catch (e) {
+            this.logger.warn("User not found by TelegramId", e)
+            throw new UnauthorizedException({ message: "Authorization Error"});
+        }
+    }
+
+    async getCandidateByTelegramId(telegramId: string) {
+        try {
+            const user = await this.usersRepository.findOne({
+                where: { telegramId },
+                include: { all: true }
+            });
+            return user;
+
+        } catch (e) {
+            this.logger.warn("User not found by TelegramId", e)
+            throw new UnauthorizedException({ message: "Authorization Error"});
+        }
+    }
+
 }

@@ -27,9 +27,12 @@ export class User extends Model<User, UserCreationAttrs> {
     @ApiProperty({example: 'profile.png', description: "User avatar"})
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     avatar: string
-    @ApiProperty({example: '123', description: "GooglId fo google auth"})
+    @ApiProperty({example: '123', description: "GoogleId for google auth"})
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     googleId: string
+    @ApiProperty({example: '123', description: "TelegramId for Telegram auth"})
+    @Column({type: DataType.STRING, unique: false, allowNull: true})
+    telegramId: string
     @ApiProperty({example: '12345', description: "Password. Required"})
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     password: string

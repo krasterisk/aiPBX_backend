@@ -21,13 +21,16 @@ export class CreateUserDto {
     @ApiProperty({example: '123', description: "GoogleId for google auth"})
     @IsString({message: 'Must be a string'})
     readonly googleId?: string
+    @ApiProperty({example: '123', description: "TelegramId for telegram auth"})
+    @IsString({message: 'Must be a string'})
+    readonly telegramId?: string
     @ApiProperty({example: '1234-1234-1234-1234', description: "activation link"})
     // @IsString({message: 'Must be a string'})
     readonly activationLink?: string
     @ApiProperty({example: '12345', description: "Password"})
     @IsString({message: 'Must be a string!'})
     @Length(8, 50, {message: 'The password must contain from 8 to 50 characters.'})
-    readonly password: string
+    readonly password?: string
     @ApiProperty({example: 'USER', description: "Role"})
     // @IsString({message: 'Must be a array of Roles'})
     readonly roles?: CreateRoleDto[]

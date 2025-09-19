@@ -246,6 +246,8 @@ export class AuthService {
             .update(dataCheckString)
             .digest('hex');
 
+        console.log(hmac,checkHash)
+
         if (hmac !== checkHash) {
             this.logger.warn('Telegram Authorization Error')
             throw new UnauthorizedException('Invalid Telegram data');

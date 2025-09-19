@@ -277,7 +277,7 @@ export class AuthService {
         };
 
         const token = this.jwtService.sign(payload)
-
+        this.logger.log('User successfully signup via telegram', user.email)
         return { token };
     }
 

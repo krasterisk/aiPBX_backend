@@ -3,10 +3,9 @@ import {
     Controller,
     Post,
 } from '@nestjs/common';
-import {ApiOperation, ApiResponse, ApiTags} from "@nestjs/swagger";
+import {ApiTags} from "@nestjs/swagger";
 import {CreateUserDto} from "../users/dto/create-user.dto";
 import {AuthService} from "./auth.service";
-import {UsersService} from "../users/users.service";
 import {TelegramAuthDto} from "./dto/telegram.auth.dto";
 
 @ApiTags('Authorization')
@@ -26,26 +25,24 @@ export class AuthController {
         return this.authService.signup(userDto)
     }
 
-    @Post('/login/google')
+    @Post('/google/login')
     async googleLogin(@Body('id_token') idToken: string) {
         return this.authService.loginWithGoogle(idToken);
     }
 
-    @Post('/signup/google')
+    @Post('/google/signup')
     async googleSignup(@Body('id_token') idToken: string) {
         return this.authService.signupWithGoogle(idToken);
     }
 
-    @Post('/login/telegram')
+    @Post('/telegram/login')
     async telegramLogin(@Body('id_token') idToken: string) {
         return this.authService.loginWithTelegram(idToken);
     }
 
-    @Post('/signup/telegram')
+    @Post('/telegram/signup')
     async telegramSignup(@Body() telegramDto: TelegramAuthDto) {
         console.log(telegramDto)
         return this.authService.signupWithTelegram(telegramDto);
     }
-
-
 }

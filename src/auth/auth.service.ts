@@ -281,8 +281,8 @@ export class AuthService {
         }
          // Создаём нового
         const user = await this.userService.create({
-            email: `${data.id}@telegram.fake`, // можно завести фейковый email
-            name: data.username || `tg_${data.id}`,
+            email: null, // можно завести фейковый email
+            name: data.first_name || `tg_${data.id}`,
             telegramId: data.id,
             password: null, // у телеграм-пользователя нет пароля
             roles: [{ value: 'USER', description: 'Customer' }],
@@ -299,7 +299,7 @@ export class AuthService {
 
         const token = this.jwtService.sign(payload)
         this.logger.log('User successfully signup via telegram', user.email)
-        return { token };
+        return { token, user: payload };
     }
 
     async loginWithTelegram(data: TelegramAuthDto) {
@@ -343,7 +343,7 @@ export class AuthService {
 
         const token = this.jwtService.sign(payload)
 
-        return { token };
+        return { token, user: payload };
     }
 
 }

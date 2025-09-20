@@ -153,7 +153,7 @@ export class AuthService {
             }
 
             // Ищем юзера в базе
-            const user = await this.userService.getUserByEmail(email);
+            const user = await this.userService.getCandidateByEmail(email);
 
             if (!user) {
                 this.logger.warn('Google email not verified')
@@ -197,7 +197,7 @@ export class AuthService {
             }
 
             // Ищем юзера в базе
-            const candidateUser = await this.userService.getUserByEmail(email);
+            const candidateUser = await this.userService.getCandidateByEmail(email);
             if (candidateUser) {
                 this.logger.warn('Google email already exist')
                 throw new UnauthorizedException('Email already exist');
@@ -323,7 +323,7 @@ export class AuthService {
         }
 
         // Ищем пользователя по telegram_id
-        const user = await this.userService.getUserByTelegramId(data.id);
+        const user = await this.userService.getCandidateByTelegramId(data.id);
 
         if (!user) {
             this.logger.warn('TelegramId not exist!', data.id)

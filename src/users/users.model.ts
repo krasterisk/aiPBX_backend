@@ -19,7 +19,7 @@ export class User extends Model<User, UserCreationAttrs> {
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     name: string
     @ApiProperty({example: 'name@domain.com', description: "E-mail address"})
-    @Column({type: DataType.STRING, unique: true, allowNull: false})
+    @Column({type: DataType.STRING, unique: true, allowNull: true})
     email: string
     @ApiProperty({example: '0', description: "feature flag"})
     @Column({type: DataType.BOOLEAN, unique: false, allowNull: true})
@@ -28,11 +28,11 @@ export class User extends Model<User, UserCreationAttrs> {
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     avatar: string
     @ApiProperty({example: '123', description: "GoogleId for google auth"})
-    @Column({type: DataType.STRING, unique: false, allowNull: true})
+    @Column({type: DataType.STRING, unique: true, allowNull: true})
     googleId: string
     @ApiProperty({example: '123', description: "TelegramId for Telegram auth"})
-    @Column({type: DataType.STRING, unique: false, allowNull: true})
-    telegramId: string
+    @Column({type: DataType.STRING, unique: true, allowNull: true})
+    telegramId: number
     @ApiProperty({example: '12345', description: "Password. Required"})
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     password: string

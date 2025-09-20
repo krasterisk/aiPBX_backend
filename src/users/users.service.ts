@@ -398,7 +398,7 @@ export class UsersService {
         return user;
     }
 
-    async getCandidateByTelegramId(telegramId: string) {
+    async getCandidateByTelegramId(telegramId: number) {
         try {
             const user = await this.usersRepository.findOne({
                 where: { telegramId },

@@ -10,6 +10,8 @@ import {CreateRoleDto} from "../roles/dto/create-role.dto";
 import {ResetPasswordDto} from "../users/dto/resetPassword.dto";
 import {OAuth2Client} from 'google-auth-library';
 import * as crypto from 'crypto';
+import {TelegramLoginDto} from "./dto/telegramLogin.dto";
+import {TelegramAuthDto} from "./dto/telegram.auth.dto";
 
 @Injectable()
 export class AuthService {
@@ -248,7 +250,7 @@ export class AuthService {
         return { botToken: BOT_TOKEN, hmac, checkHash }
     }
 
-    async signupWithTelegram(data: any) {
+    async signupWithTelegram(data: TelegramAuthDto) {
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
         // Проверяем подпись
@@ -300,12 +302,14 @@ export class AuthService {
         return { token };
     }
 
-    async loginWithTelegram(data: any) {
+    async loginWithTelegram(data: TelegramLoginDto) {
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+        const tgUser = data.user
+
         // Проверяем подпись
-        const checkHash = data.hash;
-        const dataCheckString = Object.keys(data)
+        const checkHash = tgUser.hash;
+        const dataCheckString = Object.keys(tgUser)
             .filter((key) => key !== 'hash')
             .sort()
             .map((key) => `${key}=${data[key]}`)
@@ -323,10 +327,10 @@ export class AuthService {
         }
 
         // Ищем пользователя по telegram_id
-        const user = await this.userService.getCandidateByTelegramId(data.id);
+        const user = await this.userService.getCandidateByTelegramId(tgUser.id);
 
         if (!user) {
-            this.logger.warn('TelegramId not exist!', data.id)
+            this.logger.warn('TelegramId not exist!', tgUser.id)
             throw new UnauthorizedException('User not exist');
         }
 

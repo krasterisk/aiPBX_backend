@@ -7,6 +7,7 @@ import {ApiTags} from "@nestjs/swagger";
 import {CreateUserDto} from "../users/dto/create-user.dto";
 import {AuthService} from "./auth.service";
 import {TelegramAuthDto} from "./dto/telegram.auth.dto";
+import {TelegramLoginDto} from "./dto/telegramLogin.dto";
 
 @ApiTags('Authorization')
 @Controller('auth')
@@ -36,13 +37,12 @@ export class AuthController {
     }
 
     @Post('/telegram/login')
-    async telegramLogin(@Body('id_token') idToken: string) {
-        return this.authService.loginWithTelegram(idToken);
+    async telegramLogin(@Body() telegramDto: TelegramLoginDto) {
+        return this.authService.loginWithTelegram(telegramDto);
     }
 
     @Post('/telegram/signup')
     async telegramSignup(@Body() telegramDto: TelegramAuthDto) {
-        console.log(telegramDto)
         return this.authService.signupWithTelegram(telegramDto);
     }
 

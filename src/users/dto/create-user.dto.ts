@@ -1,6 +1,7 @@
 import {ApiProperty} from "@nestjs/swagger";
-import {IsEmail, IsString, Length} from "class-validator";
+import {IsEmail, IsNumber, IsString, Length} from "class-validator";
 import {CreateRoleDto} from "../../roles/dto/create-role.dto";
+import {IsNumeric} from "sequelize-typescript";
 
 export class CreateUserDto {
     @ApiProperty({example: 'name', description: "Customer name"})
@@ -22,8 +23,8 @@ export class CreateUserDto {
     @IsString({message: 'Must be a string'})
     readonly googleId?: string
     @ApiProperty({example: '123', description: "TelegramId for telegram auth"})
-    @IsString({message: 'Must be a string'})
-    readonly telegramId?: string
+    @IsNumber()
+    readonly telegramId?: number
     @ApiProperty({example: '1234-1234-1234-1234', description: "activation link"})
     // @IsString({message: 'Must be a string'})
     readonly activationLink?: string

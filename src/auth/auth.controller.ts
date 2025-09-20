@@ -38,7 +38,6 @@ export class AuthController {
 
     @Post('/telegram/login')
     async telegramLogin(@Body() telegramDto: TelegramAuthDto) {
-        console.log(telegramDto)
         return this.authService.loginWithTelegram(telegramDto);
     }
 

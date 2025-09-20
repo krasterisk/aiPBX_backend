@@ -276,7 +276,7 @@ export class AuthService {
         const candidateUser = await this.userService.getCandidateByTelegramId(data.id);
 
         if (candidateUser) {
-            this.logger.warn('User already exist', candidateUser)
+            this.logger.warn('User already exist')
             throw new UnauthorizedException('User already exist');
         }
          // Создаём нового

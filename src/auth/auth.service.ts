@@ -302,16 +302,12 @@ export class AuthService {
         return { token };
     }
 
-    async loginWithTelegram(data: TelegramLoginDto) {
+    async loginWithTelegram(data: TelegramAuthDto) {
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-        console.log(data)
-
-        const tgUser = data.user
-
         // Проверяем подпись
-        const checkHash = tgUser.hash;
-        const dataCheckString = Object.keys(tgUser)
+        const checkHash = data.hash;
+        const dataCheckString = Object.keys(data)
             .filter((key) => key !== 'hash')
             .sort()
             .map((key) => `${key}=${data[key]}`)
@@ -329,10 +325,10 @@ export class AuthService {
         }
 
         // Ищем пользователя по telegram_id
-        const user = await this.userService.getCandidateByTelegramId(tgUser.id);
+        const user = await this.userService.getCandidateByTelegramId(data.id);
 
         if (!user) {
-            this.logger.warn('TelegramId not exist!', tgUser.id)
+            this.logger.warn('TelegramId not exist!', data.id)
             throw new UnauthorizedException('User not exist');
         }
 

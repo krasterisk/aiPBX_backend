@@ -305,6 +305,8 @@ export class AuthService {
     async loginWithTelegram(data: TelegramLoginDto) {
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+        console.log(data)
+
         const tgUser = data.user
 
         // Проверяем подпись

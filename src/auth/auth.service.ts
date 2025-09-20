@@ -229,11 +229,8 @@ export class AuthService {
         }
     }
 
-    async signupWithTelegram(data: any) {
+    async checkHash(data: any) {
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-
-        console.log(data)
-
         // Проверяем подпись
         const checkHash = data.hash;
         const dataCheckString = Object.keys(data)
@@ -248,7 +245,25 @@ export class AuthService {
             .update(dataCheckString)
             .digest('hex');
 
-        console.log(hmac,checkHash)
+        return { botToken: BOT_TOKEN, hmac, checkHash }
+    }
+
+    async signupWithTelegram(data: any) {
+        const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+
+        // Проверяем подпись
+        const checkHash = data.hash;
+        const dataCheckString = Object.keys(data)
+            .filter((key) => key !== 'hash')
+            .sort()
+            .map((key) => `${key}=${data[key]}`)
+            .join('\n');
+
+        const secretKey = crypto.createHash('sha256').update(BOT_TOKEN).digest();
+        const hmac = crypto
+            .createHmac('sha256', secretKey)
+            .update(dataCheckString)
+            .digest('hex');
 
         if (hmac !== checkHash) {
             this.logger.warn('Telegram Authorization Error')

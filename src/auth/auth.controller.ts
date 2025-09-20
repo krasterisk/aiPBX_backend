@@ -45,4 +45,9 @@ export class AuthController {
         console.log(telegramDto)
         return this.authService.signupWithTelegram(telegramDto);
     }
+
+    @Post('/telegram/check')
+    async telegramCheckHash(@Body() telegramDto: TelegramAuthDto) {
+        return this.authService.checkHash(telegramDto);
+    }
 }

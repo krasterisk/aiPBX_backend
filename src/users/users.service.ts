@@ -426,7 +426,7 @@ export class UsersService {
             return user;
 
         } catch (e) {
-            this.logger.warn("User not found by TelegramId", e)
+            this.logger.warn("Error get user by TelegramId", e)
             throw new UnauthorizedException({ message: "Authorization Error"});
         }
     }

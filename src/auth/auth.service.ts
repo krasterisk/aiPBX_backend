@@ -271,7 +271,7 @@ export class AuthService {
         }
 
         // Ищем пользователя по telegram_id
-        const candidateUser = await this.userService.getUserByTelegramId(data.id);
+        const candidateUser = await this.userService.getCandidateByTelegramId(data.id);
 
         if (candidateUser) {
             this.logger.warn('User already exist', candidateUser)

@@ -232,6 +232,8 @@ export class AuthService {
     async signupWithTelegram(data: any) {
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+        console.log(data)
+
         // Проверяем подпись
         const checkHash = data.hash;
         const dataCheckString = Object.keys(data)
@@ -257,8 +259,8 @@ export class AuthService {
         const candidateUser = await this.userService.getUserByTelegramId(data.id);
 
         if (candidateUser) {
-            this.logger.warn('Google email already exist')
-            throw new UnauthorizedException('Email already exist');
+            this.logger.warn('User already exist', candidateUser)
+            throw new UnauthorizedException('User already exist');
         }
          // Создаём нового
         const user = await this.userService.create({

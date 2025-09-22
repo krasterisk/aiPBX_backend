@@ -76,6 +76,17 @@ export class UsersController {
         return this.userService.getUserBalance(userId)
     }
 
+    @ApiOperation({summary: "Get user data"})
+    @ApiResponse({status: 200, type: User})
+    @Roles('ADMIN','USER')
+    @UseGuards(RolesGuard)
+    @Get('me')
+    getMe(@Req() request: RequestWithUser) {
+        const userId = request.tokenUserId
+        console.log("USER ME: ", userId)
+        return this.userService.getMe(userId)
+    }
+
     @ApiOperation({summary: "Get all users"})
     @ApiResponse({status: 200, type: [User]})
     @Roles('ADMIN')

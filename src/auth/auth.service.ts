@@ -82,6 +82,7 @@ export class AuthService {
     private async generateToken(user: User) {
         const payload = {
             id: user.id,
+            roles: user.roles,
             vpbx_user_id: user.vpbx_user_id,
         }
         return this.jwtService.sign(payload)

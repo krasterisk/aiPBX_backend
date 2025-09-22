@@ -250,6 +250,27 @@ export class UsersService {
         }
     }
 
+    async getMe(id: string) {
+        if(!id) {
+            this.logger.warn('No id!');
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
+
+        const user = await this.usersRepository.findOne({
+            where: { id },
+            include: { all: true },
+            attributes: {
+                exclude: ["password", "activationLink", "resetPasswordLink"]
+            }
+        });
+
+        if (!user) {
+            this.logger.warn('User not found');
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
+        return user
+    }
+
     async getUserById(id: string | number,tokenId: string | number, isAdmin: boolean) {
         try {
             const user = await this.usersRepository.findOne({

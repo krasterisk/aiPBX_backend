@@ -326,6 +326,7 @@ export class AuthService {
         }
         if(data.photo_url !== user.avatar) {
             user.avatar = data.photo_url
+            await user.save()
         }
         // Генерим JWT
         const token = await this.generateToken(user)

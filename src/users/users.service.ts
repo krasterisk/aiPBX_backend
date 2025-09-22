@@ -50,7 +50,7 @@ export class UsersService {
             const user = await this.usersRepository.findAll({
                 where: { vpbx_user_id: null },
                 include: { all: true },
-                attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+                attributes: { exclude: ["password", "activationLink", "resetPasswordLink", "googleId", "telegramId"] }
             });
             return user;
         } catch (e) {
@@ -108,7 +108,7 @@ export class UsersService {
                             ]
                         },
                     include: { all: true },
-                    attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+                attributes: { exclude: ["password", "activationLink", "resetPasswordLink", "googleId", "telegramId"] }
                 }
             );
             if (users) {
@@ -146,7 +146,7 @@ export class UsersService {
             const user = await this.usersRepository.findOne({
                 where: { email },
                 include: { all: true },
-                attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+                attributes: { exclude: ["password", "activationLink", "resetPasswordLink", "googleId", "telegramId"] }
             });
             return user;
 
@@ -423,7 +423,9 @@ export class UsersService {
         try {
             const user = await this.usersRepository.findOne({
                 where: { telegramId },
-                include: { all: true }
+                include: { all: true },
+                attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+
             });
             return user;
 

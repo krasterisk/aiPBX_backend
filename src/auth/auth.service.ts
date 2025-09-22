@@ -213,7 +213,7 @@ export class AuthService {
             const user = await this.userService.create({
                 email,
                 name,
-                password: null,
+                isActivated: true,
                 roles: [{ value: 'USER', description: 'Customer' }],
                 googleId,
                 avatar: picture,
@@ -283,8 +283,8 @@ export class AuthService {
             email: null, // можно завести фейковый email
             name: data.first_name || `tg_${data.id}`,
             telegramId: data.id,
+            isActivated: true,
             avatar: data.photo_url,
-            password: null, // у телеграм-пользователя нет пароля
             roles: [{ value: 'USER', description: 'Customer' }],
         });
 
@@ -324,7 +324,9 @@ export class AuthService {
             this.logger.warn('TelegramId not exist!', data.id)
             throw new UnauthorizedException('User not exist');
         }
-
+        if(data.photo_url !== user.avatar) {
+            user.avatar = data.photo_url
+        }
         // Генерим JWT
         const token = await this.generateToken(user)
 

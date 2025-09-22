@@ -10,7 +10,6 @@ import {CreateRoleDto} from "../roles/dto/create-role.dto";
 import {ResetPasswordDto} from "../users/dto/resetPassword.dto";
 import {OAuth2Client} from 'google-auth-library';
 import * as crypto from 'crypto';
-import {TelegramLoginDto} from "./dto/telegramLogin.dto";
 import {TelegramAuthDto} from "./dto/telegram.auth.dto";
 
 @Injectable()
@@ -32,7 +31,7 @@ export class AuthService {
             throw new UnauthorizedException({message: "Authorization Error"});
         }
         const token = await this.generateToken(user)
-        return {token}
+        return { token, user }
     }
 
     async signup(userDto: CreateUserDto) {
@@ -82,10 +81,7 @@ export class AuthService {
 
     private async generateToken(user: User) {
         const payload = {
-            name: user?.name,
-            email: user.email,
             id: user.id,
-            roles: user.roles,
             vpbx_user_id: user.vpbx_user_id,
         }
         return this.jwtService.sign(payload)
@@ -161,15 +157,13 @@ export class AuthService {
                 this.logger.warn('Google email not verified')
                 throw new UnauthorizedException('Google email not verified');
             }
+            user.googleId = googleId;
+            user.name = name;
+            user.avatar = picture;
+            await user.save()
 
             // Генерируем JWT
-            const token = this.jwtService.sign({
-                id: user.id,
-                name: user?.name,
-                email: user.email,
-                roles: user.roles,
-                vpbx_user_id: user.vpbx_user_id,
-            });
+            const token = await this.generateToken(user)
 
             this.logger.log('User successfully auth via google', user.email)
             return {token, user};
@@ -209,19 +203,14 @@ export class AuthService {
             const user = await this.userService.create({
                 email,
                 name,
-                password: null, // пароль не нужен
+                password: null,
                 roles: [{ value: 'USER', description: 'Customer' }],
-                googleId,       // добавь поле googleId в модель
+                googleId,
                 avatar: picture,
                 });
 
             // Генерируем JWT
-            const token = this.jwtService.sign({
-                id: user.id,
-                name: user?.name,
-                email: user.email,
-                roles: user.roles
-            });
+            const token = await this.generateToken(user)
 
             this.logger.log('User successfully signup via google', user.email)
             return {token, user};
@@ -284,22 +273,16 @@ export class AuthService {
             email: null, // можно завести фейковый email
             name: data.first_name || `tg_${data.id}`,
             telegramId: data.id,
+            avatar: data.photo_url,
             password: null, // у телеграм-пользователя нет пароля
             roles: [{ value: 'USER', description: 'Customer' }],
         });
 
         // Генерим JWT
-        const payload = {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            telegramId: user.telegramId,
-            roles: user.roles,
-        };
+        const token = await this.generateToken(user)
 
-        const token = this.jwtService.sign(payload)
         this.logger.log('User successfully signup via telegram', user.email)
-        return { token, user: payload };
+        return { token, user };
     }
 
     async loginWithTelegram(data: TelegramAuthDto) {
@@ -333,17 +316,9 @@ export class AuthService {
         }
 
         // Генерим JWT
-        const payload = {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            telegramId: user.telegramId,
-            roles: user.roles,
-        };
+        const token = await this.generateToken(user)
 
-        const token = this.jwtService.sign(payload)
-
-        return { token, user: payload };
+        return { token, user };
     }
 
 }

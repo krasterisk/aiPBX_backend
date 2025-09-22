@@ -80,9 +80,6 @@ export class UsersService {
                     ]
                 }
 
-            console.log(userIdClause,tokenUserId,isAdmin)
-
-
             const users = await this.usersRepository.findAndCountAll({
                     offset,
                     limit,
@@ -127,13 +124,15 @@ export class UsersService {
         try {
             const user = await this.usersRepository.findOne({
                 where: { email, isActivated: true },
-                include: { all: true }
+                include: { all: true },
+                plain: true
             });
 
             if(!user) {
                 this.logger.warn("User not found")
                 throw new UnauthorizedException({ message: "Authorization Error"});
             }
+
             return user;
 
         } catch (e) {
@@ -146,7 +145,8 @@ export class UsersService {
         try {
             const user = await this.usersRepository.findOne({
                 where: { email },
-                include: { all: true }
+                include: { all: true },
+                attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
             });
             return user;
 

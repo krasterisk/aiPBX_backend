@@ -99,7 +99,16 @@ export class AuthService {
             if (user) {
                 const passwordEquals = await bcrypt.compare(userDto.password, user.password)
                 if (user && passwordEquals) {
-                    return user
+                    const userPlain = user.get({ plain: true })
+                    const {
+                        password,
+                        resetPasswordLink,
+                        activationLink,
+                        isActivated,
+                        telegramId,
+                        googleId,
+                        ...safeUser } = userPlain
+                    return safeUser as User
                 }
             }
         } catch (e) {

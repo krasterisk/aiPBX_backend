@@ -51,14 +51,14 @@ export class AuthService {
         ]
         const hashPassword = await bcrypt.hash(userDto.password, 5)
 
+        await this.mailerService.sendActivationMail(userDto.email, activationLink)
         const user = await this.userService.create({...userDto, password: hashPassword, roles, activationLink})
 
-        if (user) {
-            await this.mailerService.sendActivationMail(userDto.email, activationLink)
+        if(user) {
             return {success: true}
-        } else {
-            return {success: false}
         }
+
+        return {success: false}
 
         // return this.generateToken(user)
     }

@@ -1,18 +1,17 @@
 import {
     Body,
-    Controller,
+    Controller, HttpException, HttpStatus, Patch,
     Post,
 } from '@nestjs/common';
-import {ApiTags} from "@nestjs/swagger";
+import {ApiOperation, ApiTags} from "@nestjs/swagger";
 import {CreateUserDto} from "../users/dto/create-user.dto";
 import {AuthService} from "./auth.service";
 import {TelegramAuthDto} from "./dto/telegram.auth.dto";
-import {TelegramLoginDto} from "./dto/telegramLogin.dto";
+import {ActivationDto} from "../users/dto/activation.dto";
 
 @ApiTags('Authorization')
 @Controller('auth')
 export class AuthController {
-
 
     constructor(private authService: AuthService) {}
 
@@ -49,5 +48,14 @@ export class AuthController {
     @Post('/telegram/check')
     async telegramCheckHash(@Body() telegramDto: TelegramAuthDto) {
         return this.authService.checkHash(telegramDto);
+    }
+
+    @ApiOperation({summary: "activation user"})
+    @Post('activation')
+    async activate(@Body() dto: ActivationDto) {
+        const user = await this.authService.activate(dto)
+        if(user) {
+            return this.authService.login(dto)
+        }
     }
 }

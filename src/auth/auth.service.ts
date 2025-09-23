@@ -11,6 +11,7 @@ import {ResetPasswordDto} from "../users/dto/resetPassword.dto";
 import {OAuth2Client} from 'google-auth-library';
 import * as crypto from 'crypto';
 import {TelegramAuthDto} from "./dto/telegram.auth.dto";
+import {ActivationDto} from "../users/dto/activation.dto";
 
 @Injectable()
 export class AuthService {
@@ -35,14 +36,16 @@ export class AuthService {
     }
 
     async signup(userDto: CreateUserDto) {
-        const candidateEmail = await this.userService.getCandidateByEmail(userDto.email)
 
-        if (candidateEmail) {
-            this.logger.warn("Email already exist!", candidateEmail.email)
+        const candidate = await this.userService.getCandidateByEmail(userDto.email)
+
+        if (candidate && candidate.isActivated) {
+            this.logger.warn("Email already exist!", candidate.email)
             throw new HttpException('Email already exist!', HttpStatus.BAD_REQUEST)
         }
 
-        const activationLink = uuidv4()
+        const activationCode = ("" + Math.floor(100000 + Math.random() * 900000)).substring(0, 5);
+        const activationExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
         const roles: CreateRoleDto[] = [
             {
                 value: 'USER',
@@ -51,16 +54,81 @@ export class AuthService {
         ]
         const hashPassword = await bcrypt.hash(userDto.password, 5)
 
-        await this.mailerService.sendActivationMail(userDto.email, activationLink)
-        const user = await this.userService.create({...userDto, password: hashPassword, roles, activationLink})
+        await this.mailerService.sendActivationMail(userDto.email, activationCode)
 
-        if(user) {
-            return {success: true}
+        if(!candidate) {
+            const user = await this.userService.create({
+                ...userDto,
+                password: hashPassword,
+                roles,
+                activationCode,
+                activationExpires
+            })
+
+            if (user) {
+                return {success: true}
+            }
         }
 
-        return {success: false}
+        if(!candidate.isActivated) {
+            candidate.activationCode = activationCode
+            candidate.activationExpires = activationExpires
+            await candidate.save()
+            return { success: true }
+        }
+
+        this.logger.warn("Signup error!", candidate.email)
+        throw new HttpException('Signup error!', HttpStatus.BAD_REQUEST)
 
         // return this.generateToken(user)
+    }
+
+    async activate(activation: ActivationDto) {
+            if(!activation.activationCode) {
+                this.logger.warn("Activation error: no code", activation)
+                throw new HttpException('Activation error!', HttpStatus.BAD_REQUEST)
+            }
+
+            if(!activation.email) {
+                this.logger.warn("Activation user not found by email", activation)
+                throw new HttpException('Activation error!', HttpStatus.BAD_REQUEST)
+            }
+
+            const candidate = await this.userService.getCandidateByEmail(activation.email);
+
+            if (!candidate) {
+                this.logger.warn("Activation user not found", activation)
+                throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+            }
+
+            if (!candidate.activationCode) {
+                this.logger.warn("Activation code is empty", candidate.activationCode)
+                throw new HttpException('Activation code error', HttpStatus.BAD_REQUEST);
+            }
+
+            if (!candidate.activationExpires) {
+                this.logger.warn("Activation time expired",
+                    String(candidate.activationExpires)
+                )
+                throw new HttpException('Activation error', HttpStatus.BAD_REQUEST);
+            }
+
+            if (candidate.activationExpires < Date.now()) {
+                                this.logger.warn("Activation code expires")
+                throw new HttpException('Activation code expired', HttpStatus.BAD_REQUEST);
+            }
+
+            if (candidate.activationCode !== activation.activationCode) {
+                this.logger.warn("Invalid activation code")
+                throw new HttpException('Invalid activation code', HttpStatus.BAD_REQUEST);
+            }
+
+            candidate.isActivated = true;
+            candidate.activationCode = null;
+            candidate.activationExpires = null;
+            await candidate.save();
+            return candidate;
+
     }
 
     async create(userDto: CreateUserDto) {
@@ -94,6 +162,10 @@ export class AuthService {
 
     private async validateUser(userDto: CreateUserDto) {
         try {
+            if(!userDto.email) {
+                this.logger.warn("Email is empty")
+                throw new UnauthorizedException({message: "Authorization Error"});
+            }
             const email = userDto.email.trim()
             const user = await this.userService.getUserByEmail(email)
             if (user) {
@@ -103,7 +175,7 @@ export class AuthService {
                     const {
                         password,
                         resetPasswordLink,
-                        activationLink,
+                        activationCode,
                         isActivated,
                         telegramId,
                         googleId,

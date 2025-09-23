@@ -50,7 +50,7 @@ export class UsersService {
             const user = await this.usersRepository.findAll({
                 where: { vpbx_user_id: null },
                 include: { all: true },
-                attributes: { exclude: ["password", "activationLink", "resetPasswordLink", "googleId", "telegramId"] }
+                attributes: { exclude: ["password", "activationCode", "resetPasswordLink", "googleId", "telegramId"] }
             });
             return user;
         } catch (e) {
@@ -108,7 +108,7 @@ export class UsersService {
                             ]
                         },
                     include: { all: true },
-                attributes: { exclude: ["password", "activationLink", "resetPasswordLink", "googleId", "telegramId"] }
+                attributes: { exclude: ["password", "activationCode", "resetPasswordLink", "googleId", "telegramId"] }
                 }
             );
             if (users) {
@@ -146,7 +146,7 @@ export class UsersService {
             const user = await this.usersRepository.findOne({
                 where: { email },
                 include: { all: true },
-                attributes: { exclude: ["password", "activationLink", "resetPasswordLink", "googleId", "telegramId"] }
+                attributes: { exclude: ["password", "resetPasswordLink", "googleId", "telegramId"] }
             });
             return user;
 
@@ -160,7 +160,7 @@ export class UsersService {
         try {
             const user = await this.usersRepository.findAll({
                 include: { all: true },
-                attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+                attributes: { exclude: ["password", "activationCode", "resetPasswordLink"] }
             });
             return user[0];
         } catch (e) {
@@ -172,7 +172,7 @@ export class UsersService {
     async updateUserProfile(updates: Partial<User>) {
         const user = await this.usersRepository.findByPk(updates.id, {
             include: { all: true },
-            attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+            attributes: { exclude: ["password", "activationCode", "resetPasswordLink"] }
         });
         if (!user) {
             this.logger.warn("Users not found")
@@ -217,7 +217,6 @@ export class UsersService {
         return true
     }
 
-
     async getUserByUsername(username: string) {
         try {
             const user = await this.usersRepository.findOne({
@@ -260,7 +259,7 @@ export class UsersService {
             where: { id },
             include: { all: true },
             attributes: {
-                exclude: ["password", "activationLink", "resetPasswordLink"]
+                exclude: ["password", "activationCode", "resetPasswordLink"]
             }
         });
 
@@ -277,7 +276,7 @@ export class UsersService {
                 where: { id },
                 include: { all: true },
                 attributes: {
-                    exclude: ["password", "activationLink", "resetPasswordLink"]
+                    exclude: ["password", "activationCode", "resetPasswordLink"]
                 }
             });
 
@@ -304,7 +303,7 @@ export class UsersService {
         const user = await this.usersRepository.findOne({
             where: { id: dto.userId },
             include: { all: true },
-            attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+            attributes: { exclude: ["password", "activationCode", "resetPasswordLink"] }
         });
         const role = await this.roleService.getRoleByValue(dto.value);
         if (role && user) {
@@ -344,7 +343,7 @@ export class UsersService {
     async updateUserAvatar(updates: Partial<User>, image: any) {
         const user = await this.usersRepository.findByPk(updates.id, {
             include: { all: true },
-            attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+            attributes: { exclude: ["password", "activationCode", "resetPasswordLink"] }
         });
         if (!user) {
             this.logger.warn('User not found');
@@ -368,24 +367,15 @@ export class UsersService {
         }
     }
 
-    async activate(activationLink: string) {
+    async getUserByActivateCode(activationCode: string) {
         try {
-            console.log("activationLink: ", activationLink)
             const user = await this.usersRepository.findOne({
-                    where: { activationLink, isActivated: false },
+                where: { activationCode, isActivated: false }
                 });
-            if (!user) {
-                this.logger.warn('Activation link not found!');
-                throw new HttpException("Activation code not found!", HttpStatus.NOT_FOUND);
-            }
-            user.isActivated = true;
-            await user.save();
             return user;
-
         } catch (e) {
-            this.logger.warn('Activation error!', e);
-            throw new HttpException("Activation error", HttpStatus.NOT_FOUND);
-
+            this.logger.warn("Error get user by TelegramId", e)
+            throw new UnauthorizedException({ message: "Authorization Error"});
         }
     }
 
@@ -424,7 +414,7 @@ export class UsersService {
             const user = await this.usersRepository.findOne({
                 where: { telegramId },
                 include: { all: true },
-                attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+                attributes: { exclude: ["password", "activationCode", "resetPasswordLink"] }
 
             });
             return user;

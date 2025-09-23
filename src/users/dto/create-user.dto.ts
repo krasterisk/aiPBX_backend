@@ -15,7 +15,7 @@ export class CreateUserDto {
     @ApiProperty({example: 'user@domain.com', description: "E-mail address"})
     @IsString({message: 'Must be a string'})
     @IsEmail({},{message: 'Incorrect email'})
-    readonly email: string
+    readonly email?: string
     @ApiProperty({example: 'avatar.png', description: "User avatar"})
     @IsString({message: 'Must be a string'})
     readonly avatar?: string
@@ -30,7 +30,9 @@ export class CreateUserDto {
     readonly isActivated?: boolean
     @ApiProperty({example: '1234-1234-1234-1234', description: "activation link"})
     // @IsString({message: 'Must be a string'})
-    readonly activationLink?: string
+    readonly activationCode?: string
+    @ApiProperty({example: '178823233', description: "activation expires timestamp"})
+    readonly activationExpires?: number
     @ApiProperty({example: '12345', description: "Password"})
     @IsString({message: 'Must be a string!'})
     @Length(8, 50, {message: 'The password must contain from 8 to 50 characters.'})

@@ -204,19 +204,6 @@ export class UsersController {
         return this.userService.updateUserPassword(updatePassword)
     }
 
-    @ApiOperation({summary: "activation user"})
-    @Patch('activation')
-    activate(@Body() dto: ActivationDto) {
-        if(!dto.activationCode) {
-            this.logger.warn("Activation error: no code", dto)
-            throw new HttpException('Activation error!', HttpStatus.BAD_REQUEST)
-        }
-        const user = this.userService.activate(dto.activationCode)
-        if (user) {
-            return { success: true }
-        }
-    }
-
     @Get('/resetPassword/:link')
     @Redirect('', 302)
     resetPassword(@Param('link') link: string) {

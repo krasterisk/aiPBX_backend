@@ -18,9 +18,9 @@ export class MailerService {
         });
     }
 
-    async sendActivationMail(to: string, link: string) {
-        if (!to || !link) {
-            this.logger.error(`Error send mail to: ${to}, code: ${link}`)
+    async sendActivationMail(to: string, code: string) {
+        if (!to || !code) {
+            this.logger.error(`Error send mail to: ${to}, code: ${code}`)
             throw new HttpException("Error sending email", HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
@@ -29,13 +29,13 @@ export class MailerService {
                 from: process.env.MAIL_USER,
                 to,
                 bcc: process.env.MAIL_USER,
-                subject: `AiPBX activation code: ${link}`,
+                subject: `AiPBX activation code: ${code}`,
                 text: '',
                 html: `
                 <body>
                     <div>
                         <p>
-                            <h2>Your activation code is: ${link}</h2>
+                            <h2>Your activation code is: ${code}</h2>
                             <h4>For your security, this code will expire in a few minutes.</h4>
                         </p>
                         <p>
@@ -46,6 +46,7 @@ export class MailerService {
             `,
             });
             this.logger.log(`Send email to ${to} from ${process.env.MAIL_USER}`)
+            return { success: true }
         } catch (e) {
             this.logger.error('Error send mail' + e)
             throw new HttpException("Error sending email", HttpStatus.INTERNAL_SERVER_ERROR);

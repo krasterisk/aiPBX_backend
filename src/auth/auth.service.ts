@@ -26,13 +26,30 @@ export class AuthService {
     }
 
     async login(userDto: CreateUserDto) {
-        const user = await this.validateUser(userDto)
-        if (!user) {
-            this.logger.warn("Password Compare Error")
-            throw new UnauthorizedException({message: "Authorization Error"});
+        const candidate = await this.userService.getCandidateByEmail(userDto.email)
+
+        if (!candidate) {
+            this.logger.warn("Email not found!", candidate.email)
+            throw new HttpException('Email not found!', HttpStatus.BAD_REQUEST)
         }
-        const token = await this.generateToken(user)
-        return { token, user }
+
+        const activationCode = ("" + Math.floor(100000 + Math.random() * 900000)).substring(0, 6);
+        const activationExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+        candidate.activationExpires = activationExpires
+        candidate.activationCode = activationCode
+
+        await candidate.save()
+
+        const result = await this.mailerService.sendActivationMail(userDto.email, activationCode)
+
+        if(result.success) {
+            return { success: true }
+        }
+
+        this.logger.warn("Email not send!", result)
+        throw new HttpException('Error while sending activation code', HttpStatus.BAD_REQUEST)
+
     }
 
     async signup(userDto: CreateUserDto) {
@@ -44,22 +61,20 @@ export class AuthService {
             throw new HttpException('Email already exist!', HttpStatus.BAD_REQUEST)
         }
 
-        const activationCode = ("" + Math.floor(100000 + Math.random() * 900000)).substring(0, 5);
+        const activationCode = ("" + Math.floor(100000 + Math.random() * 900000)).substring(0, 6);
         const activationExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
         const roles: CreateRoleDto[] = [
             {
                 value: 'USER',
-                description: 'Customer'
+                description: 'CUSTOMER'
             }
         ]
-        const hashPassword = await bcrypt.hash(userDto.password, 5)
 
         await this.mailerService.sendActivationMail(userDto.email, activationCode)
 
         if(!candidate) {
             const user = await this.userService.create({
                 ...userDto,
-                password: hashPassword,
                 roles,
                 activationCode,
                 activationExpires

@@ -267,7 +267,7 @@ export class AuthService {
             user.googleId = googleId;
             user.name = name;
             user.avatar = picture;
-            authType: 'google',
+            user.authType = 'google';
             await user.save()
 
             // Генерируем JWT

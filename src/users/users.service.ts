@@ -29,6 +29,7 @@ export class UsersService {
                     if (role) {
                         await user.$set("roles", [role.id]);
                         user.roles = [role];
+                        await user.save()
                         return user;
                     }
                 }

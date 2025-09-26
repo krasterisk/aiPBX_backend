@@ -381,7 +381,7 @@ export class AuthService {
             telegramId: data.id,
             isActivated: true,
             avatar: data.photo_url,
-            roles: [{ value: 'USER', description: 'Customer' }],
+            roles: [{ value: 'USER', description: 'CUSTOMER' }],
         });
 
         // Генерим JWT

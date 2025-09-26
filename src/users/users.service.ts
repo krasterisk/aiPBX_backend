@@ -22,29 +22,40 @@ export class UsersService {
 
     async create(dto: CreateUserDto) {
         try {
+            // создаём пользователя
             const user = await this.usersRepository.create(dto);
-            if (user) {
-                for (const roles of dto.roles) {
-                    const role = await this.roleService.getRoleByValue(roles.value);
-                    if (role) {
-                        await user.$set("roles", [role.id]);
-                        user.roles = [role];
-                        await user.save()
-                        return user;
-                    }
-                }
+
+            if (!user) {
+                this.logger.warn("User not created");
+                throw new HttpException({ message: "User not created" }, HttpStatus.BAD_REQUEST);
             }
-            await this.usersRepository.destroy({ where: { email: dto.email } });
-            this.logger.warn("Role not found")
-            throw new HttpException({ message: "Role not found" }, HttpStatus.NOT_FOUND);
+
+            // устанавливаем роли
+            const roleValues = dto.roles.map(r => r.value);
+            const roles = await Promise.all(roleValues.map(v => this.roleService.getRoleByValue(v)));
+
+            const validRoles = roles.filter(r => r !== null);
+            if (validRoles.length === 0) {
+                await this.usersRepository.destroy({ where: { id: user.id } });
+                this.logger.warn("Role not found");
+                throw new HttpException({ message: "Role not found" }, HttpStatus.NOT_FOUND);
+            }
+
+            await user.$set("roles", validRoles.map(r => r.id));
+
+            // подгружаем юзера заново с ролями
+            const userWithRoles = await this.usersRepository.findByPk(user.id, {
+                include: { all: true }
+            });
+
+            return userWithRoles;
 
         } catch (e) {
-            await this.usersRepository.destroy({ where: { email: dto.email } });
-            this.logger.warn("Role not found", e)
-            throw new HttpException({ message: "Role not found" }, HttpStatus.NOT_FOUND);
-
+            this.logger.error("User creation error", e);
+            throw new HttpException({ message: "User creation error" }, HttpStatus.BAD_REQUEST);
         }
     }
+
 
     async getAllUsers() {
         try {

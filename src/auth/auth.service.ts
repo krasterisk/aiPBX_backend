@@ -375,13 +375,15 @@ export class AuthService {
             throw new UnauthorizedException('User already exist');
         }
          // Создаём нового
+        const roles = [{ value: 'USER', description: 'CUSTOMER' }];
+
         const user = await this.userService.create({
             email: null, // можно завести фейковый email
             name: data.first_name || `tg_${data.id}`,
             telegramId: data.id,
             isActivated: true,
             avatar: data.photo_url,
-            roles: [{ value: 'USER', description: 'CUSTOMER' }],
+            roles
         });
 
         // Генерим JWT

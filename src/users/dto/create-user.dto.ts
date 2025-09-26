@@ -22,6 +22,9 @@ export class CreateUserDto {
     @ApiProperty({example: '123', description: "GoogleId for google auth"})
     @IsString({message: 'Must be a string'})
     readonly googleId?: string
+    @ApiProperty({example: 'google', description: "Authorization type"})
+    @IsString({message: 'Must be a string'})
+    readonly authType?: string
     @ApiProperty({example: '123', description: "TelegramId for telegram auth"})
     @IsNumber()
     readonly telegramId?: number

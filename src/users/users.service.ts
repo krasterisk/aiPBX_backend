@@ -45,7 +45,8 @@ export class UsersService {
 
             // подгружаем юзера заново с ролями
             const userWithRoles = await this.usersRepository.findByPk(user.id, {
-                include: { all: true }
+                include: { all: true },
+                attributes: { exclude: ["password", "activationCode", "resetPasswordLink", "googleId", "telegramId"] }
             });
 
             return userWithRoles;

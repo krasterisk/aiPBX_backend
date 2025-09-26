@@ -141,6 +141,7 @@ export class AuthService {
             candidate.isActivated = true;
             candidate.activationCode = null;
             candidate.activationExpires = null;
+            candidate.authType = 'email';
             await candidate.save();
 
             const token = await this.generateToken(candidate)
@@ -266,6 +267,7 @@ export class AuthService {
             user.googleId = googleId;
             user.name = name;
             user.avatar = picture;
+            authType: 'google',
             await user.save()
 
             // Генерируем JWT
@@ -312,6 +314,7 @@ export class AuthService {
                 isActivated: true,
                 roles: [{ value: 'USER', description: 'Customer' }],
                 googleId,
+                authType: 'google',
                 avatar: picture,
                 });
 
@@ -382,6 +385,7 @@ export class AuthService {
             name: data.first_name || `tg_${data.id}`,
             telegramId: data.id,
             isActivated: true,
+            authType: 'telegram',
             avatar: data.photo_url,
             roles
         });
@@ -422,10 +426,14 @@ export class AuthService {
             this.logger.warn('TelegramId not exist!', data.id)
             throw new UnauthorizedException('User not exist');
         }
+
+        user.authType = 'telegram';
+        user.telegramId = data.id;
+        user.name = `${data.first_name} ${data.last_name}`.trim();
         if(data.photo_url !== user.avatar) {
             user.avatar = data.photo_url
-            await user.save()
         }
+        await user.save()
         // Генерим JWT
         const token = await this.generateToken(user)
 

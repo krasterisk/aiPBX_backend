@@ -151,7 +151,7 @@ export class AuthService {
 
             if(token) {
                 const formattedResult =
-                    `<b>New customer is registered!</b><code>${JSON.stringify(candidate)}</code>`.trim();
+                    `<b>New customer is registered!</b><p><pre><code>${JSON.stringify(candidate)}</code></pre></p>`.trim();
                 await this.telegramService.sendMessage(
                         formattedResult, {
                         parse_mode: "HTML"
@@ -332,7 +332,7 @@ export class AuthService {
             const token = await this.generateToken(user)
             if(token) {
                 const formattedResult =
-                    `<b>New customer is registered!</b><code>${JSON.stringify(user)}</code>`.trim();
+                    `<b>New customer is registered!</b><p><pre><code>${JSON.stringify(user)}</code></pre></p>`.trim();
                 await this.telegramService.sendMessage(
                         formattedResult, {
                         parse_mode: "HTML"
@@ -416,7 +416,7 @@ export class AuthService {
 
         if(token) {
             const formattedResult =
-                `<b>New customer is registered!</b><code>${JSON.stringify(user)}</code>`.trim();
+                `<b>New customer is registered!</b><p><pre><code>${JSON.stringify(user)}</code></pre></p>`.trim();
             await this.telegramService.sendMessage(
                     formattedResult, {
                     parse_mode: "HTML"

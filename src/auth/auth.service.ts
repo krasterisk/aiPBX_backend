@@ -150,8 +150,9 @@ export class AuthService {
             const token = await this.generateToken(candidate)
 
             if(token) {
+                const JSONText = JSON.stringify(candidate,null,2);
                 const formattedResult =
-                    `<b>New customer is registered!</b><p><pre><code>${JSON.stringify(candidate)}</code></pre></p>`.trim();
+                    `<b>New customer is registered!</b><pre>${JSONText}</pre>`.trim();
                 await this.telegramService.sendMessage(
                         formattedResult, {
                         parse_mode: "HTML"
@@ -331,8 +332,9 @@ export class AuthService {
             // Генерируем JWT
             const token = await this.generateToken(user)
             if(token) {
+                const JSONText = JSON.stringify(user,null,2);
                 const formattedResult =
-                    `<b>New customer is registered!</b><p><pre><code>${JSON.stringify(user)}</code></pre></p>`.trim();
+                    `<b>New customer is registered!</b><pre>${JSONText}</pre>`.trim();
                 await this.telegramService.sendMessage(
                         formattedResult, {
                         parse_mode: "HTML"
@@ -415,8 +417,9 @@ export class AuthService {
         const token = await this.generateToken(user)
 
         if(token) {
+            const JSONText = JSON.stringify(user,null,2);
             const formattedResult =
-                `<b>New customer is registered!</b><p><pre><code>${JSON.stringify(user)}</code></pre></p>`.trim();
+                `<b>New customer is registered!</b><pre>${JSONText}</pre>`.trim();
             await this.telegramService.sendMessage(
                     formattedResult, {
                     parse_mode: "HTML"

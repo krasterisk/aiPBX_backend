@@ -142,7 +142,16 @@ export class AuthService {
             candidate.activationCode = null;
             candidate.activationExpires = null;
             await candidate.save();
-            return candidate;
+
+            const token = await this.generateToken(candidate)
+
+            if(token) {
+                return { token, user: candidate };
+            }
+
+            this.logger.warn("Generate token error")
+            throw new HttpException('Authorization error', HttpStatus.BAD_REQUEST);
+
 
     }
 

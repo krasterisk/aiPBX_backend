@@ -57,6 +57,9 @@ export class User extends Model<User, UserCreationAttrs> {
     @ApiProperty({example: '12345-12312-12345-12345-123345', description: "Reset password link"})
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     resetPasswordLink: string
+    @ApiProperty({example: 'Google', description: "Type of user authorization"})
+    @Column({type: DataType.STRING, unique: false, allowNull: true})
+    authType: string
     @ApiProperty({example: 'true', description: "is activated user"})
     @Column({type: DataType.BOOLEAN, unique: false, allowNull: false, defaultValue: false})
     isActivated: boolean

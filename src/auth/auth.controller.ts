@@ -13,7 +13,8 @@ import {ActivationDto} from "../users/dto/activation.dto";
 @Controller('auth')
 export class AuthController {
 
-    constructor(private authService: AuthService) {}
+    constructor(private authService: AuthService) {
+    }
 
     @Post('/login')
     async login(@Body() userDto: CreateUserDto) {
@@ -53,9 +54,6 @@ export class AuthController {
     @ApiOperation({summary: "activation user"})
     @Post('activation')
     async activate(@Body() dto: ActivationDto) {
-        const user = await this.authService.activate(dto)
-        if(user) {
-            return this.authService.login(dto)
-        }
+        return await this.authService.activate(dto)
     }
 }

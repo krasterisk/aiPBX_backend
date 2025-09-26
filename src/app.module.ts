@@ -17,6 +17,8 @@ import { AiToolsHandlersModule } from './ai-tools-handlers/ai-tools-handlers.mod
 import {HttpModule} from "@nestjs/axios";
 import { PaymentsModule } from './payments/payments.module';
 import { PricesModule } from './prices/prices.module';
+import { TelegramService } from './telegram/telegram.service';
+import { TelegramModule } from './telegram/telegram.module';
 
 
 @Module({
@@ -47,8 +49,9 @@ import { PricesModule } from './prices/prices.module';
             maxRedirects: 5
         }),
         PaymentsModule,
-        PricesModule
-    ],
+        PricesModule,
+        TelegramModule
+    ]
 })
 
 export class AppModule {}

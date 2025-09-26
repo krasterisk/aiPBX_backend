@@ -46,7 +46,17 @@ export class UsersService {
             // подгружаем юзера заново с ролями
             const userWithRoles = await this.usersRepository.findByPk(user.id, {
                 include: { all: true },
-                attributes: { exclude: ["password", "activationCode", "resetPasswordLink", "googleId", "telegramId"] }
+                attributes: {
+                    exclude: [
+                        "password",
+                        "activationCode",
+                        "resetPasswordLink",
+                        "googleId",
+                        "telegramId",
+                        "activationExpires",
+                        "isActivated",
+                        "vpbx_user_id"
+                    ]}
             });
 
             return userWithRoles;
@@ -63,7 +73,17 @@ export class UsersService {
             const user = await this.usersRepository.findAll({
                 where: { vpbx_user_id: null },
                 include: { all: true },
-                attributes: { exclude: ["password", "activationCode", "resetPasswordLink", "googleId", "telegramId"] }
+                attributes: {
+                    exclude: [
+                        "password",
+                        "activationCode",
+                        "resetPasswordLink",
+                        "googleId",
+                        "telegramId",
+                        "activationExpires",
+                        "isActivated",
+                        "vpbx_user_id"
+                    ]}
             });
             return user;
         } catch (e) {
@@ -121,7 +141,18 @@ export class UsersService {
                             ]
                         },
                     include: { all: true },
-                attributes: { exclude: ["password", "activationCode", "resetPasswordLink", "googleId", "telegramId"] }
+                    attributes: {
+                    exclude: [
+                        "password",
+                        "activationCode",
+                        "resetPasswordLink",
+                        "googleId",
+                        "telegramId",
+                        "activationExpires",
+                        "isActivated",
+                        "vpbx_user_id"
+                    ]}
+
                 }
             );
             if (users) {
@@ -173,7 +204,17 @@ export class UsersService {
         try {
             const user = await this.usersRepository.findAll({
                 include: { all: true },
-                attributes: { exclude: ["password", "activationCode", "resetPasswordLink"] }
+                attributes: {
+                    exclude: [
+                        "password",
+                        "activationCode",
+                        "resetPasswordLink",
+                        "googleId",
+                        "telegramId",
+                        "activationExpires",
+                        "isActivated",
+                        "vpbx_user_id"
+                    ]}
             });
             return user[0];
         } catch (e) {
@@ -185,7 +226,17 @@ export class UsersService {
     async updateUserProfile(updates: Partial<User>) {
         const user = await this.usersRepository.findByPk(updates.id, {
             include: { all: true },
-            attributes: { exclude: ["password", "activationCode", "resetPasswordLink"] }
+            attributes: {
+                exclude: [
+                    "password",
+                    "activationCode",
+                    "resetPasswordLink",
+                    "googleId",
+                    "telegramId",
+                    "activationExpires",
+                    "isActivated",
+                    "vpbx_user_id"
+                ]}
         });
         if (!user) {
             this.logger.warn("Users not found")
@@ -234,7 +285,19 @@ export class UsersService {
         try {
             const user = await this.usersRepository.findOne({
                 where: { username, isActivated: true },
-                include: { all: true }
+                include: { all: true },
+                attributes: {
+                    exclude: [
+                        "password",
+                        "activationCode",
+                        "resetPasswordLink",
+                        "googleId",
+                        "telegramId",
+                        "activationExpires",
+                        "isActivated",
+                        "vpbx_user_id"
+                    ]
+                }
             });
 
             return user;
@@ -272,7 +335,16 @@ export class UsersService {
             where: { id },
             include: { all: true },
             attributes: {
-                exclude: ["password", "activationCode", "resetPasswordLink"]
+                exclude: [
+                    "password",
+                    "activationCode",
+                    "resetPasswordLink",
+                    "googleId",
+                    "telegramId",
+                    "activationExpires",
+                    "isActivated",
+                    "vpbx_user_id"
+                ]
             }
         });
 
@@ -289,7 +361,16 @@ export class UsersService {
                 where: { id },
                 include: { all: true },
                 attributes: {
-                    exclude: ["password", "activationCode", "resetPasswordLink"]
+                    exclude: [
+                        "password",
+                        "activationCode",
+                        "resetPasswordLink",
+                        "googleId",
+                        "telegramId",
+                        "activationExpires",
+                        "isActivated",
+                        "vpbx_user_id"
+                    ]
                 }
             });
 
@@ -316,7 +397,18 @@ export class UsersService {
         const user = await this.usersRepository.findOne({
             where: { id: dto.userId },
             include: { all: true },
-            attributes: { exclude: ["password", "activationCode", "resetPasswordLink"] }
+            attributes: {
+                exclude: [
+                    "password",
+                    "activationCode",
+                    "resetPasswordLink",
+                    "googleId",
+                    "telegramId",
+                    "activationExpires",
+                    "isActivated",
+                    "vpbx_user_id"
+                ]
+            }
         });
         const role = await this.roleService.getRoleByValue(dto.value);
         if (role && user) {
@@ -356,7 +448,18 @@ export class UsersService {
     async updateUserAvatar(updates: Partial<User>, image: any) {
         const user = await this.usersRepository.findByPk(updates.id, {
             include: { all: true },
-            attributes: { exclude: ["password", "activationCode", "resetPasswordLink"] }
+            attributes: {
+                exclude: [
+                    "password",
+                    "activationCode",
+                    "resetPasswordLink",
+                    "googleId",
+                    "telegramId",
+                    "activationExpires",
+                    "isActivated",
+                    "vpbx_user_id"
+                ]
+            }
         });
         if (!user) {
             this.logger.warn('User not found');
@@ -427,8 +530,18 @@ export class UsersService {
             const user = await this.usersRepository.findOne({
                 where: { telegramId },
                 include: { all: true },
-                attributes: { exclude: ["password", "activationCode", "resetPasswordLink"] }
-
+                attributes: {
+                    exclude: [
+                        "password",
+                        "activationCode",
+                        "resetPasswordLink",
+                        "googleId",
+                        "telegramId",
+                        "activationExpires",
+                        "isActivated",
+                        "vpbx_user_id"
+                    ]
+                }
             });
             return user;
 

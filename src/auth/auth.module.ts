@@ -4,10 +4,11 @@ import { AuthService } from './auth.service';
 import {UsersModule} from "../users/users.module";
 import {JwtModule} from "@nestjs/jwt";
 import {MailerService} from "../mailer/mailer.service";
+import {TelegramService} from "../telegram/telegram.service";
 
 @Module({
   controllers: [AuthController],
-  providers: [AuthService, MailerService],
+  providers: [AuthService, MailerService, TelegramService],
   imports: [
       forwardRef(() => UsersModule),
 //      forwardRef(() => AmiModule),

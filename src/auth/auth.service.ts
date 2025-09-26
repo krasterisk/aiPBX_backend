@@ -12,6 +12,7 @@ import {OAuth2Client} from 'google-auth-library';
 import * as crypto from 'crypto';
 import {TelegramAuthDto} from "./dto/telegram.auth.dto";
 import {ActivationDto} from "../users/dto/activation.dto";
+import {TelegramService} from "../telegram/telegram.service";
 
 @Injectable()
 export class AuthService {
@@ -21,7 +22,9 @@ export class AuthService {
 
     constructor(private userService: UsersService,
                 private jwtService: JwtService,
-                private mailerService: MailerService) {
+                private mailerService: MailerService,
+                private telegramService: TelegramService
+    ) {
         this.googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
     }
 
@@ -147,6 +150,12 @@ export class AuthService {
             const token = await this.generateToken(candidate)
 
             if(token) {
+                const formattedResult =
+                    `<b>New customer is registered!</b><code>${JSON.stringify(candidate)}</code>`.trim();
+                await this.telegramService.sendMessage(
+                        formattedResult, {
+                        parse_mode: "HTML"
+                    });
                 return { token, user: candidate };
             }
 
@@ -209,7 +218,7 @@ export class AuthService {
                 }
             }
         } catch (e) {
-            this.logger.warn("Password Compare Error", e)
+            this.logger.warn("Password Compare Error")
             throw new UnauthorizedException({message: "Authorization Error"});
 
         }
@@ -233,7 +242,7 @@ export class AuthService {
 
             return {message: 'Reset password link sent'}
         } catch (e) {
-            this.logger.warn('Reset password error!', e)
+            this.logger.error('Reset password error!')
             throw new HttpException('Reset password error!', HttpStatus.BAD_REQUEST)
         }
     }
@@ -254,6 +263,7 @@ export class AuthService {
             const {sub: googleId, email, name, picture, email_verified} = payload;
 
             if (!email_verified) {
+                this.logger.warn('Google email not verified')
                 throw new UnauthorizedException('Google email not verified');
             }
 
@@ -276,7 +286,7 @@ export class AuthService {
             this.logger.log('User successfully auth via google', user.email)
             return {token, user};
         } catch (e) {
-            this.logger.warn('Google Authorization Error', e)
+            this.logger.error('Google Authorization Error')
             throw new UnauthorizedException('Google Authorization Error');
         }
     }
@@ -290,7 +300,7 @@ export class AuthService {
             const payload = ticket.getPayload();
 
             if (!payload) {
-                this.logger.warn('Invalid Google token')
+                this.logger.error('Invalid Google token')
                 throw new UnauthorizedException('Invalid Google token');
             }
 
@@ -320,11 +330,22 @@ export class AuthService {
 
             // Генерируем JWT
             const token = await this.generateToken(user)
+            if(token) {
+                const formattedResult =
+                    `<b>New customer is registered!</b><code>${JSON.stringify(user)}</code>`.trim();
+                await this.telegramService.sendMessage(
+                        formattedResult, {
+                        parse_mode: "HTML"
+                    });
+                this.logger.log('User successfully signup via google', user.email)
+                return {token, user};
+            }
 
-            this.logger.log('User successfully signup via google', user.email)
-            return {token, user};
+            this.logger.warn("Generate token error for google account")
+            throw new HttpException('Authorization error', HttpStatus.BAD_REQUEST);
+
         } catch (e) {
-            this.logger.warn('Google Authorization Error', e)
+            this.logger.error('Google Authorization Error')
             throw new UnauthorizedException('Google Authorization Error');
         }
     }
@@ -366,7 +387,7 @@ export class AuthService {
             .digest('hex');
 
         if (hmac !== checkHash) {
-            this.logger.warn('Telegram Authorization Error')
+            this.logger.error('Telegram Authorization Error')
             throw new UnauthorizedException('Invalid Telegram data');
         }
 
@@ -393,9 +414,20 @@ export class AuthService {
         // Генерим JWT
         const token = await this.generateToken(user)
 
-        this.logger.log('User successfully signup via telegram', user.email)
-        return { token, user };
-    }
+        if(token) {
+            const formattedResult =
+                `<b>New customer is registered!</b><code>${JSON.stringify(user)}</code>`.trim();
+            await this.telegramService.sendMessage(
+                    formattedResult, {
+                    parse_mode: "HTML"
+                });
+            this.logger.log('User successfully signup via telegram', user.email)
+            return {token, user};
+        }
+
+        this.logger.error("Generate token error for telegram account")
+        throw new HttpException('Authorization error', HttpStatus.BAD_REQUEST);
+}
 
     async loginWithTelegram(data: TelegramAuthDto) {
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;

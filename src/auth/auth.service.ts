@@ -403,7 +403,7 @@ export class AuthService {
 
         const user = await this.userService.create({
             email: null, // можно завести фейковый email
-            name: data.first_name || `tg_${data.id}`,
+            name: `${data.first_name || ''} ${data.last_name || ''}`.trim(),
             telegramId: data.id,
             isActivated: true,
             authType: 'telegram',
@@ -461,7 +461,7 @@ export class AuthService {
 
         user.authType = 'telegram';
         user.telegramId = data.id;
-        user.name = `${data.first_name} ${data.last_name}`.trim();
+        user.name = `${data.first_name || ''} ${data.last_name || ''}`.trim();
         if(data.photo_url !== user.avatar) {
             user.avatar = data.photo_url
         }

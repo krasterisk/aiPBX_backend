@@ -13,7 +13,7 @@ import * as crypto from 'crypto';
 import {TelegramAuthDto} from "./dto/telegram.auth.dto";
 import {ActivationDto} from "../users/dto/activation.dto";
 import {TelegramService} from "../telegram/telegram.service";
-import {LogsService} from "../logs/logs.service";
+import {LoggerService} from "../logger/logger.service";
 
 @Injectable()
 export class AuthService {
@@ -25,7 +25,7 @@ export class AuthService {
                 private jwtService: JwtService,
                 private mailerService: MailerService,
                 private telegramService: TelegramService,
-                private readonly logService: LogsService,
+                private readonly logService: LoggerService,
     ) {
         this.googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
     }

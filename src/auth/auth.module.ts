@@ -5,7 +5,7 @@ import {UsersModule} from "../users/users.module";
 import {JwtModule} from "@nestjs/jwt";
 import {MailerService} from "../mailer/mailer.service";
 import {TelegramService} from "../telegram/telegram.service";
-import {LogsModule} from "../logs/logs.module";
+import {LoggerModule} from "../logger/logger.module";
 
 @Module({
   controllers: [AuthController],
@@ -18,7 +18,7 @@ import {LogsModule} from "../logs/logs.module";
               expiresIn: '180d'
           }
       }),
-      LogsModule
+      LoggerModule
   ],
     exports: [
         AuthService,

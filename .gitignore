@@ -3,7 +3,7 @@
 /node_modules
 
 # Logs
-logs
+src/logger
 *.log
 *.env
 

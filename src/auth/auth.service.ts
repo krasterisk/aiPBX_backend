@@ -13,6 +13,7 @@ import * as crypto from 'crypto';
 import {TelegramAuthDto} from "./dto/telegram.auth.dto";
 import {ActivationDto} from "../users/dto/activation.dto";
 import {TelegramService} from "../telegram/telegram.service";
+import {LogsService} from "../logs/logs.service";
 
 @Injectable()
 export class AuthService {
@@ -23,7 +24,8 @@ export class AuthService {
     constructor(private userService: UsersService,
                 private jwtService: JwtService,
                 private mailerService: MailerService,
-                private telegramService: TelegramService
+                private telegramService: TelegramService,
+                private readonly logService: LogsService,
     ) {
         this.googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
     }
@@ -157,6 +159,11 @@ export class AuthService {
                         formattedResult, {
                         parse_mode: "HTML"
                     });
+                await this.logService.create({
+                    event: `User ${candidate.name} registered from ${candidate.authType}`,
+                    eventId: 1,
+                    userId: candidate.id
+                })
                 return { token, user: candidate };
             }
 
@@ -339,6 +346,12 @@ export class AuthService {
                         formattedResult, {
                         parse_mode: "HTML"
                     });
+                await this.logService.create({
+                    event: `User ${user.name} registered from ${user.authType}`,
+                    eventId: 1,
+                    userId: user.id
+                })
+
                 this.logger.log('User successfully signup via google', user.email)
                 return {token, user};
             }
@@ -424,6 +437,11 @@ export class AuthService {
                     formattedResult, {
                     parse_mode: "HTML"
                 });
+            await this.logService.create({
+                event: `User ${user.name} registered from ${user.authType}`,
+                eventId: 1,
+                userId: user.id
+            })
             this.logger.log('User successfully signup via telegram', user.email)
             return {token, user};
         }

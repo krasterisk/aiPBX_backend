@@ -15,7 +15,7 @@ export class AiEvents extends Model<AiEvents, CreateAiEvents> {
     @ApiProperty({example: '1006', description: "CallerId"})
     @Column({type: DataType.STRING, allowNull: true})
     callerId: string
-    @ApiProperty({example: '1', description: "UserId"})
+    @ApiProperty({example: '1', description: "OpenAI Event"})
     @Column({type: DataType.JSON})
     events: Record<string, any>[]
     @ApiProperty({example: '1', description: "UserId"})

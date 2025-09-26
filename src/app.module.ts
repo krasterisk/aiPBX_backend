@@ -18,7 +18,6 @@ import {HttpModule} from "@nestjs/axios";
 import { PaymentsModule } from './payments/payments.module';
 import { PricesModule } from './prices/prices.module';
 import { TelegramModule } from './telegram/telegram.module';
-import { LogsModule } from './logs/logs.module';
 
 @Module({
     imports: [
@@ -50,7 +49,6 @@ import { LogsModule } from './logs/logs.module';
         PaymentsModule,
         PricesModule,
         TelegramModule,
-        LogsModule
     ]
 })
 

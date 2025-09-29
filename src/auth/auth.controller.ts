@@ -46,11 +46,6 @@ export class AuthController {
         return this.authService.signupWithTelegram(telegramDto);
     }
 
-    @Post('/telegram/check')
-    async telegramCheckHash(@Body() telegramDto: TelegramAuthDto) {
-        return this.authService.checkHash(telegramDto);
-    }
-
     @ApiOperation({summary: "activation user"})
     @Post('activation')
     async activate(@Body() dto: ActivationDto) {

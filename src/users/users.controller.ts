@@ -194,37 +194,4 @@ export class UsersController {
     DeleteUser(@Param('id') id: number) {
         return this.userService.deleteUser(id)
     }
-
-    @ApiOperation({summary: "Update user password"})
-    @ApiResponse({status: 200, type: User})
-    // @Roles('ADMIN')
-    // @UseGuards(RolesGuard)
-    @Post('/updatePassword')
-    UpdateUserPassword(@Body() updatePassword: UpdatePasswordDto) {
-        return this.userService.updateUserPassword(updatePassword)
-    }
-
-    @Get('/resetPassword/:link')
-    @Redirect('', 302)
-    resetPassword(@Param('link') link: string) {
-        const user = this.userService.resetPassword(link)
-        if(!user) {
-            throw new HttpException('Reset Password error!', HttpStatus.BAD_REQUEST)
-        }
-        // console.log(user)
-        return { url: `${process.env.CLIENT_URL}/resetPassword/${link}` }
-    }
-
-    @ApiOperation({summary: "forgot user password"})
-    @ApiResponse({status: 200, type: User})
-    @UsePipes(ValidationPipe)
-//     @Roles('ADMIN')
-//     @UseGuards(RolesGuard)
-    @Post('forgotPassword')
-    forgotPassword(@Body() dto: ResetPasswordDto) {
-        return this.authService.forgotPassword(dto)
-    }
-
-
-
 }

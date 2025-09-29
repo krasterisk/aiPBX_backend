@@ -30,13 +30,13 @@ export class MailerService {
                 from: `"AI PBX" <${process.env.MAIL_USER}>`,
                 to,
                 bcc: process.env.MAIL_USER,
-                subject: `${code} is your AI PBX login code`,
+                subject: `Auth code: ${code}`,
                 text: '',
                 html: `
                 <body>
                     <div>
                         <p>
-                            <h2>Your login code is: ${code}</h2>
+                            <h2>Your authorization code is: ${code}</h2>
                             <h4>For your security, this code will expire in a few minutes.</h4>
                         </p>
                         <p>

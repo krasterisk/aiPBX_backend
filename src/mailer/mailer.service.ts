@@ -8,6 +8,7 @@ export class MailerService {
 
     constructor() {
         this.transporter = nodemailer.createTransport({
+            from: `"AI PBX" <${process.env.MAIL_USER}>`,
             port: 587,
             host: process.env.MAIL_HOST,
             secure: false,
@@ -26,10 +27,10 @@ export class MailerService {
 
         try {
             await this.transporter.sendMail({
-                from: process.env.MAIL_USER,
+                from: `"AI PBX" <${process.env.MAIL_USER}>`,
                 to,
                 bcc: process.env.MAIL_USER,
-                subject: `AiPBX activation code: ${code}`,
+                subject: `${code} - AI PBX activation code`,
                 text: '',
                 html: `
                 <body>

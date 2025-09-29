@@ -160,7 +160,7 @@ export class AuthService {
                         parse_mode: "HTML"
                     });
                 await this.logService.create({
-                    event: `User ${candidate.name} registered from ${candidate.authType}`,
+                    event: `User signup from ${candidate.authType}`,
                     eventId: 1,
                     userId: candidate.id
                 })
@@ -347,7 +347,7 @@ export class AuthService {
                         parse_mode: "HTML"
                     });
                 await this.logService.create({
-                    event: `User ${user.name} registered from ${user.authType}`,
+                    event: `User signup from ${user.authType}`,
                     eventId: 1,
                     userId: user.id
                 })
@@ -438,7 +438,7 @@ export class AuthService {
                     parse_mode: "HTML"
                 });
             await this.logService.create({
-                event: `User ${user.name} registered from ${user.authType}`,
+                event: `User signup from ${user.authType}`,
                 eventId: 1,
                 userId: user.id
             })

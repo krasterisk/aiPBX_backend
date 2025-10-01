@@ -20,7 +20,7 @@ export class AiToolsController {
 
     @ApiOperation({summary: "tools list"})
     @ApiResponse({status: 200, type: AiTool})
-    @Roles('ADMIN')
+    @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Get()
@@ -40,12 +40,9 @@ export class AiToolsController {
     get(@Query() query: GetToolsDto,
         @Req() request: RequestWithUser) {
         const isAdmin = request.isAdmin
-        try {
-            return this.toolsService.get(query, isAdmin)
+        const userId = request.tokenUserId
+        return this.toolsService.get(query, isAdmin, userId)
 
-        } catch (e) {
-            console.log(e)
-        }
     }
 
 
@@ -60,17 +57,21 @@ export class AiToolsController {
 
     @ApiOperation({summary: "Create tool"})
     @ApiResponse({status: 200, type: AiTool})
-    @Roles('ADMIN')
+    @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()
-    create(@Body() dto: ToolDto[]) {
-        return this.toolsService.create(dto)
+    create(
+        @Body() dto: ToolDto[],
+        @Req() request: RequestWithUser) {
+        const isAdmin = request.isAdmin
+        const userId = request.tokenUserId
+        return this.toolsService.create(dto, isAdmin, userId)
     }
 
     @ApiOperation({summary: "Update tool"})
     @ApiResponse({status: 200, type: AiTool})
-    @Roles('ADMIN')
+    @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Patch()
     update(@Body() dto: ToolDto) {
@@ -79,7 +80,7 @@ export class AiToolsController {
 
     @ApiOperation({summary: "Delete tool"})
     @ApiResponse({status: 200})
-    @Roles('ADMIN')
+    @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Delete('/:id')
     delete(@Param('id') id: number) {

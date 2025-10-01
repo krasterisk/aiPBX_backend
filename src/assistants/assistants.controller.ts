@@ -39,12 +39,8 @@ export class AssistantsController {
     get(@Query() query: GetAssistantsDto,
         @Req() request: RequestWithUser) {
         const isAdmin = request.isAdmin
-        try {
-            return this.assistantsService.get(query, isAdmin)
-
-        } catch (e) {
-            console.log(e)
-        }
+        const userId = request.tokenUserId
+        return this.assistantsService.get(query, isAdmin, userId)
     }
 
 
@@ -59,17 +55,21 @@ export class AssistantsController {
 
     @ApiOperation({summary: "Create assistant"})
     @ApiResponse({status: 200, type: Assistant})
-    @Roles('ADMIN')
+    @Roles('ADMIN','USER')
     @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()
-    create(@Body() dto: AssistantDto[]) {
-        return this.assistantsService.create(dto)
+    create(@Body() dto: AssistantDto[],
+           @Req() request: RequestWithUser
+           ) {
+        const isAdmin = request.isAdmin
+        const userId = request.tokenUserId
+        return this.assistantsService.create(dto, isAdmin, userId)
     }
 
     @ApiOperation({summary: "Update assistant"})
     @ApiResponse({status: 200, type: Assistant})
-    @Roles('ADMIN')
+    @Roles('ADMIN','USER')
     @UseGuards(RolesGuard)
     @Patch()
     update(@Body() dto: AssistantDto) {

@@ -1,4 +1,4 @@
-import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
+import {HttpException, HttpStatus, Injectable, Logger} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
 import {Assistant} from "./assistants.model";
 import {AssistantDto} from "./dto/assistant.dto";
@@ -7,13 +7,18 @@ import sequelize from "sequelize";
 
 @Injectable()
 export class AssistantsService {
+    private readonly logger = new Logger(AssistantsService.name);
 
     constructor(@InjectModel(Assistant) private assistantsRepository: typeof Assistant) {}
 
-    async create(dto: AssistantDto[]) {
+    async create(dto: AssistantDto[], isAdmin: boolean, userId: string) {
         try {
             const assistants = [];
             for(const assistant of dto) {
+                if(!assistant.userId) {
+                    assistant.userId = Number(userId)
+                }
+
                 const result = await this.assistantsRepository.create(assistant)
 
                 if(result && assistant.tools.length) {
@@ -26,9 +31,11 @@ export class AssistantsService {
             return assistants
         } catch (e) {
             if (e.name === 'SequelizeUniqueConstraintError') {
+                this.logger.error("Assistant already exists")
                 throw new HttpException('Assistant already exists', HttpStatus.BAD_REQUEST)
             }
-            throw new HttpException('[Assistant]:  Request error' +e, HttpStatus.BAD_REQUEST)
+            this.logger.error("Assistant create error", e)
+            throw new HttpException(e.message, HttpStatus.BAD_REQUEST)
         }
     }
 
@@ -64,14 +71,19 @@ export class AssistantsService {
         }
     }
 
-    async get(query: GetAssistantsDto, isAdmin: boolean) {
+    async get(query: GetAssistantsDto, isAdmin: boolean, userId: string) {
         try {
             const page = Number(query.page);
             const limit = Number(query.limit);
             const offset = (page - 1) * limit;
             const search = query.search;
 
-            const userId = !query.userId && isAdmin ? undefined : Number(query.userId);
+            const assistantUser = !userId && isAdmin ? undefined : Number(userId);
+
+            if(!userId && !isAdmin) {
+                this.logger.error("No userId detected and user is not admin")
+                throw new HttpException({ message: "Request error" }, HttpStatus.BAD_REQUEST);
+            }
 
             // Prepare the where clause
             let whereClause: any = {
@@ -85,7 +97,7 @@ export class AssistantsService {
             };
             // Conditionally add the userId condition if userId is provided and isAdmin is false
             if (userId !== undefined) {
-                whereClause.userId = userId;
+                whereClause.userId = assistantUser;
             }
 
             const assistants = await this.assistantsRepository.findAndCountAll({
@@ -102,7 +114,8 @@ export class AssistantsService {
             });
             return assistants;
         } catch (e) {
-            throw new HttpException({ message: "[Assistants]: Request error" } + e, HttpStatus.BAD_REQUEST);
+            this.logger.error("Assistant create error: ", e.name, e.message)
+            throw new HttpException({ message: e.message }, HttpStatus.BAD_REQUEST);
         }
     }
 

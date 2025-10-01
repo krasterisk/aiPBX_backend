@@ -1,4 +1,4 @@
-import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
+import {HttpException, HttpStatus, Injectable, Logger} from '@nestjs/common';
 import {InjectModel} from "@nestjs/sequelize";
 import {AiTool} from "./ai-tool.model";
 import {ToolDto} from "./dto/tool.dto";
@@ -7,13 +7,19 @@ import sequelize from "sequelize";
 
 @Injectable()
 export class AiToolsService {
+    private readonly logger = new Logger(AiToolsService.name);
 
     constructor(@InjectModel(AiTool) private toolsRepository: typeof AiTool) {}
 
-    async create(dto: ToolDto[]) {
+    async create(dto: ToolDto[], isAdmin: boolean, userId: string) {
         try {
             const tools = [];
             for (const tool of dto) {
+
+                if(!tool.userId) {
+                    tool.userId = Number(userId)
+                }
+
                 const result = await this.toolsRepository.create(tool)
                 tools.push(result)
             }
@@ -44,14 +50,20 @@ export class AiToolsService {
         }
     }
 
-    async get(query: GetToolsDto, isAdmin: boolean) {
+    async get(query: GetToolsDto, isAdmin: boolean, userId: string) {
         try {
             const page = Number(query.page);
             const limit = Number(query.limit);
             const offset = (page - 1) * limit;
             const search = query.search;
 
-            const userId = !query.userId && isAdmin ? undefined : Number(query.userId);
+            const assistantUser = !userId && isAdmin ? undefined : Number(userId);
+
+            if(!userId && !isAdmin) {
+                this.logger.error("No userId detected and user is not admin")
+                throw new HttpException({ message: "Request error" }, HttpStatus.BAD_REQUEST);
+            }
+
 
             // Prepare the where clause
             let whereClause: any = {
@@ -65,7 +77,7 @@ export class AiToolsService {
             };
             // Conditionally add the userId condition if userId is provided and isAdmin is false
             if (userId !== undefined) {
-                whereClause.userId = userId;
+                whereClause.userId = assistantUser;
             }
 
             const tools = await this.toolsRepository.findAndCountAll({

@@ -123,7 +123,7 @@ export class AuthService {
 
             if (!candidate.activationCode) {
                 this.logger.warn("Activation code is empty", candidate.activationCode)
-                throw new HttpException('Activation code error', HttpStatus.BAD_REQUEST);
+                    throw new HttpException('Activation code is wrong', HttpStatus.BAD_REQUEST);
             }
 
             if (!candidate.activationExpires) {

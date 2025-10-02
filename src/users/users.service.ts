@@ -186,18 +186,28 @@ export class UsersService {
     }
 
     async getCandidateByEmail(email: string) {
-        try {
+
             const user = await this.usersRepository.findOne({
                 where: { email },
                 include: { all: true },
-                attributes: { exclude: ["password", "resetPasswordLink", "googleId", "telegramId"] }
+                attributes: {
+                    exclude: [
+                        "password",
+                        "activationCode",
+                        "resetPasswordLink",
+                        "googleId",
+                        "telegramId",
+                        "activationExpires",
+                        "isActivated",
+                        "vpbx_user_id"
+                    ]
+                }
             });
+            if(!user) {
+                this.logger.warn("User not found")
+                throw new UnauthorizedException({ message: "E-mail not found"});
+            }
             return user;
-
-        } catch (e) {
-            this.logger.warn("User not found", e)
-            throw new UnauthorizedException({ message: "Authorization Error"});
-        }
     }
 
     async getUserProfile() {

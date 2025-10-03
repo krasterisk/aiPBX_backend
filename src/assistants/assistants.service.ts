@@ -96,8 +96,6 @@ export class AssistantsService {
                 ]
             };
 
-            console.log("USERID: ",userId)
-            // Conditionally add the userId condition if userId is provided and isAdmin is false
             if (assistantUser !== undefined) {
                 whereClause.userId = assistantUser;
             }
@@ -109,7 +107,18 @@ export class AssistantsService {
                 include: [
                     {
                         all: true,
-                        attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+                        attributes: {
+                            exclude: [
+                                "password",
+                                "activationCode",
+                                "resetPasswordLink",
+                                "googleId",
+                                "telegramId",
+                                "activationExpires",
+                                "isActivated",
+                                "vpbx_user_id"
+                            ]
+                        }
                     }
                 ],
                 where: whereClause
@@ -137,7 +146,18 @@ export class AssistantsService {
                 include: [
                     {
                         all: true,
-                        attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+                        attributes: {
+                            exclude: [
+                                "password",
+                                "activationCode",
+                                "resetPasswordLink",
+                                "googleId",
+                                "telegramId",
+                                "activationExpires",
+                                "isActivated",
+                                "vpbx_user_id"
+                            ]
+                        }
                     }
                 ]
             })
@@ -155,7 +175,18 @@ export class AssistantsService {
             include: [
                 {
                     all: true,
-                    attributes: { exclude: ["password", "activationLink", "resetPasswordLink"] }
+                    attributes: {
+                        exclude: [
+                            "password",
+                            "activationCode",
+                            "resetPasswordLink",
+                            "googleId",
+                            "telegramId",
+                            "activationExpires",
+                            "isActivated",
+                            "vpbx_user_id"
+                        ]
+                    }
                 }
             ]
         })

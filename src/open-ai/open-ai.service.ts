@@ -410,9 +410,7 @@ export class OpenAiService implements OnModuleInit {
                 'Use customer phone if necessary, example, when calling the create order tool.'
                 : ''
 
-            const instructions = assistant.instruction + customer_phone
-
-            console.log(instructions)
+            const instructions = assistant.greeting + assistant.instruction + customer_phone
 
             const tools = (assistant.tools || []).map(tool => {
                 const data = tool.toJSON?.() || tool.dataValues;
@@ -448,6 +446,7 @@ export class OpenAiService implements OnModuleInit {
                     tool_choice: 'auto'
                 }
             };
+            console.log(initAudioSession)
             connection.send(initAudioSession)
         } else {
             this.logger.error('WebSocket is not open, cannot send session update');
@@ -516,19 +515,17 @@ export class OpenAiService implements OnModuleInit {
 
         if (metadata.openAiConn) {
 
-            const customer_phone = metadata.callerId
-                ? 'Customer phone number is ' + metadata.callerId + '. ' +
-                'Use it if necessary, example, when calling the create order function.'
-                : ''
-
-            const greeting = metadata.assistant.greeting + metadata.assistant.instruction;
-
-            const prompt = greeting
-                ? greeting  + customer_phone
-                : `This is a service request, don't do anything. Don't answer anything, just return empty response.`
-                + customer_phone;
-
-            console.log(prompt)
+            // const customer_phone = metadata.callerId
+            //     ? 'Customer phone number is ' + metadata.callerId + '. ' +
+            //     'Use it if necessary, example, when calling the create order function.'
+            //     : ''
+            //
+            // const greeting = '';
+            //
+            // const prompt = greeting
+            //     ? greeting  + customer_phone
+            //     : `This is a service request, don't do anything. Don't answer anything, just return empty response.`
+            //     + customer_phone;
 
             if (!metadata.channelId && !metadata.address && !metadata.port) return;
 
@@ -557,7 +554,7 @@ export class OpenAiService implements OnModuleInit {
                     // conversation: 'none',
                     // modalities: ["text","audio"],
                     input: [],
-                    instructions: prompt,
+                    // instructions: prompt,
                     metadata: initOpenAiData,
                 }
             }

@@ -1,18 +1,18 @@
-import {IsBoolean, IsNumber, IsString} from "class-validator";
+import {IsBoolean, IsNumber, IsObject, IsString} from "class-validator";
 
 export class ToolDto {
-    @IsString({message: 'Must be a string'})
-    readonly type: string
-    @IsString({message: 'Must be a string'})
+    @IsString({message: 'type: Must be a string'})
+    readonly type?: string
+    @IsString({message: 'name: Must be a string'})
     readonly name: string
-    @IsString({message: 'Must be a string'})
-    readonly description: string
-    @IsString({message: 'Must be a string'})
-    readonly parameters: string;
-    @IsBoolean({message: 'Must be a boolean'})
-    readonly strict: boolean;
-    @IsString({message: 'Must be a string'})
-    readonly webhook: string;
-    @IsNumber({}, {message: 'Must be a number'})
-    userId: number
+    @IsString({message: 'description: Must be a string'})
+    readonly description?: string
+    @IsObject({message: 'parameters: Must be a object'})
+    readonly parameters?: string;
+    @IsBoolean({message: 'strict: Must be a boolean'})
+    readonly strict?: boolean;
+    @IsString({message: 'webhook: Must be a string'})
+    readonly webhook?: string;
+    @IsNumber({}, {message: 'userId: Must be a number'})
+    userId?: number
 }

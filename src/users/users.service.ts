@@ -152,7 +152,6 @@ export class UsersService {
                         "isActivated",
                         "vpbx_user_id"
                     ]}
-
                 }
             );
             if (users) {

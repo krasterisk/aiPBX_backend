@@ -193,11 +193,9 @@ export class UsersService {
                 attributes: {
                     exclude: [
                         "password",
-                        "activationCode",
                         "resetPasswordLink",
                         "googleId",
                         "telegramId",
-                        "activationExpires",
                         "isActivated",
                         "vpbx_user_id"
                     ]

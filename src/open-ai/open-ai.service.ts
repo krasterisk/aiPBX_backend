@@ -424,7 +424,7 @@ export class OpenAiService implements OnModuleInit {
                 type: 'session.update',
                 session: {
                     modalities: ['text', 'audio'],
-                    // instructions,
+                    instructions,
                     voice: assistant.voice,
                     input_audio_format: assistant.input_audio_format,
                     output_audio_format: assistant.output_audio_format,

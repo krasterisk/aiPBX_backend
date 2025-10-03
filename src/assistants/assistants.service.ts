@@ -78,7 +78,7 @@ export class AssistantsService {
             const offset = (page - 1) * limit;
             const search = query.search;
 
-            const assistantUser = !userId && isAdmin ? undefined : Number(userId);
+            const assistantUser = !isAdmin ? Number(userId) : Number(query.userId) || undefined
 
             if(!userId && !isAdmin) {
                 this.logger.error("No userId detected and user is not admin")
@@ -95,8 +95,10 @@ export class AssistantsService {
                     }
                 ]
             };
+
+            console.log("USERID: ",userId)
             // Conditionally add the userId condition if userId is provided and isAdmin is false
-            if (userId !== undefined) {
+            if (assistantUser !== undefined) {
                 whereClause.userId = assistantUser;
             }
 

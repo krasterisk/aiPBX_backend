@@ -13,7 +13,7 @@ RUN npm install
 COPY . .
 
 # Собираем проект NestJS
-RUN npm run build:prod
+RUN npm run build
 
 
 # ---------- STAGE 2: Production ----------

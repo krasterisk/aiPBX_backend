@@ -1,7 +1,7 @@
 # ---------- STAGE 1: Build ----------
 FROM node:22-slim AS builder
 
-WORKDIR /app
+WORKDIR /app/aiPBX_backend
 
 # Копируем только package.json и lock-файл — для кэширования зависимостей
 COPY package*.json ./
@@ -19,7 +19,7 @@ RUN npm run build
 # ---------- STAGE 2: Production ----------
 FROM node:22-slim AS production
 
-WORKDIR /app
+WORKDIR /app/aiPBX_backend
 
 # Устанавливаем только необходимые пакеты для runtime
 RUN npm install -g pm2
@@ -29,7 +29,7 @@ COPY package*.json ./
 RUN npm install --omit=dev
 
 # Копируем собранные артефакты из билдера
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/aiPBX_backend/dist ./dist
 
 # (опционально) — копируем env-файл, если он есть
 COPY .production.env .production.env

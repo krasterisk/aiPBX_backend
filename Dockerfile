@@ -1,16 +1,44 @@
-FROM node:22-slim
+# ---------- STAGE 1: Build ----------
+FROM node:22-slim AS builder
 
-WORKDIR /app/aiPBX_backend
+WORKDIR /app
 
-# Установка зависимостей
+# Копируем только package.json и lock-файл — для кэширования зависимостей
 COPY package*.json ./
-RUN npm install -g pm2 && npm install
 
-# Копируем код и билдим
+# Устанавливаем все зависимости (включая dev для сборки)
+RUN npm install
+
+# Копируем исходный код
 COPY . .
-RUN npm run build
 
-# Удаляем dev-зависимости
-RUN npm prune --production
+# Собираем проект NestJS
+RUN npm run build:prod
 
-CMD ["pm2-runtime", "start", "ecosystem.config.js"]
+
+# ---------- STAGE 2: Production ----------
+FROM node:22-slim AS production
+
+WORKDIR /app
+
+# Устанавливаем только необходимые пакеты для runtime
+RUN npm install -g pm2
+
+# Копируем package.json и lock-файл для установки prod-зависимостей
+COPY package*.json ./
+RUN npm install --omit=dev
+
+# Копируем собранные артефакты из билдера
+COPY --from=builder /app/dist ./dist
+
+# (опционально) — копируем env-файл, если он есть
+# COPY .env .env
+
+# Указываем переменную окружения
+ENV NODE_ENV=production
+
+# Открываем порт
+EXPOSE 7002
+
+# Запуск через pm2-runtime
+CMD ["pm2-runtime", "dist/main.js"]

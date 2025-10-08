@@ -32,7 +32,7 @@ RUN npm install --omit=dev
 COPY --from=builder /app/dist ./dist
 
 # (опционально) — копируем env-файл, если он есть
-# COPY .env .env
+COPY .production.env .production.env
 
 # Указываем переменную окружения
 ENV NODE_ENV=production

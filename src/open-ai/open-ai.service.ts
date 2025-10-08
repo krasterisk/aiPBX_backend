@@ -186,7 +186,8 @@ export class OpenAiService implements OnModuleInit {
         try {
             if (channelId) {
                 const assistantName = assistant?.name || ''
-                this.wsGateway.sendToClient(channelId, callerId, assistantName, event)
+                const userId = assistant?.userId|| null
+                this.wsGateway.sendToClient(channelId, callerId, assistantName, userId, event)
                 await this.aiCdrService.eventCreate({
                     channelId,
                     callerId,

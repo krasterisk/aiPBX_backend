@@ -218,7 +218,7 @@ export class UsersService {
         });
         if (!user) {
             this.logger.warn("User not found")
-            throw new UnauthorizedException({message: "E-mail not found"});
+            new UnauthorizedException({message: "E-mail not found"});
         }
         return user;
     }

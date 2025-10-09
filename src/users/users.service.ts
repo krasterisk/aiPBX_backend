@@ -217,9 +217,11 @@ export class UsersService {
             }
         });
         if (!user) {
-            this.logger.warn("User not found")
-            new UnauthorizedException({message: "E-mail not found"});
+            // this.logger.warn("User not found")
+            // new UnauthorizedException({message: "E-mail not found"});
+            return;
         }
+
         return user;
     }
 

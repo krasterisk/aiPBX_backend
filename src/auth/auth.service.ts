@@ -31,10 +31,16 @@ export class AuthService {
     }
 
     async login(userDto: CreateUserDto) {
+
+        if(!userDto.email) {
+            this.logger.warn("Email is empty")
+            throw new HttpException('Email is empty!', HttpStatus.BAD_REQUEST)
+        }
+
         const candidate = await this.userService.getCandidateByEmail(userDto.email)
 
         if (!candidate) {
-            this.logger.warn("Email not found!", candidate.email)
+            this.logger.warn("Email not found!")
             throw new HttpException('Email not found!', HttpStatus.BAD_REQUEST)
         }
 

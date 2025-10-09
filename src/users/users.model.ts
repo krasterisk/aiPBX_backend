@@ -46,12 +46,12 @@ export class User extends Model<User, UserCreationAttrs> {
     @Column({type: DataType.FLOAT, unique: false, allowNull: false, defaultValue: 0})
     balance: number
     @ApiProperty({example: 'USD', description: "Currency"})
-    @Column({type: DataType.STRING, unique: false, allowNull: true})
+    @Column({type: DataType.STRING, unique: false, allowNull: false, defaultValue: 'USD'})
     currency: string
     @ApiProperty({example: '123345', description: "Activation code"})
     @Column({type: DataType.STRING, unique: false, allowNull: true})
     activationCode: string
-    @ApiProperty({example: '123345', description: "Activation code"})
+    @ApiProperty({example: '123345', description: "Activation expires timestamp"})
     @Column({type: DataType.BIGINT, unique: false, allowNull: true})
     activationExpires: number
     @ApiProperty({example: '12345-12312-12345-12345-123345', description: "Reset password link"})

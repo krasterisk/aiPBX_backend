@@ -11,9 +11,9 @@ interface CreatePrice {
 export class Prices extends Model<Prices, CreatePrice> {
     @ApiProperty({example: '123', description: "Price"})
     @Column({type: DataType.FLOAT, allowNull: false, defaultValue: 0})
-    price: number;
+    price: number
     @ForeignKey(() => User)
-    @Column({type: DataType.INTEGER})
+    @Column({type: DataType.INTEGER, unique: true})
     userId: number
     @BelongsTo(() => User)
     user: User

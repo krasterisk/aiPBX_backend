@@ -14,8 +14,8 @@ export class PricesController {
 
     @ApiOperation({summary: "Create price"})
     @ApiResponse({status: 200, type: Prices})
-    @Roles('ADMIN')
-    @UseGuards(RolesGuard)
+//    @Roles('ADMIN')
+//    @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()
     create(@Body() dto: PricesDto[]) {

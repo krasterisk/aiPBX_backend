@@ -18,9 +18,12 @@ import {HttpModule} from "@nestjs/axios";
 import { PaymentsModule } from './payments/payments.module';
 import { PricesModule } from './prices/prices.module';
 import { TelegramModule } from './telegram/telegram.module';
+import {ScheduleModule} from "@nestjs/schedule";
+import {CurrencyModule} from "./currency/currency.module";
 
 @Module({
     imports: [
+        ScheduleModule.forRoot(),
         ConfigModule.forRoot({
             envFilePath: `.${process.env.NODE_ENV}.env`
         }),
@@ -49,6 +52,7 @@ import { TelegramModule } from './telegram/telegram.module';
         PaymentsModule,
         PricesModule,
         TelegramModule,
+        CurrencyModule
     ]
 })
 

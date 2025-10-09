@@ -34,6 +34,9 @@ export class CreateUserDto {
     @ApiProperty({example: '1234-1234-1234-1234', description: "activation link"})
     // @IsString({message: 'Must be a string'})
     readonly activationCode?: string
+    @ApiProperty({example: 'USD', description: "Currency"})
+    // @IsString({message: 'Must be a string'})
+    readonly currency?: string
     @ApiProperty({example: '178823233', description: "activation expires timestamp"})
     readonly activationExpires?: number
     @ApiProperty({example: '12345', description: "Password"})

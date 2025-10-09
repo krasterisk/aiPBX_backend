@@ -1,6 +1,6 @@
 {
   "name": "aiPBX",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "aiPBX",
   "author": "Krasterisk LTD",
   "private": true,
@@ -30,6 +30,7 @@
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-express": "^11.0.10",
     "@nestjs/platform-socket.io": "^11.0.10",
+    "@nestjs/schedule": "^6.0.1",
     "@nestjs/sequelize": "^11.0.0",
     "@nestjs/serve-static": "^5.0.2",
     "@nestjs/swagger": "^11.0.3",

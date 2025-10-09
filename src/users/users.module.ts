@@ -6,15 +6,18 @@ import {SequelizeModule} from "@nestjs/sequelize";
 import {RolesModule} from "../roles/roles.module";
 import {AuthModule} from "../auth/auth.module";
 import {FilesModule} from "../files/files.module";
+import {Rates} from "../currency/rates.model";
+import {PricesModule} from "../prices/prices.module";
 
 @Module({
     controllers: [UsersController],
     providers: [UsersService],
     imports: [
-        SequelizeModule.forFeature([User]),
+        SequelizeModule.forFeature([User, Rates]),
         RolesModule,
         forwardRef(() => AuthModule),
-        FilesModule
+        FilesModule,
+        PricesModule
     ],
     exports: [
         UsersService

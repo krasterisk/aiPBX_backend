@@ -30,14 +30,15 @@ export class RolesGuard implements CanActivate {
             if (!requiredRoles) {
                 return true
             }
+
             const req = context.switchToHttp().getRequest()
             const authHeader = req.headers.authorization;
-            const bearer = authHeader.split(' ')[0]
-            const token = authHeader.split(' ')[1]
+            const bearer = authHeader?.split(' ')[0]
+            const token = authHeader?.split(' ')[1]
 
-            if (bearer !== 'Bearer' || !token) {
-                this.logger.warn("User not authorized!")
-                throw new UnauthorizedException({message: 'User not authorized!'})
+            if (!bearer || !token || bearer !== 'Bearer') {
+                this.logger.warn("Invalid or missing authorization token")
+                throw new UnauthorizedException('User not authorized!');
             }
 
             const user = this.jwtService.verify(token)
@@ -48,9 +49,9 @@ export class RolesGuard implements CanActivate {
 
         } catch (e) {
             if (e == 'TokenExpiredError: jwt expired') {
-                this.logger.warn("TokenExpiredError", e)
+                this.logger.warn("TokenExpiredError")
             }
-            this.logger.warn('Access denied!', e)
+            this.logger.warn('Access denied!')
             throw new HttpException('Access denied!', HttpStatus.FORBIDDEN)
         }
     }

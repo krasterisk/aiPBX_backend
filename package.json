@@ -1,7 +1,7 @@
 {
   "name": "aiPBX",
   "version": "0.6.4",
-  "description": "aiPBX",
+    "description": "aiPBX",
   "author": "Krasterisk LTD",
   "private": true,
   "license": "MIT",

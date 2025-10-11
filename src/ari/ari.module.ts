@@ -11,6 +11,7 @@ import {WsServerGateway} from "../ws-server/ws-server.gateway";
 import {AssistantsModule} from "../assistants/assistants.module";
 import {AiCdrModule} from "../ai-cdr/ai-cdr.module";
 import {AiToolsHandlersModule} from "../ai-tools-handlers/ai-tools-handlers.module";
+import {PbxServersModule} from "../pbx-servers/pbx-servers.module";
 const udpSocket = dgram.createSocket('udp4');
 
 @Module({
@@ -33,7 +34,8 @@ const udpSocket = dgram.createSocket('udp4');
         forwardRef(() => AuthModule),
         AssistantsModule,
         AiCdrModule,
-        AiToolsHandlersModule
+        AiToolsHandlersModule,
+        PbxServersModule
     ]
 })
 export class AriModule {

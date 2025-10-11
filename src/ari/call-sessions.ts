@@ -184,8 +184,6 @@ export class CallSession {
             priority = 1,
         } = params;
 
-        console.log(params)
-
         if (!extension) {
             this.logger.warn('Cannot redirect: extension is empty');
             return;

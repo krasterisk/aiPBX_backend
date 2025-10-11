@@ -20,6 +20,7 @@ import { PricesModule } from './prices/prices.module';
 import { TelegramModule } from './telegram/telegram.module';
 import {ScheduleModule} from "@nestjs/schedule";
 import {CurrencyModule} from "./currency/currency.module";
+import { PbxServersModule } from './pbx-servers/pbx-servers.module';
 
 @Module({
     imports: [
@@ -52,7 +53,8 @@ import {CurrencyModule} from "./currency/currency.module";
         PaymentsModule,
         PricesModule,
         TelegramModule,
-        CurrencyModule
+        CurrencyModule,
+        PbxServersModule
     ]
 })
 

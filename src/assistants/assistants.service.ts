@@ -4,6 +4,7 @@ import {Assistant} from "./assistants.model";
 import {AssistantDto} from "./dto/assistant.dto";
 import {GetAssistantsDto} from "./dto/getAssistants.dto";
 import sequelize from "sequelize";
+import { nanoid } from 'nanoid';
 
 @Injectable()
 export class AssistantsService {
@@ -18,6 +19,9 @@ export class AssistantsService {
                 if(!assistant.userId) {
                     assistant.userId = Number(userId)
                 }
+
+                const uniqueId = nanoid(15)
+                assistant.uniqueId = uniqueId
 
                 const result = await this.assistantsRepository.create(assistant)
 

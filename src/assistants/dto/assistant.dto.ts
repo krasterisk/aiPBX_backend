@@ -10,4 +10,5 @@ export class AssistantDto {
     readonly tools?: AiTool[]
     @IsNumber({}, {message: 'Обязательное поле. Должно быть число'})
     userId: number
+    uniqueId?: string
 }

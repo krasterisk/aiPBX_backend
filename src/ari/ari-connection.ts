@@ -27,7 +27,7 @@ export class AriConnection {
                 this.pbxServer.ari_user,
                 this.pbxServer.password,
             );
-            await this.ari.start('voiceBotApp');
+            await this.ari.start('aiPBXBot');
             this.logger.log(`Connected to ARI server: ${this.pbxServer.name} (${this.pbxServer.location})`);
 
             this.registerEventHandlers();
@@ -42,8 +42,11 @@ export class AriConnection {
 
             if (incoming.name.startsWith('UnicastRTP/')) return;
 
+
             try {
                 const extension = incoming?.dialplan?.app_data || '';
+
+                console.log(args,extension)
                 if (!extension) {
                     this.logger.warn(`No extension passed in Stasis for ${incoming.id}`);
                     await incoming.hangup();

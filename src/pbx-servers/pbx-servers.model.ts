@@ -1,5 +1,7 @@
-import {Column, DataType, Model, Table} from "sequelize-typescript";
+import {Column, DataType, ForeignKey, Model, Table} from "sequelize-typescript";
 import {ApiProperty} from "@nestjs/swagger";
+import {User} from "../users/users.model";
+import {Assistant} from "../assistants/assistants.model";
 
 interface CreatePbxServer {
     userId: string
@@ -26,4 +28,11 @@ export class PbxServers extends Model<PbxServers, CreatePbxServer> {
     @ApiProperty({example: '123', description: "ari password"})
     @Column({type: DataType.STRING, allowNull: false})
     password: string;
+    @ApiProperty({example: 'any comment', description: "comment"})
+    @Column({type: DataType.STRING, allowNull: true})
+    comment: string;
+
+    @ForeignKey(() => User)
+    @Column({type: DataType.INTEGER})
+    userId: number
 }

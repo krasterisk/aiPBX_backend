@@ -52,20 +52,15 @@ export class AudioService {
             const fileStream2 = fs.createReadStream(inputPath2);
 
             let headerInfo: wav.Format;
-            let buffer1: Buffer[] = [];
-            let buffer2: Buffer[] = [];
+            const buffer1: Buffer[] = [];
+            const buffer2: Buffer[] = [];
 
             reader1.on('format', (format) => {
                 headerInfo = format;
             });
 
-            reader1.on('data', (chunk) => {
-                buffer1.push(chunk);
-            });
-
-            reader2.on('data', (chunk) => {
-                buffer2.push(chunk);
-            });
+            reader1.on('data', (chunk) => buffer1.push(chunk));
+            reader2.on('data', (chunk) => buffer2.push(chunk));
 
             let done = 0;
             const finish = () => {
@@ -74,12 +69,24 @@ export class AudioService {
                 const audio1 = Buffer.concat(buffer1);
                 const audio2 = Buffer.concat(buffer2);
 
-                const minLength = Math.min(audio1.length, audio2.length);
+                if (!headerInfo) {
+                    return reject(new Error('No WAV format header info found'));
+                }
+
+                // === added silence to audio1 ===
+                const silenceDurationSec = 5;
+                const bytesPerSample = headerInfo.bitDepth / 8;
+                const silenceSamples = headerInfo.sampleRate * silenceDurationSec * bytesPerSample;
+                const silenceBuffer = Buffer.alloc(silenceSamples, 0); // zero = silence
+
+                const paddedAudio1 = Buffer.concat([silenceBuffer, audio1]);
+
+                const minLength = Math.min(paddedAudio1.length, audio2.length);
                 const interleaved = Buffer.alloc(minLength * 2);
 
                 for (let i = 0; i < minLength; i += 2) {
                     // Left channel (audio1)
-                    interleaved.writeInt16LE(audio1.readInt16LE(i), i * 2);
+                    interleaved.writeInt16LE(paddedAudio1.readInt16LE(i), i * 2);
                     // Right channel (audio2)
                     interleaved.writeInt16LE(audio2.readInt16LE(i), i * 2 + 2);
                 }

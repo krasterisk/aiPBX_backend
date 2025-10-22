@@ -89,8 +89,14 @@ export class CallSession {
             } catch (e) {
                 this.logger.error('Creating bridge error: '+e)
             }
+            const botName = process.env.AIPBX_BOTNAME
+            if(!botName) {
+                this.logger.error(`AI botName is empty!`);
+                return;
+            }
+
             this.externalChannel.externalMedia({
-                app: "aiPBXBot",
+                app: botName,
                 external_host: this.externalHost,
                 // format: 'slin16'
                 format: 'alaw'

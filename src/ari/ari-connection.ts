@@ -27,7 +27,14 @@ export class AriConnection {
                 this.pbxServer.ari_user,
                 this.pbxServer.password,
             );
-            await this.ari.start('aiPBXBot');
+            const botName = process.env.AIPBX_BOTNAME
+
+            if(!botName) {
+                this.logger.error(`AI botName is empty!`);
+                return;
+            }
+
+            await this.ari.start(botName);
             this.logger.log(`Connected to ARI server: ${this.pbxServer.name} (${this.pbxServer.location})`);
 
             this.registerEventHandlers();

@@ -30,6 +30,7 @@ import { PbxServersModule } from './pbx-servers/pbx-servers.module';
         }),
         ServeStaticModule.forRoot({
             rootPath: path.resolve(__dirname, 'static'),
+            serveRoot: '/static',
         }),
         SequelizeModule.forRootAsync({
             useFactory: getMysqlConfig

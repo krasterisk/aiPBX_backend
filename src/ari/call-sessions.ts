@@ -90,7 +90,7 @@ export class CallSession {
                 this.logger.error('Creating bridge error: '+e)
             }
             this.externalChannel.externalMedia({
-                app: "voiceBotApp",
+                app: "aiPBXBot",
                 external_host: this.externalHost,
                 // format: 'slin16'
                 format: 'alaw'

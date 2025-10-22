@@ -215,18 +215,20 @@ export class OpenAiService implements OnModuleInit {
         if (serverEvent.type === "input_audio_buffer.speech_started") {
             const currentSession = this.sessions.get(channelId);
             console.log('SPEECH: ', currentSession.currentResponseId)
-            if (currentSession?.currentResponseId) {
+            const responseId = currentSession?.currentResponseId
+
+            if (responseId) {
+
+                const cancelEvent = {
+                    type: 'response.cancel',
+                    response_id: responseId
+                }
+
+                // console.log(currentSession.currentResponseId, cancelEvent)
+                await currentSession.openAiConn.send(cancelEvent)
+                this.logger.log(`Canceled OpenAI response ${responseId} for ${channelId}`);
 
                 this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession)
-
-
-                // const cancelEvent = {
-                //     type: 'response.cancel',
-                //     response_id: currentSession.currentResponseId
-                // }
-                //
-                // // console.log(currentSession.currentResponseId, cancelEvent)
-                // await currentSession.openAiConn.send(cancelEvent)
 
                 this.sessions.set(channelId, {
                     ...currentSession,
@@ -447,7 +449,7 @@ export class OpenAiService implements OnModuleInit {
                     tool_choice: 'auto'
                 }
             };
-            console.log(initAudioSession)
+            // console.log(initAudioSession)
             connection.send(initAudioSession)
         } else {
             this.logger.error('WebSocket is not open, cannot send session update');

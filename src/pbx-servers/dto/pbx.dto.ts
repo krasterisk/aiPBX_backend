@@ -12,7 +12,7 @@ export class PbxDto {
         require_protocol: true
         },
         {
-            message: 'ari_url: Must be a string'
+            message: 'ari_url: Must be URL:PORT'
         })
     readonly ari_url: string;
     @IsString({message: 'ari_user: Must be a string'})

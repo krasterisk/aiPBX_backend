@@ -42,20 +42,17 @@ export class AriConnection {
 
             if (incoming.name.startsWith('UnicastRTP/')) return;
 
-
             try {
-                const extension = incoming?.dialplan?.app_data || '';
+                const appData = incoming?.dialplan?.app_data || '';
+                const uniqueId = appData.includes(',') ? appData.split(',')[1] : '';
 
-                console.log(args,extension)
-                if (!extension) {
-                    this.logger.warn(`No extension passed in Stasis for ${incoming.id}`);
+                if (!uniqueId) {
+                    this.logger.warn(`No uniqueId for Assistant passed in Stasis for ${incoming.id}`);
                     await incoming.hangup();
                     return;
                 }
 
-                // todo Здесь нужно сделать парсинг id ассистента по аргументу app_data
-                const lastDigit = Number(extension.slice(-1));
-                const assistant = await this.assistantsService.getById(lastDigit);
+                const assistant = await this.assistantsService.getByUniqueId(uniqueId);
                 if (!assistant) {
                     this.logger.warn(`Assistant is empty!`);
                     await incoming.hangup();

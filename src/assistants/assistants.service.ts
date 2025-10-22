@@ -201,4 +201,32 @@ export class AssistantsService {
         }
     }
 
+    async getByUniqueId(uniqueId: string) {
+        const assistant = await this.assistantsRepository.findOne({
+            where: {uniqueId},
+            include: [
+                {
+                    all: true,
+                    attributes: {
+                        exclude: [
+                            "password",
+                            "activationCode",
+                            "resetPasswordLink",
+                            "googleId",
+                            "telegramId",
+                            "activationExpires",
+                            "isActivated",
+                            "vpbx_user_id"
+                        ]
+                    }
+                }
+            ]
+        })
+        if(!assistant) {
+            new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
+        } else {
+            return assistant
+        }
+    }
+
 }

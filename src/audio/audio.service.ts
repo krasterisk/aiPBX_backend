@@ -74,19 +74,18 @@ export class AudioService {
                 }
 
                 // === added silence to audio1 ===
-                const silenceDurationSec = 5;
-                const bytesPerSample = headerInfo.bitDepth / 8;
-                const silenceSamples = headerInfo.sampleRate * silenceDurationSec * bytesPerSample;
-                const silenceBuffer = Buffer.alloc(silenceSamples, 0); // zero = silence
+                // const silenceDurationSec = 1;
+                // const bytesPerSample = headerInfo.bitDepth / 8;
+                // const silenceSamples = headerInfo.sampleRate * silenceDurationSec * bytesPerSample;
+                // const silenceBuffer = Buffer.alloc(silenceSamples, 0); // zero = silence
+                // const paddedAudio1 = Buffer.concat([silenceBuffer, audio1]);
 
-                const paddedAudio1 = Buffer.concat([silenceBuffer, audio1]);
-
-                const minLength = Math.min(paddedAudio1.length, audio2.length);
+                const minLength = Math.min(audio1.length, audio2.length);
                 const interleaved = Buffer.alloc(minLength * 2);
 
                 for (let i = 0; i < minLength; i += 2) {
                     // Left channel (audio1)
-                    interleaved.writeInt16LE(paddedAudio1.readInt16LE(i), i * 2);
+                    interleaved.writeInt16LE(audio1.readInt16LE(i), i * 2);
                     // Right channel (audio2)
                     interleaved.writeInt16LE(audio2.readInt16LE(i), i * 2 + 2);
                 }

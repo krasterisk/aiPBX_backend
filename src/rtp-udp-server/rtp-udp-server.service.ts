@@ -1,13 +1,12 @@
 import {Injectable, Logger, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
 import * as dgram from "dgram";
 import {OpenAiService, sessionData} from "../open-ai/open-ai.service";
-import {VoskServerService} from "../vosk-server/vosk-server.service";
 import * as fs from 'fs';
 import * as path from 'path';
 import {AudioService} from "../audio/audio.service";
 import {OpenAiConnection} from "../open-ai/open-ai.connection";
 import {Assistant} from "../assistants/assistants.model";
-import { FileWriter } from 'wav'
+import {FileWriter} from 'wav'
 
 interface requestData {
     channelId?: string,
@@ -19,7 +18,10 @@ interface requestData {
     assistant?: Assistant
 
     writeStreamIn?: FileWriter;
+    writeStreamOut?: FileWriter;
+    silenceTimer?: NodeJS.Timeout;
     inFilePath?: string;
+    outFilePath?: string;
 }
 
 @Injectable()
@@ -40,7 +42,8 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         private openAi: OpenAiService,
         //        private vosk: VoskServerService,
         private audioService: AudioService,
-    ) {}
+    ) {
+    }
 
 
     onModuleInit() {
@@ -61,11 +64,20 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
                 this.external_local_Address = rinfo.address
                 this.external_local_Port = Number(rinfo.port)
 
-                const filePath = path.join(audioDir, `audio_in_${currentSession.channelId}.wav`);
-                const writer = this.audioService.createWavWriteStream(filePath);
-                currentSession.writeStreamIn = writer;
+                const inFile = path.join(audioDir, `audio_in_${currentSession.channelId}.wav`);
+                const outFile = path.join(audioDir, `audio_out_${currentSession.channelId}.wav`);
 
-                // console.log("CURRENT SESSION: ", currentSession)
+                currentSession.inFilePath = inFile
+                currentSession.outFilePath = outFile
+
+                currentSession.writeStreamIn = this.audioService.createWavWriteStream(inFile);
+                currentSession.writeStreamOut = this.audioService.createWavWriteStream(outFile);
+
+                // >>> добавляем таймер тишины для исходящего потока
+                currentSession.silenceTimer = setInterval(() => {
+                    const silence = Buffer.alloc(160);
+                    this.audioService.writeChunkToStream(currentSession.writeStreamOut, silence);
+                }, 20); // каждые 20 мс
 
                 await this.openAi.updateRtAudioSession(currentSession)
                 await this.openAi.rtInitAudioResponse(currentSession)
@@ -146,9 +158,21 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         if (session) {
             session.openAiConn?.close();
             this.logger.log(`Closing ${sessionId} and write stream...`);
+
+            if (session.silenceTimer) clearInterval(session.silenceTimer);
             if (session.writeStreamIn) await session.writeStreamIn.end();
-            this.sessions.delete(sessionId);
+            if (session.writeStreamOut) await session.writeStreamOut.end();
+            const audioDir = path.join(__dirname, '..', 'static');
+            if (!fs.existsSync(audioDir)) {
+                fs.mkdirSync(audioDir);
+            }
+            // const audioIn = path.join(audioDir, `audio_in_${sessionId}.wav`);
+            const audioFile = path.join(audioDir, `audio_mixed_${sessionId}.wav`);
+
+            await this.audioService.mixWavFiles(session.inFilePath, session.outFilePath, audioFile)
         }
+
+        this.sessions.delete(sessionId);
     }
 
     onModuleDestroy() {

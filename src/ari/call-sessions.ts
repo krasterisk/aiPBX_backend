@@ -47,6 +47,7 @@ export class CallSession {
                 external_local_Address: serverData.address,
                 external_local_Port: Number(serverData.port),
             });
+
             await this.streamAudioService.streamAudio(sessionId, outAudio);
         };
 

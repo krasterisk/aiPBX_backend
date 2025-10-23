@@ -14,7 +14,7 @@ interface StreamState {
     abortController: AbortController;
     streamData: StreamData;
     writeStreamOut?: FileWriter;
-    outFilePath?: string;
+    outFilePath?: string
 }
 
 interface StreamData {
@@ -40,6 +40,7 @@ export class StreamAudioService {
         const release = this.mutex.acquire();
         try {
             if (!this.streams.has(sessionId)) {
+
                 const audioDir = path.join(__dirname, '..', 'static');
                 if (!fs.existsSync(audioDir)) {
                     fs.mkdirSync(audioDir);
@@ -73,16 +74,6 @@ export class StreamAudioService {
             if (state) {
                 state.abortController.abort();
                 this.streams.delete(sessionId);
-                if (state.writeStreamOut) {
-                    const audioDir = path.join(__dirname, '..', 'static');
-                    if (!fs.existsSync(audioDir)) {
-                        fs.mkdirSync(audioDir);
-                    }
-                    const audioIn = path.join(audioDir, `audio_in_${sessionId}.wav`);
-                    const audioFile = path.join(audioDir, `audio_mixed_${sessionId}.wav`);
-                    await state.writeStreamOut.end();
-                    await this.audioService.mixWavFiles(audioIn, state.outFilePath, audioFile)
-                }
                 this.logger.log(`Stream ${sessionId} removed`);
             }
         } finally {
@@ -124,6 +115,10 @@ export class StreamAudioService {
                 this.logger.error(`Stream ${sessionId} not found`);
                 return;
             }
+            if (state.writeStreamOut) {
+                this.audioService.writeChunkToStream(state.writeStreamOut, outputBuffer);
+            }
+
             state.bufferQueue.push(outputBuffer);
             if (!state.isProcessing) {
                 state.isProcessing = true;
@@ -200,7 +195,6 @@ export class StreamAudioService {
         state.timestamp += 160;
 
         // this.debugRtpHeader(rtpPacket);
-
         if (state.writeStreamOut) {
             this.audioService.writeChunkToStream(state.writeStreamOut, chunk);
         }

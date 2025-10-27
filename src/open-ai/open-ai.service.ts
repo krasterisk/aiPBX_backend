@@ -32,7 +32,8 @@ export class OpenAiService implements OnModuleInit {
         @Inject(WsServerGateway) private readonly wsGateway: WsServerGateway,
         @Inject(AiCdrService) private readonly aiCdrService: AiCdrService,
         @Inject(AiToolsHandlersService) private readonly aiToolsHandlersService: AiToolsHandlersService
-    ) {}
+    ) {
+    }
 
     createConnection(channelId: string, assistant: Assistant): OpenAiConnection {
 
@@ -75,18 +76,18 @@ export class OpenAiService implements OnModuleInit {
         if (!channelId) {
             return;
         }
-            const session = this.sessions.get(channelId);
-            if(!session) {
-                return;
-            }
-            if (session.openAiConn) {
-                try {
-                    session.openAiConn.close()
-                } catch (e) {
-                    this.logger.error(`Error closing OpenAI connection for ${channelId}:`, e);
+        const session = this.sessions.get(channelId);
+        if (!session) {
+            return;
+        }
+        if (session.openAiConn) {
+            try {
+                session.openAiConn.close()
+            } catch (e) {
+                this.logger.error(`Error closing OpenAI connection for ${channelId}:`, e);
 
-                }
-                this.sessions.delete(channelId);
+            }
+            this.sessions.delete(channelId);
         }
     }
 
@@ -186,7 +187,7 @@ export class OpenAiService implements OnModuleInit {
         try {
             if (channelId) {
                 const assistantName = assistant?.name || ''
-                const userId = assistant?.userId|| null
+                const userId = assistant?.userId || null
                 this.wsGateway.sendToClient(channelId, callerId, assistantName, userId, event)
                 await this.aiCdrService.eventCreate({
                     channelId,
@@ -214,7 +215,7 @@ export class OpenAiService implements OnModuleInit {
 
         if (serverEvent.type === "input_audio_buffer.speech_started") {
             const currentSession = this.sessions.get(channelId);
-            console.log('SPEECH: ', currentSession.currentResponseId)
+            this.logger.log('SPEECH: ', currentSession.currentResponseId)
             const responseId = currentSession?.currentResponseId
 
             if (responseId) {
@@ -275,7 +276,7 @@ export class OpenAiService implements OnModuleInit {
                     if (
                         item.type === "function_call"
                     ) {
-                        if(item.name === 'transfer_call') {
+                        if (item.name === 'transfer_call') {
                             this.logger.log('Переводим вызов на сотрудника')
 
                             let args: any = {};
@@ -289,7 +290,7 @@ export class OpenAiService implements OnModuleInit {
 
                             const hasExtension = args?.exten && args.exten.trim() !== '';
 
-                            if(hasExtension) {
+                            if (hasExtension) {
 
                                 const params = {
                                     extension: args.exten
@@ -417,9 +418,15 @@ export class OpenAiService implements OnModuleInit {
 
             const tools = (assistant.tools || []).map(tool => {
                 const data = tool.toJSON?.() || tool.dataValues;
-                const {type, name, description, parameters} = data;
-                return {type, name, description, parameters};
+                const {type, name, description, parameters, toolData} = data;
+
+                if (type === 'function') {
+                    return {type, name, description, parameters};
+                } else {
+                    return toolData && typeof toolData === 'object' ? toolData : {}
+                }
             });
+            console.log(tools)
 
             const initAudioSession = {
                 type: 'session.update',

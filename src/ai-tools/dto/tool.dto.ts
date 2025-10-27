@@ -2,7 +2,7 @@ import {IsBoolean, IsNumber, IsObject, IsString} from "class-validator";
 
 export class ToolDto {
     @IsString({message: 'type: Must be a string'})
-    readonly type?: string
+    readonly type: string
     @IsString({message: 'name: Must be a string'})
     readonly name: string
     @IsString({message: 'description: Must be a string'})

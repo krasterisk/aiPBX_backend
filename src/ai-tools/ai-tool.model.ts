@@ -16,7 +16,7 @@ export class AiTool extends Model<AiTool> {
         example: 'to get price call this function',
         description: "Details on when and how to use the function"
     })
-    @Column({type: DataType.TEXT, allowNull: false})
+    @Column({type: DataType.TEXT, allowNull: true})
     description: string;
     @ApiProperty({
         example: '{name: book, price: 100}',
@@ -24,6 +24,8 @@ export class AiTool extends Model<AiTool> {
     })
     @Column({type: DataType.JSON, allowNull: true})
     parameters: string;
+    @Column({type: DataType.JSON, allowNull: true})
+    toolData: string;
     @ApiProperty({example: 'true', description: "Whether to enforce strict mode for the function call"})
     @Column({type: DataType.BOOLEAN, allowNull: true})
     strict: boolean;

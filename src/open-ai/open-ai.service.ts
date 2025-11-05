@@ -427,7 +427,6 @@ export class OpenAiService implements OnModuleInit {
                 }
             });
             console.log(tools)
-
             const initAudioSession = {
                 type: 'session.update',
                 session: {

@@ -4,13 +4,16 @@ import { PbxServersController } from './pbx-servers.controller';
  import {SequelizeModule} from "@nestjs/sequelize";
  import {PbxServers} from "./pbx-servers.model";
  import {AuthModule} from "../auth/auth.module";
+ import {SipAccounts} from "./sip-accounts.model";
+ import {HttpModule} from "@nestjs/axios";
 
 @Module({
   controllers: [PbxServersController],
   providers: [PbxServersService],
   imports: [
-    SequelizeModule.forFeature([PbxServers]),
-      forwardRef(() => AuthModule)
+    SequelizeModule.forFeature([PbxServers, SipAccounts]),
+      forwardRef(() => AuthModule),
+      HttpModule
   ],
     exports: [PbxServersService]
 })

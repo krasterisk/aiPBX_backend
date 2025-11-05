@@ -13,8 +13,7 @@ export class AiToolsHandlersService {
     constructor(
         @Inject(AiToolsService) private readonly aiToolsService: AiToolsService,
         private readonly httpService: HttpService
-    ) {
-    }
+    ) {}
 
     async functionHandler(name: string, rawArguments: string, assistant: Assistant) {
         const tool = await this.aiToolsService.getToolByName(name, assistant.userId);

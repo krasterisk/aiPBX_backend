@@ -1,4 +1,4 @@
-import {Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards} from '@nestjs/common';
+import {Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards} from '@nestjs/common';
 import {ApiOperation, ApiResponse} from "@nestjs/swagger";
 import {Roles} from "../auth/roles-auth.decorator";
 import {RolesGuard} from "../auth/roles.guard";
@@ -6,6 +6,14 @@ import {PbxServersService} from "./pbx-servers.service";
 import {PbxServers} from "./pbx-servers.model";
 import {GetPbxDto} from "./dto/getPbx.dto";
 import {PbxDto} from "./dto/pbx.dto";
+import {SipAccountDto} from "./dto/sip-account.dto";
+import {SipAccounts} from "./sip-accounts.model";
+
+interface RequestWithUser extends Request {
+    isAdmin?: boolean
+    tokenUserId?: string
+    vpbxUserId?: string;
+}
 
 @Controller('pbx-servers')
 export class PbxServersController {
@@ -42,10 +50,10 @@ export class PbxServersController {
         return this.pbxServersService.getById(id)
     }
 
-    @ApiOperation({summary: "Create assistant"})
+    @ApiOperation({summary: "Create PBX"})
     @ApiResponse({status: 200, type: PbxServers})
-//    @Roles('ADMIN')
-//    @UseGuards(RolesGuard)
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
 //    @UsePipes(ValidationPipe)
     @Post()
     create(@Body() dto: PbxDto) {
@@ -68,5 +76,19 @@ export class PbxServersController {
     @Delete('/:id')
     delete(@Param('id') id: string) {
         return this.pbxServersService.delete(id)
+    }
+
+    @ApiOperation({summary: "Create SIP Account"})
+    @ApiResponse({status: 200, type: SipAccounts})
+//    @Roles('ADMIN','USER')
+//    @UseGuards(RolesGuard)
+//    @UsePipes(ValidationPipe)
+    @Post('createSipAccount')
+    createSipAccount(
+        @Body() dto: SipAccountDto,
+        @Req() request: RequestWithUser
+    ) {
+        const userId = request.tokenUserId
+        return this.pbxServersService.createSipAccount(dto,userId)
     }
 }

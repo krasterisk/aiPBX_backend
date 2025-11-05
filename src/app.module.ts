@@ -55,7 +55,7 @@ import { PbxServersModule } from './pbx-servers/pbx-servers.module';
         PricesModule,
         TelegramModule,
         CurrencyModule,
-        PbxServersModule
+        PbxServersModule,
     ]
 })
 

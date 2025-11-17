@@ -168,7 +168,11 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             }
             // const audioIn = path.join(audioDir, `audio_in_${sessionId}.wav`);
             const audioFile = path.join(audioDir, `audio_mixed_${sessionId}.wav`);
-
+            if (!session.inFilePath || !session.outFilePath) {
+                this.logger.error(`Missing WAV paths for session ${sessionId}: in=${session.inFilePath}, out=${session.outFilePath}`);
+                this.sessions.delete(sessionId);
+                return;
+            }
             await this.audioService.mixWavFiles(session.inFilePath, session.outFilePath, audioFile)
         }
 

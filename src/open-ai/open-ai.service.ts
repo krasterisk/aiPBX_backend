@@ -409,6 +409,8 @@ export class OpenAiService implements OnModuleInit {
                 this.logger.error(`Can't update session, not assistant data`)
             }
 
+            console.log("UPDATE:",  session)
+
             const customer_phone = session.callerId
                 ? 'Customer phone number is ' + session.callerId + '. ' +
                 'Use customer phone if necessary, example, when calling the create order tool.'

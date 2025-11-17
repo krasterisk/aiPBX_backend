@@ -47,7 +47,6 @@ export class OpenAiConnection {
 
     private handleMessage(data) {
         const event = JSON.parse(data.toString());
-        console.log("EVENT: ",event)
         // Передаем события с привязкой к channelId
         this.eventEmitter.emit(`openai.${this.channelId}`, event);
     }

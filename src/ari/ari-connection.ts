@@ -27,6 +27,7 @@ export class AriConnection {
                 this.pbxServer.ari_user,
                 this.pbxServer.password,
             );
+
             const botName = process.env.AIPBX_BOTNAME
 
             if(!botName) {

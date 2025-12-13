@@ -79,6 +79,7 @@ export class CallSession {
                 this.logger.error('Error initializing call session. Assistant is empty');
                 return
             }
+
             try {
                 // Создаем мост
                 this.bridge = this.ari.Bridge();
@@ -90,12 +91,12 @@ export class CallSession {
             } catch (e) {
                 this.logger.error('Creating bridge error: '+e)
             }
+
             const botName = process.env.AIPBX_BOTNAME
             if(!botName) {
                 this.logger.error(`AI botName is empty!`);
                 return;
             }
-
             this.externalChannel.externalMedia({
                 app: botName,
                 external_host: this.externalHost,
@@ -120,7 +121,6 @@ export class CallSession {
                     this.rtpUdpServer.sessions.set(sessionUrl, sessionData)
                 }
             });
-
             this.playback = this.ari.Playback();
             // wait this.channel.answer()
             await this.channel.play({

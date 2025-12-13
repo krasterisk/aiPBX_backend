@@ -25,8 +25,8 @@ export class AriService implements OnModuleInit {
             this.logger.warn('No PBX servers found in database');
             return;
         }
-
         for (const server of servers) {
+
             const connection = new AriConnection(
                 server,
                 this.rtpUdpServer,
@@ -38,7 +38,6 @@ export class AriService implements OnModuleInit {
             await connection.connect();
             this.connections.push(connection);
         }
-
         this.logger.log(`Initialized ${this.connections.length} ARI connections`);
     }
 }

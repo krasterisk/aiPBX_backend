@@ -11,6 +11,7 @@ export class AriConnection {
     private readonly logger = new Logger(AriConnection.name);
     private sessions = new Map<string, CallSession>();
     private ari: ariClient.Client;
+    private stasisBotName: string;
 
     constructor(
         private readonly pbxServer: PbxServers,
@@ -18,7 +19,7 @@ export class AriConnection {
         private readonly openAiService: OpenAiService,
         private readonly streamAudioService: StreamAudioService,
         private readonly assistantsService: AssistantsService,
-    ) {}
+) {}
 
     async connect() {
         try {
@@ -28,14 +29,14 @@ export class AriConnection {
                 this.pbxServer.password,
             );
 
-            const botName = process.env.AIPBX_BOTNAME
+            this.stasisBotName = `AIPBX_BOT_${this.pbxServer.id}`;
 
-            if(!botName) {
+            if(!this.stasisBotName) {
                 this.logger.error(`AI botName is empty!`);
                 return;
             }
 
-            await this.ari.start(botName);
+            await this.ari.start(this.stasisBotName);
             this.logger.log(`Connected to ARI server: ${this.pbxServer.name} (${this.pbxServer.location})`);
 
             this.registerEventHandlers();

@@ -73,7 +73,7 @@ export class CallSession {
             this.hangupCall.bind(this))
     }
 
-    async initialize(assistant: Assistant) {
+    async initialize(assistant: Assistant, botName: string) {
         try {
             if (!assistant.id) {
                 this.logger.error('Error initializing call session. Assistant is empty');
@@ -92,7 +92,6 @@ export class CallSession {
                 this.logger.error('Creating bridge error: '+e)
             }
 
-            const botName = process.env.AIPBX_BOTNAME
             if(!botName) {
                 this.logger.error(`AI botName is empty!`);
                 return;

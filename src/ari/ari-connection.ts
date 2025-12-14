@@ -29,7 +29,7 @@ export class AriConnection {
                 this.pbxServer.password,
             );
 
-            this.stasisBotName = `AIPBX_BOT_${this.pbxServer.id}`;
+            this.stasisBotName = `${process.env.AIPBX_BOTNAME}_${this.pbxServer.id}`;
 
             if(!this.stasisBotName) {
                 this.logger.error(`AI botName is empty!`);
@@ -52,11 +52,20 @@ export class AriConnection {
             if (incoming.name.startsWith('UnicastRTP/')) return;
 
             try {
+
+                console.log(incoming)
                 const appData = incoming?.dialplan?.app_data || '';
+                const botName = appData.includes(',') ? appData.split(',')[0] : '';
                 const uniqueId = appData.includes(',') ? appData.split(',')[1] : '';
 
                 if (!uniqueId) {
                     this.logger.warn(`No uniqueId for Assistant passed in Stasis for ${incoming.id}`);
+                    await incoming.hangup();
+                    return;
+                }
+
+                if (!botName) {
+                    this.logger.warn(`No botName for Assistant passed in Stasis for ${incoming.id}`);
                     await incoming.hangup();
                     return;
                 }
@@ -87,7 +96,7 @@ export class AriConnection {
                 );
 
                 this.sessions.set(incoming.id, session);
-                await session.initialize(assistant);
+                await session.initialize(assistant, botName);
 
                 incoming.on('StasisEnd', async () => this.cleanupSession(incoming.id));
 

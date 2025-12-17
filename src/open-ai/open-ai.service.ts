@@ -454,7 +454,7 @@ export class OpenAiService implements OnModuleInit {
                     tool_choice: 'auto'
                 }
             };
-            // console.log(initAudioSession)
+            this.logger.log(initAudioSession)
             connection.send(initAudioSession)
         } else {
             this.logger.error('WebSocket is not open, cannot send session update');

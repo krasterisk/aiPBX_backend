@@ -26,18 +26,25 @@ export class AriService implements OnModuleInit {
             return;
         }
         for (const server of servers) {
-
-            const connection = new AriConnection(
-                server,
-                this.rtpUdpServer,
-                this.openAiService,
-                this.streamAudioService,
-                this.assistantsService,
-            );
-
-            await connection.connect();
-            this.connections.push(connection);
+            try {
+                const connection = new AriConnection(
+                    server,
+                    this.rtpUdpServer,
+                    this.openAiService,
+                    this.streamAudioService,
+                    this.assistantsService,
+                );
+                await connection.connect();
+                this.connections.push(connection);
+                this.logger.log(`Connected to ARI server ${server.name}`);
+            } catch (err) {
+                this.logger.error(
+                    `Failed to connect to ARI server ${server.name}`,
+                    err instanceof Error ? err.stack : String(err),
+                );
+            }
         }
+
         this.logger.log(`Initialized ${this.connections.length} ARI connections`);
     }
 }

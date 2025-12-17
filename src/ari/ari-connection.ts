@@ -53,7 +53,6 @@ export class AriConnection {
 
             try {
 
-                console.log(incoming)
                 const appData = incoming?.dialplan?.app_data || '';
                 const botName = appData.includes(',') ? appData.split(',')[0] : '';
                 const uniqueId = appData.includes(',') ? appData.split(',')[1] : '';

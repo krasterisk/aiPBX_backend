@@ -29,7 +29,7 @@ export class AiToolsHandlersService {
         } catch (err) {
             return 'Invalid function arguments format';
         }
-        this.logger.log('Webhook detected: ${tool.webhook}',JSON.stringify(parsedArgs));
+        this.logger.log(`Webhook detected: ${tool.webhook}`,JSON.stringify(parsedArgs));
         try {
             const response = await firstValueFrom(
                 this.httpService.get(tool.webhook, {

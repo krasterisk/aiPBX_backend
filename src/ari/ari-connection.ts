@@ -19,7 +19,8 @@ export class AriConnection {
         private readonly openAiService: OpenAiService,
         private readonly streamAudioService: StreamAudioService,
         private readonly assistantsService: AssistantsService,
-) {}
+    ) {
+    }
 
     async connect() {
         try {
@@ -31,7 +32,7 @@ export class AriConnection {
 
             this.stasisBotName = `${process.env.AIPBX_BOTNAME}_${this.pbxServer.id}`;
 
-            if(!this.stasisBotName) {
+            if (!this.stasisBotName) {
                 this.logger.error(`AI botName is empty!`);
                 return;
             }
@@ -78,7 +79,7 @@ export class AriConnection {
 
                 const externalHost = process.env.EXTERNAL_HOST;
 
-                if(!externalHost) {
+                if (!externalHost) {
                     this.logger.warn(`External host is empty!`);
                     await incoming.hangup();
                     return;
@@ -97,7 +98,7 @@ export class AriConnection {
                 this.sessions.set(incoming.id, session);
                 await session.initialize(assistant, botName);
 
-                incoming.on('StasisEnd', async () => this.cleanupSession(incoming.id));
+                // incoming.on('StasisEnd', async () => this.cleanupSession(incoming.id));
 
             } catch (err) {
                 this.logger.error('Error handling new call', err);
@@ -105,20 +106,24 @@ export class AriConnection {
         });
 
         this.ari.on('StasisEnd', async (event, channel) => {
+            if (!channel?.id) return;
             await this.cleanupSession(channel.id);
         });
+
     }
 
     private async cleanupSession(channelId: string) {
+        if (!channelId) return;
+
+        const session = this.sessions.get(channelId);
+        if (!session) return;
+
         try {
-            const session = this.sessions.get(channelId);
-            if (session) {
-                await session.cleanup();
-                this.sessions.delete(channelId);
-                this.logger.log(`Session for channel ${channelId} cleaned up`);
-            }
+            await session.cleanup();
         } catch (err) {
             this.logger.error(`Error cleaning up session for ${channelId}`, err);
+        } finally {
+            this.sessions.delete(channelId);
         }
     }
 }

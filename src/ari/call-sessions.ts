@@ -29,6 +29,7 @@ export class CallSession {
     private readonly openAiConnection: OpenAiConnection
     private readonly audioDeltaHandler: (outAudio: Buffer, serverData: sessionData) => Promise<void>
     private readonly audioInterruptHandler: (serverData: sessionData) => Promise<void>
+    private cleanedUp = false
 
     constructor(
         private ari: ariClient.Client,
@@ -38,7 +39,8 @@ export class CallSession {
         private openAiService: OpenAiService,
         private streamAudioService: StreamAudioService,
         private assistant: Assistant,
-    ) {
+
+) {
         this.openAiConnection = this.openAiService.createConnection(this.channel.id, assistant)
 
         this.audioDeltaHandler = async (outAudio: Buffer, serverData: sessionData) => {
@@ -134,43 +136,52 @@ export class CallSession {
     }
 
     async cleanup() {
+        if (this.cleanedUp) return;
+        this.cleanedUp = true;
+
         try {
-            if(!this.bridge.id) {
-                return
-            }
-            if (this.bridge && this.bridge.id) {
+            // Bridge
+            if (this.bridge?.id) {
                 try {
                     await this.bridge.destroy();
-                } catch (e) {
-                    this.logger.warn(`Bridge already destroyed or not found: ${this.bridge.id}`);
+                } catch {
+                    this.logger.warn(`Bridge already destroyed: ${this.bridge.id}`);
                 }
             }
 
-            if(!this.externalChannel.id) {
-                return
-            }
-
-            if (this.externalChannel && this.externalChannel.id) {
+            // External channel
+            if (this.externalChannel?.id) {
                 try {
                     await this.externalChannel.hangup();
-                } catch (e) {
-                    this.logger.warn(`External channel already hung up or not found: ${this.externalChannel.id}`);
+                } catch {
+                    this.logger.warn(`External channel already hung up: ${this.externalChannel.id}`);
                 }
             }
 
-            await this.openAiService.dataDecode(
-                { type: 'call.hangup' },
-                this.channel?.id,
-                this.channel?.caller?.number,
-                null
-            );
+            // OpenAI
+            if (this.channel?.id) {
+                await this.openAiService.dataDecode(
+                    { type: 'call.hangup' },
+                    this.channel.id,
+                    this.channel?.caller?.number,
+                    null
+                );
 
-            this.openAiService.eventEmitter.off(`audioDelta.${this.channel.id}`, this.audioDeltaHandler);
+                this.openAiService.eventEmitter.off(
+                    `audioDelta.${this.channel.id}`,
+                    this.audioDeltaHandler
+                );
 
-            await this.openAiService.closeConnection(this.channel.id);
-            await this.streamAudioService.removeStream(this.channel.id);
-            await this.rtpUdpServer.handleSessionEnd(this.channel.id);
+                this.openAiService.eventEmitter.off(
+                    `audioInterrupt.${this.channel.id}`,
+                    this.audioInterruptHandler
+                );
 
+                await this.openAiService.closeConnection(this.channel.id);
+
+                await this.streamAudioService.removeStream(this.channel.id);
+                await this.rtpUdpServer.handleSessionEnd(this.channel.id);
+            }
 
         } catch (err) {
             this.logger.error('Error cleaning up session', err);

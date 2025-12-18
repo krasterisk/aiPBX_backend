@@ -86,7 +86,7 @@ export class AriConnection {
                 }
 
                 const session = new CallSession(
-                    this.ari,
+                    this,
                     incoming,
                     externalHost,
                     this.rtpUdpServer,
@@ -96,7 +96,8 @@ export class AriConnection {
                 );
 
                 this.sessions.set(incoming.id, session);
-                await session.initialize(assistant, botName);
+
+                await session.initialize(assistant);
 
                 // incoming.on('StasisEnd', async () => this.cleanupSession(incoming.id));
 
@@ -125,5 +126,13 @@ export class AriConnection {
         } finally {
             this.sessions.delete(channelId);
         }
+    }
+
+    getAri() {
+        return this.ari;
+    }
+
+    getAppName() {
+        return this.stasisBotName;
     }
 }

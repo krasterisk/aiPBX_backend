@@ -5,6 +5,7 @@ import {Logger} from "@nestjs/common";
 import {OpenAiService, sessionData} from "../open-ai/open-ai.service";
 import {RtpUdpServerService} from "../rtp-udp-server/rtp-udp-server.service";
 import {StreamAudioService} from "../audio/streamAudio.service";
+import {AriConnection} from "./ari-connection";
 
 interface chanVars {
     UNICASTRTP_LOCAL_PORT: number
@@ -30,10 +31,13 @@ export class CallSession {
     private readonly audioDeltaHandler: (outAudio: Buffer, serverData: sessionData) => Promise<void>
     private readonly audioInterruptHandler: (serverData: sessionData) => Promise<void>
     private cleanedUp = false
+    private readonly ari: ariClient.Client
+    private readonly stasisAppName: string
 
     constructor(
-        private ari: ariClient.Client,
-        private channel: ariClient.Channel,
+
+        private readonly ariConnection: AriConnection,
+        private readonly channel: ariClient.Channel,
         private externalHost: string,
         private rtpUdpServer: RtpUdpServerService,
         private openAiService: OpenAiService,
@@ -41,6 +45,11 @@ export class CallSession {
         private assistant: Assistant,
 
 ) {
+
+        this.ari = ariConnection.getAri();
+        this.stasisAppName = ariConnection.getAppName();
+
+
         this.openAiConnection = this.openAiService.createConnection(this.channel.id, assistant)
 
         this.audioDeltaHandler = async (outAudio: Buffer, serverData: sessionData) => {
@@ -75,7 +84,7 @@ export class CallSession {
             this.hangupCall.bind(this))
     }
 
-    async initialize(assistant: Assistant, botName: string) {
+    async initialize(assistant: Assistant) {
         try {
             if (!assistant.id) {
                 this.logger.error('Error initializing call session. Assistant is empty');
@@ -94,12 +103,8 @@ export class CallSession {
                 this.logger.error('Creating bridge error: '+e)
             }
 
-            if(!botName) {
-                this.logger.error(`AI botName is empty!`);
-                return;
-            }
             this.externalChannel.externalMedia({
-                app: botName,
+                app: this.stasisAppName,
                 external_host: this.externalHost,
                 // format: 'slin16'
                 format: 'alaw'

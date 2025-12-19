@@ -91,6 +91,9 @@ export class OpenAiService implements OnModuleInit {
         if (!session) {
             return;
         }
+        if (session.watchdogTimer) {
+            clearInterval(session.watchdogTimer)
+        }
         if (session.openAiConn) {
             try {
                 session.openAiConn.close()

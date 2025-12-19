@@ -340,8 +340,12 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "error") {
-            this.logger.error(JSON.stringify(serverEvent))
-            await this.loggingEvents(channelId, callerId, e, assistant)
+            if (serverEvent.error?.code === 'response_cancel_not_active') {
+                this.logger.warn(`Cancel ignored (no active response): ${channelId}`)
+            } else {
+                this.logger.error(JSON.stringify(serverEvent))
+                await this.loggingEvents(channelId, callerId, e, assistant)
+            }
         }
 
         if (serverEvent.type === "response.created") {
@@ -393,7 +397,8 @@ export class OpenAiService implements OnModuleInit {
                         } else {
                             const result = await this.aiToolsHandlersService.functionHandler(item.name, item.arguments, assistant)
                             if (result) {
-                                console.log("RESULT:", typeof result === 'string' ? result : JSON.stringify(result))
+
+                                this.logger.log("RESULT:", typeof result === 'string' ? result : JSON.stringify(result))
 
                                 const functionEvent = {
                                     type: "conversation.item.create",
@@ -411,7 +416,7 @@ export class OpenAiService implements OnModuleInit {
                                     address: currentSession.address,
                                     port: currentSession.port
                                 }
-                                this.rtAudioOutBandResponseCreate(metadata, currentSession)
+                                // this.rtAudioOutBandResponseCreate(metadata, currentSession)
                             }
                         }
                     }

@@ -323,16 +323,18 @@ export class OpenAiService implements OnModuleInit {
 
                 this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession)
 
-                this.sessions.set(channelId, {
-                    ...currentSession,
-                    currentResponseId: ''
-                })
+                currentSession.currentResponseId = ''
+
+                // this.sessions.set(channelId, {
+                //     ...currentSession,
+                //     currentResponseId: ''
+                // })
 
             }
         }
 
         if (serverEvent.type === "response.audio.delta") {
-            const currentSession = this.getSessionByField('itemIds', serverEvent.item_id)
+            // const currentSession = this.getSessionByField('itemIds', serverEvent.item_id)
             if (currentSession) {
                 const delta = serverEvent.delta
                 const deltaBuffer = Buffer.from(delta, 'base64')
@@ -367,7 +369,7 @@ export class OpenAiService implements OnModuleInit {
             const output = serverEvent?.response?.output;
 
             if (Array.isArray(output)) {
-                const currentSession = this.sessions.get(channelId);
+                // const currentSession = this.sessions.get(channelId);
                 for (const item of output) {
                     if (
                         item.type === "function_call"
@@ -422,7 +424,7 @@ export class OpenAiService implements OnModuleInit {
                                     address: currentSession.address,
                                     port: currentSession.port
                                 }
-                                this.rtAudioOutBandResponseCreate(metadata, currentSession)
+                                // this.rtAudioOutBandResponseCreate(metadata, currentSession)
                             }
                         }
                     }
@@ -445,7 +447,7 @@ export class OpenAiService implements OnModuleInit {
 
         if (serverEvent.type === "input_audio_buffer.committed") {
             this.updateSession(serverEvent)
-            const currentSession = this.getSessionByField('itemIds', serverEvent.previous_item_id)
+            // const currentSession = this.getSessionByField('itemIds', serverEvent.previous_item_id)
             if (currentSession) {
                 const metadata: sessionData = {
                     channelId: currentSession.channelId,

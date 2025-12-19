@@ -261,14 +261,10 @@ export class OpenAiService implements OnModuleInit {
         const timer = setInterval(() => {
             const updatedSession = this.sessions.get(channelId)
 
-            console.log("FROM WatchDog: ", updatedSession)
-
             if (!updatedSession) {
                 clearInterval(timer)
                 return
             }
-
-            console.log("LastEventAt: ", updatedSession.lastEventAt)
 
             const now = Date.now()
 

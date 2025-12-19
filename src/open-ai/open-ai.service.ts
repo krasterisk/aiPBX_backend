@@ -273,7 +273,8 @@ export class OpenAiService implements OnModuleInit {
                 // }
 
                 // Если вообще тишина
-                if (now - (updatedSession.lastEventAt ?? 0) > 10000) {
+                if (updatedSession.lastEventAt &&
+                    now - (updatedSession.lastEventAt ?? 0) > 10000) {
                     this.logger.warn(`Session idle, ping model`)
                     this.pingResponse(updatedSession)
                 }

@@ -69,7 +69,7 @@ export class OpenAiService implements OnModuleInit {
         this.sessions.set(channelId, newSession)
 
         // running watchdog
-        // this.startWatchdog(newSession)
+        this.startWatchdog(channelId)
 
         return connection;
     }
@@ -255,26 +255,27 @@ export class OpenAiService implements OnModuleInit {
         })
     }
 
-    private startWatchdog(session: sessionData) {
+    private startWatchdog(channelId: string) {
+        const session = this.sessions.get(channelId)
         session.watchdogTimer = setInterval(() => {
             const now = Date.now()
-
+            const updatedSession = this.sessions.get(channelId)
             // Если response завис
-            if (
-                session.currentResponseId &&
-                now - (session.lastResponseAt ?? 0) > 4000
-            ) {
-                this.logger.warn(`Response stuck, cancel & recover: ${session.channelId}`)
-                this.recoverSession(session)
-            }
+            // if (
+            //     updatedSession.currentResponseId &&
+            //     now - (updatedSession.lastResponseAt ?? 0) > 10000
+            // ) {
+            //     this.logger.warn(`Response stuck, cancel & recover: ${updatedSession.channelId}`)
+            //     this.recoverSession(updatedSession)
+            // }
 
             // Если вообще тишина
-            if (now - (session.lastEventAt ?? 0) > 10000) {
+            if (now - (updatedSession.lastEventAt ?? 0) > 20000) {
                 this.logger.warn(`Session idle, ping model`)
-                this.pingResponse(session)
+                this.pingResponse(updatedSession)
             }
 
-        }, 2000)
+        }, 5000)
     }
 
 

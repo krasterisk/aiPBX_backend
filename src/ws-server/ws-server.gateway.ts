@@ -86,7 +86,7 @@ export class WsServerGateway {
         this.server.to(socketId).emit('openai.event', fullEvent);
       }
     } else {
-      this.logger.warn(`No active sockets for userId ${userId}`);
+      // this.logger.warn(`No active sockets for userId ${userId}`);
     }
   }
 }

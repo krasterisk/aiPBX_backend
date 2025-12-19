@@ -1,16 +1,28 @@
 import { Logger } from '@nestjs/common';
-import * as ariClient from 'ari-client';
 import { RtpUdpServerService } from '../rtp-udp-server/rtp-udp-server.service';
 import { OpenAiService } from '../open-ai/open-ai.service';
 import { StreamAudioService } from '../audio/streamAudio.service';
 import { AssistantsService } from '../assistants/assistants.service';
 import { CallSession } from './call-sessions';
 import { PbxServers } from '../pbx-servers/pbx-servers.model';
+import { AriHttpClient } from './ari-http-client';
+import { WebSocket } from 'ws';
+
+export interface ChannelData {
+    id: string,
+    name: string,
+    state: string,
+    callerId: string,
+    dialplan: string,
+    creationtime: string
+};
+
 
 export class AriConnection {
     private readonly logger = new Logger(AriConnection.name);
     private sessions = new Map<string, CallSession>();
-    private ari: ariClient.Client;
+    private ariClient: AriHttpClient;
+    private webSocket: WebSocket | null = null;
     private stasisBotName: string;
 
     constructor(
@@ -20,97 +32,230 @@ export class AriConnection {
         private readonly streamAudioService: StreamAudioService,
         private readonly assistantsService: AssistantsService,
     ) {
+        this.logger.log(`Creating AriConnection for server: ${pbxServer.id} - ${pbxServer.ari_url}`);
+        this.logger.log(`ARI User: ${pbxServer.ari_user}`);
     }
 
     async connect() {
         try {
-            this.ari = await ariClient.connect(
-                this.pbxServer.ari_url,
-                this.pbxServer.ari_user,
-                this.pbxServer.password,
-            );
-
             this.stasisBotName = `${process.env.AIPBX_BOTNAME}_${this.pbxServer.id}`;
 
             if (!this.stasisBotName) {
-                this.logger.error(`AI botName is empty!`);
-                return;
+                throw new Error(`AI botName is empty!`);
             }
 
-            await this.ari.start(this.stasisBotName);
-            this.logger.log(`Connected to ARI server: ${this.pbxServer.name} (${this.pbxServer.location})`);
+            // Создаем HTTP клиент ARI
+            this.ariClient = new AriHttpClient(
+                this.pbxServer.ari_url,
+                this.pbxServer.ari_user,
+                this.pbxServer.password,
+                this.stasisBotName
+            );
 
-            this.registerEventHandlers();
-        } catch (err) {
-            this.logger.error(`Error connecting to ${this.pbxServer.ari_url}`, err);
+            // Тестируем подключение
+            const isConnected = await this.ariClient.testConnection();
+            if (!isConnected) {
+                throw new Error(`Failed to connect to ARI server`);
+            }
+
+            // Подключаем WebSocket для получения событий
+            await this.connectWebSocket();
+
+
+        } catch (err: any) {
+            this.logger.error(`Error connecting to ${this.pbxServer.ari_url}:`, err.message);
+            throw err;
         }
     }
 
-    private registerEventHandlers() {
-        (this.ari as any).on('StasisStart', async (event: any, incoming: ariClient.Channel, args: any) => {
-            if (this.sessions.has(incoming.id)) return;
+    private async connectWebSocket(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            // Формируем правильный URL с параметрами авторизации
+            const url = new URL(this.pbxServer.ari_url);
+            const wsUrl = `ws://${url.hostname}:${url.port || 8088}/ari/events`;
 
-            if (incoming.name.startsWith('UnicastRTP/')) return;
+            // Добавляем параметры аутентификации в query string
+            const wsUrlWithAuth = `${wsUrl}?api_key=${this.pbxServer.ari_user}:${this.pbxServer.password}&app=${this.stasisBotName}`;
+            this.webSocket = new WebSocket(wsUrlWithAuth);
 
-            try {
+            this.webSocket.on('open', () => {
+                this.logger.log(`WebSocket connected bot ${this.stasisBotName} to ${this.pbxServer.name}(${this.pbxServer.location})`);
 
-                const appData = incoming?.dialplan?.app_data || '';
-                const botName = appData.includes(',') ? appData.split(',')[0] : '';
-                const uniqueId = appData.includes(',') ? appData.split(',')[1] : '';
+                // Подписываемся на события для нашего приложения
+                this.webSocket?.send(JSON.stringify({
+                    "operation": "subscribe",
+                    "app": this.stasisBotName
+                }));
 
-                if (!uniqueId) {
-                    this.logger.warn(`No uniqueId for Assistant passed in Stasis for ${incoming.id}`);
-                    await incoming.hangup();
-                    return;
+                resolve();
+            });
+
+            this.webSocket.on('message', (data: Buffer) => {
+                try {
+                    const event = JSON.parse(data.toString());
+                    this.handleAriEvent(event);
+                } catch (err) {
+                    this.logger.error(`Error parsing WebSocket message from ${this.pbxServer.name}:`, err);
                 }
+            });
 
-                if (!botName) {
-                    this.logger.warn(`No botName for Assistant passed in Stasis for ${incoming.id}`);
-                    await incoming.hangup();
-                    return;
-                }
+            this.webSocket.on('error', (err) => {
+                this.logger.error(`WebSocket error for ${this.pbxServer.name}:`, err);
+                reject(err);
+            });
 
-                const assistant = await this.assistantsService.getByUniqueId(uniqueId);
-                if (!assistant) {
-                    this.logger.warn(`Assistant is empty!`);
-                    await incoming.hangup();
-                    return;
-                }
+            this.webSocket.on('close', () => {
+                this.logger.log(`WebSocket disconnected for ${this.pbxServer.name}`);
+                this.logger.error(`Failed to connect WebSocket for ${this.pbxServer.name}:`);
+                // Можно добавить логику переподключения через 5 секунд
+                // setTimeout(() => {
+                //     this.connectWebSocket().catch(err => {
+                //         this.logger.error(`Failed to reconnect WebSocket for ${this.pbxServer.name}:`, err);
+                //     });
+                // }, 5000);
+            });
+        });
+    }
 
-                const externalHost = process.env.EXTERNAL_HOST;
+    private async handleAriEvent(event: any): Promise<void> {
+        this.logger.debug(`Received ARI event: ${event.type}`);
+        try {
+            switch (event.type) {
+                case 'StasisStart':
+                    await this.handleStasisStart(event);
+                    break;
 
-                if (!externalHost) {
-                    this.logger.warn(`External host is empty!`);
-                    await incoming.hangup();
-                    return;
-                }
+                case 'StasisEnd':
+                    await this.handleStasisEnd(event);
+                    break;
 
-                const session = new CallSession(
-                    this,
-                    incoming,
-                    externalHost,
-                    this.rtpUdpServer,
-                    this.openAiService,
-                    this.streamAudioService,
-                    assistant,
-                );
+                case 'ChannelVarset':
+                    this.handleChannelVarset(event);
+                    break;
 
-                this.sessions.set(incoming.id, session);
-
-                await session.initialize(assistant);
-
-                // incoming.on('StasisEnd', async () => this.cleanupSession(incoming.id));
-
-            } catch (err) {
-                this.logger.error('Error handling new call', err);
+                default:
+                    // Логируем другие события для отладки
+                    if (process.env.NODE_ENV === 'development') {
+                        this.logger.debug(`Received ARI event: ${event.type}`);
+                    }
+                    break;
             }
-        });
+        } catch (err) {
+            this.logger.error(`Error handling ARI event ${event.type}:`, err);
+        }
+    }
 
-        this.ari.on('StasisEnd', async (event, channel) => {
-            if (!channel?.id) return;
-            await this.cleanupSession(channel.id);
-        });
+    private async handleStasisStart(event: any): Promise<void> {
+        const channelId = event.channel?.id;
 
+        if (!channelId) {
+            this.logger.warn('StasisStart event without channel id');
+            return;
+        }
+        // Проверяем, не обрабатываем ли мы уже этот канал
+        if (this.sessions.has(channelId)) {
+            this.logger.warn(`Session already exists for channel ${channelId}`);
+            return;
+        }
+
+        try {
+
+            const botName = event.application;
+            const uniqueId = event.args[0];
+            console.log(event)
+
+            if (!uniqueId) {
+                this.logger.error(`No uniqueId for Assistant passed for ${channelId}`);
+                await this.ariClient.hangupChannel(channelId);
+                return;
+            }
+
+            if (!botName) {
+                this.logger.error(`No botName for Assistant passed for ${channelId}`);
+                await this.ariClient.hangupChannel(channelId);
+                return;
+            }
+
+            const assistant = await this.assistantsService.getByUniqueId(uniqueId);
+            if (!assistant) {
+                this.logger.warn(`Assistant not found for uniqueId: ${uniqueId}`);
+                await this.ariClient.hangupChannel(channelId);
+                return;
+            }
+
+            const externalHost = process.env.EXTERNAL_HOST;
+            if (!externalHost) {
+                this.logger.warn(`External host is empty!`);
+                await this.ariClient.hangupChannel(channelId);
+                return;
+            }
+
+            // Получаем полные данные канала из события
+            const channelData: ChannelData = {
+                id: channelId,
+                name: event.channel?.name || '',
+                state: event.channel?.state || '',
+                callerId: event.channel?.caller || '',
+                dialplan: event.channel?.dialplan || '',
+                creationtime: event.channel?.creationtime || new Date().toISOString()
+            };
+
+            this.logger.log(`Starting new call session for channel ${channelId}, assistant: ${assistant.name}`);
+
+            const session = new CallSession(
+                this,
+                channelData,
+                externalHost,
+                this.rtpUdpServer,
+                this.openAiService,
+                this.streamAudioService,
+                assistant,
+                this.ariClient,
+                this.pbxServer
+            );
+
+            this.sessions.set(channelId, session);
+
+            await session.initialize(assistant);
+
+        } catch (err) {
+            this.logger.error(`Error handling StasisStart for channel ${channelId}:`, err);
+            try {
+                await this.ariClient.hangupChannel(channelId);
+            } catch (hangupError) {
+                // Игнорируем ошибку при завершении вызова
+            }
+        }
+    }
+
+    private async handleStasisEnd(event: any): Promise<void> {
+        const channelId = event.channel?.id;
+
+        if (!channelId) {
+            this.logger.warn('StasisEnd event without channel id');
+            return;
+        }
+
+        await this.cleanupSession(channelId);
+    }
+
+    private handleChannelVarset(event: any): void {
+        // Можно добавить обработку установки переменных канала
+        // Например, для получения RTP параметров
+        const channelId = event.channel?.id;
+        const variable = event.variable;
+        const value = event.value;
+
+        if (variable === 'UNICASTRTP_LOCAL_ADDRESS' || variable === 'UNICASTRTP_LOCAL_PORT') {
+            this.logger.debug(`Channel ${channelId} ${variable} = ${value}`);
+
+            // Обновляем параметры RTP в соответствующей сессии
+            const session = this.sessions.get(channelId);
+            if (session) {
+                // Здесь можно вызвать метод обновления RTP параметров в сессии
+                // session.updateRtpParams(variable, value);
+            }
+        }
     }
 
     private async cleanupSession(channelId: string) {
@@ -120,6 +265,7 @@ export class AriConnection {
         if (!session) return;
 
         try {
+            this.logger.log(`Cleaning up session for channel ${channelId}`);
             await session.cleanup();
         } catch (err) {
             this.logger.error(`Error cleaning up session for ${channelId}`, err);
@@ -128,11 +274,35 @@ export class AriConnection {
         }
     }
 
-    getAri() {
-        return this.ari;
+    getAriClient(): AriHttpClient {
+        return this.ariClient;
     }
 
-    getAppName() {
+    getAppName(): string {
         return this.stasisBotName;
+    }
+
+    getServerId(): string {
+        return this.pbxServer.id;
+    }
+
+    async disconnect(): Promise<void> {
+        // Закрываем все активные сессии
+        for (const [channelId, session] of this.sessions) {
+            try {
+                await session.cleanup();
+            } catch (err) {
+                this.logger.error(`Error cleaning up session ${channelId} during disconnect`, err);
+            }
+        }
+        this.sessions.clear();
+
+        // Закрываем WebSocket
+        if (this.webSocket) {
+            this.webSocket.close();
+            this.webSocket = null;
+        }
+
+        this.logger.log(`Disconnected from ARI server: ${this.pbxServer.name}`);
     }
 }

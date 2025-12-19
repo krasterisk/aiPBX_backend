@@ -89,7 +89,7 @@ export class OpenAiService implements OnModuleInit {
         if (!session) {
             return;
         }
-        console.log(session.watchdogTimer)
+
         if (session.watchdogTimer) {
             clearInterval(session.watchdogTimer)
         }
@@ -216,7 +216,7 @@ export class OpenAiService implements OnModuleInit {
         }
     }
 
-   private hardReset(session: sessionData) {
+    private hardReset(session: sessionData) {
         this.closeConnection(session.channelId)
         this.createConnection(session.channelId, session.assistant)
     }
@@ -257,30 +257,39 @@ export class OpenAiService implements OnModuleInit {
     }
 
     private startWatchdog(channelId: string) {
+        const timer = setInterval(() => {
+            const updatedSession = this.sessions.get(channelId)
+            if (!updatedSession) {
+                clearInterval(timer)
+                return
+            }
+
+            console.log("LastEventAt: ", updatedSession.lastEventAt)
+
+            const now = Date.now()
+
+            // Если response завис
+            if (
+                updatedSession.currentResponseId &&
+                now - (updatedSession.lastResponseAt ?? 0) > 10000
+            ) {
+                this.logger.warn(`Response stuck, cancel & recover: ${updatedSession.channelId}`)
+                this.recoverSession(updatedSession)
+            }
+
+            // Если вообще тишина
+            if (updatedSession.lastEventAt &&
+                now - (updatedSession.lastEventAt ?? 0) > 15000) {
+                this.logger.warn(`Session idle, ping model`)
+                this.pingResponse(updatedSession)
+            }
+
+        }, 2000)
+
         const session = this.sessions.get(channelId)
-        this.sessions.set(channelId, {
-            ...session,
-            watchdogTimer: setInterval(() => {
-                const now = Date.now()
-                const updatedSession = this.sessions.get(channelId)
-                // Если response завис
-                // if (
-                //     updatedSession.currentResponseId &&
-                //     now - (updatedSession.lastResponseAt ?? 0) > 10000
-                // ) {
-                //     this.logger.warn(`Response stuck, cancel & recover: ${updatedSession.channelId}`)
-                //     this.recoverSession(updatedSession)
-                // }
-
-                // Если вообще тишина
-                if (updatedSession.lastEventAt &&
-                    now - (updatedSession.lastEventAt ?? 0) > 10000) {
-                    this.logger.warn(`Session idle, ping model`)
-                    this.pingResponse(updatedSession)
-                }
-
-            }, 2000)
-        })
+        if (session) {
+            session.watchdogTimer = timer
+        }
     }
 
 
@@ -288,10 +297,7 @@ export class OpenAiService implements OnModuleInit {
 
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
         const currentSession = this.sessions.get(channelId)
-        this.sessions.set(channelId, {
-            ...currentSession,
-            lastEventAt: Date.now()
-        })
+        currentSession.lastEventAt = Date.now()
 
         if (serverEvent.type !== "response.audio.delta" &&
             serverEvent.type !== "response.audio_transcript.delta"
@@ -361,7 +367,7 @@ export class OpenAiService implements OnModuleInit {
             const output = serverEvent?.response?.output;
 
             if (Array.isArray(output)) {
-              //  const currentSession = this.sessions.get(channelId);
+                //  const currentSession = this.sessions.get(channelId);
                 for (const item of output) {
                     if (
                         item.type === "function_call"

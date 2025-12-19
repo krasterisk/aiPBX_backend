@@ -242,7 +242,7 @@ export class OpenAiService implements OnModuleInit {
                 type: "message",
                 role: "system",
                 content: [{
-                    type: "text",
+                    type: "input_text",
                     text: "continue"
                 }]
             }
@@ -258,25 +258,28 @@ export class OpenAiService implements OnModuleInit {
 
     private startWatchdog(channelId: string) {
         const session = this.sessions.get(channelId)
-        session.watchdogTimer = setInterval(() => {
-            const now = Date.now()
-            const updatedSession = this.sessions.get(channelId)
-            // Если response завис
-            // if (
-            //     updatedSession.currentResponseId &&
-            //     now - (updatedSession.lastResponseAt ?? 0) > 10000
-            // ) {
-            //     this.logger.warn(`Response stuck, cancel & recover: ${updatedSession.channelId}`)
-            //     this.recoverSession(updatedSession)
-            // }
+        this.sessions.set(channelId, {
+            ...session,
+            watchdogTimer: setInterval(() => {
+                const now = Date.now()
+                const updatedSession = this.sessions.get(channelId)
+                // Если response завис
+                // if (
+                //     updatedSession.currentResponseId &&
+                //     now - (updatedSession.lastResponseAt ?? 0) > 10000
+                // ) {
+                //     this.logger.warn(`Response stuck, cancel & recover: ${updatedSession.channelId}`)
+                //     this.recoverSession(updatedSession)
+                // }
 
-            // Если вообще тишина
-            if (now - (updatedSession.lastEventAt ?? 0) > 20000) {
-                this.logger.warn(`Session idle, ping model`)
-                this.pingResponse(updatedSession)
-            }
+                // Если вообще тишина
+                if (now - (updatedSession.lastEventAt ?? 0) > 10000) {
+                    this.logger.warn(`Session idle, ping model`)
+                    this.pingResponse(updatedSession)
+                }
 
-        }, 5000)
+            }, 2000)
+        })
     }
 
 

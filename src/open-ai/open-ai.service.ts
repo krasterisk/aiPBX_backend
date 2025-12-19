@@ -93,6 +93,7 @@ export class OpenAiService implements OnModuleInit {
         if (session.watchdogTimer) {
             clearInterval(session.watchdogTimer)
         }
+
         if (session.openAiConn) {
             try {
                 session.openAiConn.close()
@@ -370,7 +371,7 @@ export class OpenAiService implements OnModuleInit {
             const output = serverEvent?.response?.output;
 
             if (Array.isArray(output)) {
-                //  const currentSession = this.sessions.get(channelId);
+                const currentSession = this.sessions.get(channelId);
                 for (const item of output) {
                     if (
                         item.type === "function_call"

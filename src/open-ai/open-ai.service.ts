@@ -19,6 +19,10 @@ export interface sessionData {
     init?: string
     events?: object[]
     assistant?: Assistant
+    lastResponseAt?: number
+    lastEventAt?: number
+    watchdogTimer?: NodeJS.Timeout
+    watchdogRetries?: number
 }
 
 @Injectable()
@@ -50,17 +54,24 @@ export class OpenAiService implements OnModuleInit {
             assistant
         );
 
-        this.sessions.set(channelId, {
-            channelId: channelId || session?.channelId,
+        const newSession: sessionData = {
+            channelId,
             address: session?.address || '',
             port: session?.port || '',
-            itemIds: session?.itemIds || [],
-            responseIds: session?.responseIds || [],
-            events: session?.events || [],
-            init: session?.init || 'false',
+            responseIds: [],
+            itemIds: [],
+            events: [],
+            init: 'false',
             openAiConn: connection,
-            assistant
-        });
+            assistant,
+            lastEventAt: Date.now(),
+            watchdogRetries: 0
+        }
+
+        this.sessions.set(channelId, newSession)
+
+        // running watchdog
+        this.startWatchdog(newSession)
 
         return connection;
     }
@@ -141,6 +152,7 @@ export class OpenAiService implements OnModuleInit {
             existingSession.responseIds = Array.isArray(existingSession.responseIds)
                 ? [...new Set([...existingSession.responseIds, responseId])]
                 : [responseId];
+            existingSession.lastResponseAt = Date.now()
         }
 
         if (itemId) {
@@ -202,9 +214,77 @@ export class OpenAiService implements OnModuleInit {
         }
     }
 
+   private hardReset(session: sessionData) {
+        this.closeConnection(session.channelId)
+        this.createConnection(session.channelId, session.assistant)
+    }
+
+
+    private recoverSession(session: sessionData) {
+        if (session.currentResponseId) {
+            session.openAiConn.send({
+                type: "response.cancel",
+                response_id: session.currentResponseId
+            })
+        }
+
+        session.currentResponseId = undefined
+
+        this.pingResponse(session)
+    }
+
+    private pingResponse(session: sessionData) {
+        session.openAiConn.send({
+            type: "conversation.item.create",
+            item: {
+                type: "message",
+                role: "system",
+                content: [{
+                    type: "text",
+                    text: "continue"
+                }]
+            }
+        })
+
+        session.openAiConn.send({
+            type: "response.create",
+            response: {
+                modalities: ["text", "audio"]
+            }
+        })
+    }
+
+    private startWatchdog(session: sessionData) {
+        session.watchdogTimer = setInterval(() => {
+            const now = Date.now()
+
+            // Если response завис
+            if (
+                session.currentResponseId &&
+                now - (session.lastResponseAt ?? 0) > 4000
+            ) {
+                this.logger.warn(`Response stuck, cancel & recover: ${session.channelId}`)
+                this.recoverSession(session)
+            }
+
+            // Если вообще тишина
+            if (now - (session.lastEventAt ?? 0) > 10000) {
+                this.logger.warn(`Session idle, ping model`)
+                this.pingResponse(session)
+            }
+
+        }, 2000)
+    }
+
+
     public async dataDecode(e, channelId: string, callerId: string, assistant: Assistant) {
 
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
+        const currentSession = this.sessions.get(channelId)
+        this.sessions.set(channelId, {
+            ...currentSession,
+            lastEventAt: Date.now()
+        })
 
         if (serverEvent.type !== "response.audio.delta" &&
             serverEvent.type !== "response.audio_transcript.delta"
@@ -214,7 +294,6 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "input_audio_buffer.speech_started") {
-            const currentSession = this.sessions.get(channelId);
             this.logger.log('SPEECH: ', currentSession.currentResponseId)
             const responseId = currentSession?.currentResponseId
 
@@ -226,7 +305,7 @@ export class OpenAiService implements OnModuleInit {
                 }
 
                 // console.log(currentSession.currentResponseId, cancelEvent)
-                await currentSession.openAiConn.send(cancelEvent)
+                currentSession.openAiConn.send(cancelEvent)
                 this.logger.log(`Canceled OpenAI response ${responseId} for ${channelId}`);
 
                 this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession)
@@ -240,7 +319,7 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "response.audio.delta") {
-            const currentSession = this.getSessionByField('itemIds', serverEvent.item_id)
+            //const currentSession = this.getSessionByField('itemIds', serverEvent.item_id)
             if (currentSession) {
                 const delta = serverEvent.delta
                 const deltaBuffer = Buffer.from(delta, 'base64')
@@ -271,7 +350,7 @@ export class OpenAiService implements OnModuleInit {
             const output = serverEvent?.response?.output;
 
             if (Array.isArray(output)) {
-                const currentSession = this.sessions.get(channelId);
+              //  const currentSession = this.sessions.get(channelId);
                 for (const item of output) {
                     if (
                         item.type === "function_call"
@@ -318,7 +397,7 @@ export class OpenAiService implements OnModuleInit {
                                     }
                                 }
 
-                                await currentSession.openAiConn.send(functionEvent)
+                                currentSession.openAiConn.send(functionEvent)
 
                                 const metadata: sessionData = {
                                     channelId: currentSession.channelId,
@@ -330,7 +409,15 @@ export class OpenAiService implements OnModuleInit {
                         }
                     }
                 }
+                if (currentSession) {
+                    this.sessions.set(channelId, {
+                        ...currentSession,
+                        currentResponseId: '',
+                        lastResponseAt: Date.now()
+                    })
+                }
             }
+
         }
 
         if (serverEvent.type === "call.hangup") {
@@ -344,7 +431,7 @@ export class OpenAiService implements OnModuleInit {
 
         if (serverEvent.type === "input_audio_buffer.committed") {
             this.updateSession(serverEvent)
-            const currentSession = this.getSessionByField('itemIds', serverEvent.previous_item_id)
+            // const currentSession = this.getSessionByField('itemIds', serverEvent.previous_item_id)
             if (currentSession) {
                 const metadata: sessionData = {
                     channelId: currentSession.channelId,

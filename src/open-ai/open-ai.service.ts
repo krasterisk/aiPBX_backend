@@ -22,7 +22,6 @@ export interface sessionData {
     lastResponseAt?: number
     lastEventAt?: number
     watchdogTimer?: NodeJS.Timeout
-    watchdogRetries?: number
 }
 
 @Injectable()
@@ -65,13 +64,12 @@ export class OpenAiService implements OnModuleInit {
             openAiConn: connection,
             assistant,
             lastEventAt: Date.now(),
-            watchdogRetries: 0
         }
 
         this.sessions.set(channelId, newSession)
 
         // running watchdog
-        this.startWatchdog(newSession)
+        // this.startWatchdog(newSession)
 
         return connection;
     }

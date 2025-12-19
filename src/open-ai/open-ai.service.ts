@@ -89,6 +89,7 @@ export class OpenAiService implements OnModuleInit {
         if (!session) {
             return;
         }
+        console.log(session.watchdogTimer)
         if (session.watchdogTimer) {
             clearInterval(session.watchdogTimer)
         }

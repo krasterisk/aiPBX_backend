@@ -424,7 +424,8 @@ export class OpenAiService implements OnModuleInit {
                                     address: currentSession.address,
                                     port: currentSession.port
                                 }
-                                // this.rtAudioOutBandResponseCreate(metadata, currentSession)
+
+                                this.rtAudioOutBandResponseCreate(metadata, currentSession)
                             }
                         }
                     }

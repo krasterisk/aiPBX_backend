@@ -259,6 +259,9 @@ export class OpenAiService implements OnModuleInit {
     private startWatchdog(channelId: string) {
         const timer = setInterval(() => {
             const updatedSession = this.sessions.get(channelId)
+
+            console.log("FROM WatchDog: ", updatedSession)
+
             if (!updatedSession) {
                 clearInterval(timer)
                 return
@@ -428,11 +431,7 @@ export class OpenAiService implements OnModuleInit {
                     }
                 }
                 if (currentSession) {
-                    this.sessions.set(channelId, {
-                        ...currentSession,
-                        currentResponseId: '',
-                        lastResponseAt: Date.now()
-                    })
+                        currentSession.lastResponseAt = Date.now()
                 }
             }
 

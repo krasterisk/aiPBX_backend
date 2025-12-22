@@ -69,7 +69,7 @@ export class OpenAiService implements OnModuleInit {
         this.sessions.set(channelId, newSession)
 
         // running watchdog
-        this.startWatchdog(channelId)
+        // this.startWatchdog(channelId)
 
         return connection;
     }
@@ -271,7 +271,7 @@ export class OpenAiService implements OnModuleInit {
             // Если response завис
             if (
                 updatedSession.currentResponseId &&
-                now - (updatedSession.lastResponseAt ?? 0) > 10000
+                now - (updatedSession.lastEventAt ?? 0) > 10000
             ) {
                 this.logger.warn(`Response stuck, cancel & recover: ${updatedSession.channelId}`)
                 this.recoverSession(updatedSession)
@@ -403,6 +403,9 @@ export class OpenAiService implements OnModuleInit {
                             this.logger.log('Завершаем вызов')
                             this.eventEmitter.emit(`HangupCall.${currentSession.channelId}`)
                         } else {
+
+                            console.log(item, item.name, item.arguments, assistant.name)
+
                             const result = await this.aiToolsHandlersService.functionHandler(item.name, item.arguments, assistant)
                             if (result) {
 
@@ -429,9 +432,6 @@ export class OpenAiService implements OnModuleInit {
                             }
                         }
                     }
-                }
-                if (currentSession) {
-                        currentSession.lastResponseAt = Date.now()
                 }
             }
 
@@ -550,7 +550,8 @@ export class OpenAiService implements OnModuleInit {
                         prefix_padding_ms: Number(assistant.turn_detection_prefix_padding_ms),
                         silence_duration_ms: Number(assistant.turn_detection_silence_duration_ms),
                         create_response: false,
-                        interrupt_response: false
+                        interrupt_response: false,
+                        idle_timeout_ms: Number(assistant.idle_timeout_ms) || 10000
                     },
                     temperature: Number(assistant.temperature),
                     max_response_output_tokens: assistant.max_response_output_tokens,

@@ -38,7 +38,7 @@ export class OpenAiService implements OnModuleInit {
     ) {
     }
 
-    createConnection(channelId: string, assistant: Assistant): OpenAiConnection {
+    async createConnection(channelId: string, assistant: Assistant): Promise<OpenAiConnection> {
 
         const session: sessionData = this.sessions.get(channelId)
 
@@ -257,47 +257,10 @@ export class OpenAiService implements OnModuleInit {
         })
     }
 
-    private startWatchdog(channelId: string) {
-        const timer = setInterval(() => {
-            const updatedSession = this.sessions.get(channelId)
-
-            if (!updatedSession) {
-                clearInterval(timer)
-                return
-            }
-
-            const now = Date.now()
-
-            // Если response завис
-            if (
-                updatedSession.currentResponseId &&
-                now - (updatedSession.lastEventAt ?? 0) > 10000
-            ) {
-                this.logger.warn(`Response stuck, cancel & recover: ${updatedSession.channelId}`)
-                this.recoverSession(updatedSession)
-            }
-
-            // Если вообще тишина
-            if (updatedSession.lastEventAt &&
-                now - (updatedSession.lastEventAt ?? 0) > 15000) {
-                this.logger.warn(`Session idle, ping model`)
-                this.pingResponse(updatedSession)
-            }
-
-        }, 2000)
-
-        const session = this.sessions.get(channelId)
-        if (session) {
-            session.watchdogTimer = timer
-        }
-    }
-
-
     public async dataDecode(e, channelId: string, callerId: string, assistant: Assistant) {
 
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
         const currentSession = this.sessions.get(channelId)
-            // currentSession.lastEventAt = Date.now()
 
         if (serverEvent.type !== "response.audio.delta" &&
             serverEvent.type !== "response.audio_transcript.delta"
@@ -307,11 +270,10 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "input_audio_buffer.speech_started") {
-            this.logger.log('SPEECH: ', currentSession.currentResponseId)
             const responseId = currentSession?.currentResponseId
-
+            this.logger.log(`Speech started`)
             if (responseId) {
-
+                this.logger.log(`Current responseId: ${responseId}`)
                 const cancelEvent = {
                     type: 'response.cancel',
                     response_id: responseId
@@ -343,6 +305,7 @@ export class OpenAiService implements OnModuleInit {
                     address: currentSession.address,
                     port: Number(currentSession.port)
                 }
+
                 this.eventEmitter.emit(`audioDelta.${currentSession.channelId}`, deltaBuffer, urlData)
             }
         }
@@ -395,8 +358,6 @@ export class OpenAiService implements OnModuleInit {
                                     // context: 'sip-out'+assistant.userId
                                 }
 
-                                // console.log(params)
-
                                 this.eventEmitter.emit(`transferToDialplan.${currentSession.channelId}`, params)
                             }
                         } else if (item.name === 'hangup_call') {
@@ -444,7 +405,6 @@ export class OpenAiService implements OnModuleInit {
         if (serverEvent.type === "session.created") {
             await this.cdrCreateLog(channelId, callerId, assistant)
         }
-
 
         if (serverEvent.type === "input_audio_buffer.committed") {
             this.updateSession(serverEvent)
@@ -556,10 +516,11 @@ export class OpenAiService implements OnModuleInit {
                     temperature: Number(assistant.temperature),
                     max_response_output_tokens: assistant.max_response_output_tokens,
                     tools,
-                    tool_choice: 'auto'
+                    tool_choice: assistant.tool_choice || 'auto'
                 }
             };
             this.logger.log(initAudioSession)
+
             connection.send(initAudioSession)
         } else {
             this.logger.error('WebSocket is not open, cannot send session update');
@@ -670,6 +631,7 @@ export class OpenAiService implements OnModuleInit {
                     // instructions: prompt,
                     metadata: initOpenAiData,
                 }
+
             }
             metadata.openAiConn.send(event);
             return

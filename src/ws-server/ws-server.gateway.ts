@@ -22,8 +22,7 @@ export class WsServerGateway {
   private userSockets: Map<number, Set<string>> = new Map();
 
   afterInit() {
-    this.logger.log('WebSocket сервер инициализирован');
-    console.log('ws server started on port:', this.port);
+    this.logger.log('WS server started on port:', this.port);
   }
 
   handleConnection(client: Socket) {
@@ -55,13 +54,13 @@ export class WsServerGateway {
   @SubscribeMessage('join')
   handleJoin(@MessageBody() channelId: string, @ConnectedSocket() client: Socket) {
     client.join(channelId);
-    console.log(`Client ${client.id} joined room: ${channelId}`);
+    this.logger.log(`Client ${client.id} joined room: ${channelId}`);
   }
 
   @SubscribeMessage('leave')
   handleLeave(@MessageBody() channelId: string, @ConnectedSocket() client: Socket) {
     client.leave(channelId);
-    console.log(`Client ${client.id} left room: ${channelId}`);
+    this.logger.log(`Client ${client.id} left room: ${channelId}`);
   }
 
   // Отправка событий только конкретному пользователю
@@ -85,8 +84,6 @@ export class WsServerGateway {
       for (const socketId of sockets) {
         this.server.to(socketId).emit('openai.event', fullEvent);
       }
-    } else {
-      // this.logger.warn(`No active sockets for userId ${userId}`);
     }
   }
 }

@@ -167,7 +167,6 @@ export class AriHttpClient {
         });
         return response.data;
     }
-
     // ==================== Utility Methods ====================
     async getAsteriskInfo(): Promise<any> {
         const response = await this.client.get(this.baseURL + '/asterisk/info');

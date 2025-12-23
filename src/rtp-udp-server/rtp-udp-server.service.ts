@@ -58,6 +58,8 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             const sessionUrl = `${rinfo.address}:${rinfo.port}`
             const currentSession = this.sessions.get(sessionUrl);
 
+            if(!currentSession) return
+
             if (currentSession && currentSession.init === 'false') {
                 this.logger.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port}`);
                 currentSession.init = 'true';
@@ -81,7 +83,6 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
                 await this.openAi.updateRtAudioSession(currentSession)
                 await this.openAi.rtInitAudioResponse(currentSession)
-
             }
 
             try {

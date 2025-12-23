@@ -7,7 +7,6 @@ import { StreamAudioService } from "../audio/streamAudio.service";
 import {AriConnection, ChannelData} from "./ari-connection";
 import { PbxServers } from "../pbx-servers/pbx-servers.model";
 import { AriHttpClient, Bridge, Channel } from "./ari-http-client";
-import {extractTypeArgumentIfArray} from "@nestjs/swagger/dist/plugin/utils/plugin-utils";
 
 interface ChanVars {
     UNICASTRTP_LOCAL_PORT: number;
@@ -28,9 +27,9 @@ export class CallSession {
     public bridge: Bridge;
     public externalChannel: Channel;
     private logger = new Logger(CallSession.name);
-    private readonly openAiConnection: OpenAiConnection;
-    private readonly audioDeltaHandler: (outAudio: Buffer, serverData: sessionData) => Promise<void>;
-    private readonly audioInterruptHandler: (serverData: sessionData) => Promise<void>;
+    private openAiConnection: OpenAiConnection;
+    private audioDeltaHandler: (outAudio: Buffer, serverData: sessionData) => Promise<void>;
+    private audioInterruptHandler: (serverData: sessionData) => Promise<void>;
     private cleanedUp = false;
     private readonly connectionId: string;
 
@@ -47,8 +46,19 @@ export class CallSession {
     ) {
         this.connectionId = `${this.pbxServer.id}-${Date.now()}`;
         this.logger.log(`[${this.connectionId}] Creating connection for channel: ${channel.id}`);
+    }
 
-        this.openAiConnection = this.openAiService.createConnection(this.channel.id, assistant);
+    async init(): Promise<void> {
+        this.openAiConnection = await this.openAiService.createConnection(
+            this.channel.id,
+            this.assistant
+        );
+
+        await this.registerOpenAiHandlers();
+        await this.initializeAri(this.assistant)
+    }
+
+    private registerOpenAiHandlers() {
 
         this.audioDeltaHandler = async (outAudio: Buffer, serverData: sessionData) => {
             const sessionId = serverData.channelId;
@@ -56,7 +66,6 @@ export class CallSession {
                 external_local_Address: serverData.address,
                 external_local_Port: Number(serverData.port),
             });
-
             await this.streamAudioService.streamAudio(sessionId, outAudio);
         };
 
@@ -71,7 +80,7 @@ export class CallSession {
                 event,
                 this.channel.id,
                 this.channel.callerId || '',
-                assistant
+                this.assistant
             )
         );
 
@@ -89,7 +98,7 @@ export class CallSession {
         );
     }
 
-    async initialize(assistant: Assistant) {
+    async initializeAri(assistant: Assistant) {
         try {
             // 1. Создаем bridge
             const bridgeData = await this.ariClient.createBridge('mixing');
@@ -123,23 +132,20 @@ export class CallSession {
             // 7. Настраиваем сессию RTP
             const sessionUrl = `${rtpAddress}:${rtpPort}`;
 
-            this.logger.log(`SessionURL: ${sessionUrl}`);
-
-            const sessionData = {
+            const sessionData: SessionData = {
                 channelId: this.channel.id,
                 callerId: this.channel.callerId || '',
                 address: rtpAddress,
                 port: String(rtpPort),
+                init: 'false',
                 openAiConn: this.openAiConnection,
                 assistant
             };
 
-            this.rtpUdpServer.sessions.set(sessionUrl, sessionData);
-
             await this.ariClient.playMedia(this.channel.id, 'hello-world', 'en');
 
             // 8. Запускаем потоковую передачу
-            await this.startStreaming();
+            await this.startStreaming(sessionUrl,sessionData);
             this.logger.log(`Call session initialized successfully for channel ${this.channel.id}`);
 
         } catch (err) {
@@ -246,12 +252,15 @@ export class CallSession {
         }
     }
 
-    async startStreaming() {
-        // Реализация запуска потоковой передачи
-        // Эта функция должна быть адаптирована под вашу логику
-        this.logger.log(`Starting audio streaming for channel ${this.channel.id}`);
+    async startStreaming(sessionUrl: string, udpSession: SessionData) {
+        //
+        // Starting upd streaming
+        if (!udpSession.channelId) {
+            this.logger.error('Error start UPD streaming: no channelId');
+            return
+        }
 
-        // Здесь должен быть ваш код для начала потоковой передачи
-        // Например, запуск WebSocket соединения для получения аудио от AI
+        this.rtpUdpServer.sessions.set(sessionUrl, udpSession);
+
     }
 }

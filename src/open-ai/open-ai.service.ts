@@ -35,7 +35,7 @@ export class OpenAiService implements OnModuleInit {
     ) {
     }
 
-    createConnection(channelId: string, assistant: Assistant): OpenAiConnection {
+    async createConnection(channelId: string, assistant: Assistant): Promise<OpenAiConnection> {
 
         const session: sessionData = this.sessions.get(channelId)
 
@@ -249,6 +249,7 @@ export class OpenAiService implements OnModuleInit {
                     address: currentSession.address,
                     port: Number(currentSession.port)
                 }
+
                 this.eventEmitter.emit(`audioDelta.${currentSession.channelId}`, deltaBuffer, urlData)
             }
         }
@@ -340,7 +341,6 @@ export class OpenAiService implements OnModuleInit {
         if (serverEvent.type === "session.created") {
             await this.cdrCreateLog(channelId, callerId, assistant)
         }
-
 
         if (serverEvent.type === "input_audio_buffer.committed") {
             this.updateSession(serverEvent)
@@ -455,6 +455,7 @@ export class OpenAiService implements OnModuleInit {
                 }
             };
             this.logger.log(initAudioSession)
+
             connection.send(initAudioSession)
         } else {
             this.logger.error('WebSocket is not open, cannot send session update');
@@ -565,6 +566,7 @@ export class OpenAiService implements OnModuleInit {
                     // instructions: prompt,
                     metadata: initOpenAiData,
                 }
+
             }
             metadata.openAiConn.send(event);
             return

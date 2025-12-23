@@ -38,7 +38,7 @@ export class OpenAiConnection {
                 "OpenAI-Beta": "realtime=v1",
             }
         });
-        this.logger.log(`Assistant ${this.assistant.name} Started (${this.channelId})`);
+        this.logger.log(`Assistant ${this.assistant.name}_${this.assistant.uniqueId} Started (${this.channelId})`);
 
         this.ws.on('message', (data) => this.handleMessage(data));
         this.ws.on('error', (error) => this.handleError(error));

@@ -118,7 +118,7 @@ export class AriConnection {
     }
 
     private async handleAriEvent(event: any): Promise<void> {
-        this.logger.debug(`Received ARI event: ${event.type}`);
+        // this.logger.debug(`Received ARI event: ${event.type}`);
         try {
             switch (event.type) {
                 case 'StasisStart':
@@ -135,9 +135,9 @@ export class AriConnection {
 
                 default:
                     // Логируем другие события для отладки
-                    if (process.env.NODE_ENV === 'development') {
-                        this.logger.debug(`Received ARI event: ${event.type}`);
-                    }
+                    // if (process.env.NODE_ENV === 'development') {
+                    //     this.logger.debug(`Received ARI event: ${event.type}`);
+                    // }
                     break;
             }
         } catch (err) {
@@ -146,15 +146,22 @@ export class AriConnection {
     }
 
     private async handleStasisStart(event: any): Promise<void> {
-        const channelId = event.channel?.id;
+
+          const channelId = event.channel?.id;
 
         if (!channelId) {
             this.logger.warn('StasisStart event without channel id');
             return;
         }
-        // Проверяем, не обрабатываем ли мы уже этот канал
+        // Checking on exist channelId
         if (this.sessions.has(channelId)) {
             this.logger.warn(`Session already exists for channel ${channelId}`);
+            return;
+        }
+
+        // Checking on exist channelId (second leg)
+        if (event.channel?.name.startsWith('UnicastRTP/')) {
+            this.logger.warn(`Second leg already exists for channel ${channelId}`);
             return;
         }
 
@@ -162,7 +169,6 @@ export class AriConnection {
 
             const botName = event.application;
             const uniqueId = event.args[0];
-            console.log(event)
 
             if (!uniqueId) {
                 this.logger.error(`No uniqueId for Assistant passed for ${channelId}`);
@@ -182,7 +188,7 @@ export class AriConnection {
                 await this.ariClient.hangupChannel(channelId);
                 return;
             }
-
+            this.logger.log(`Starting ari connections for: ${assistant.name}_${assistant.id}_${uniqueId}`)
             const externalHost = process.env.EXTERNAL_HOST;
             if (!externalHost) {
                 this.logger.warn(`External host is empty!`);
@@ -195,12 +201,12 @@ export class AriConnection {
                 id: channelId,
                 name: event.channel?.name || '',
                 state: event.channel?.state || '',
-                callerId: event.channel?.caller || '',
+                callerId: event.channel?.callerId?.number || '',
                 dialplan: event.channel?.dialplan || '',
                 creationtime: event.channel?.creationtime || new Date().toISOString()
             };
 
-            this.logger.log(`Starting new call session for channel ${channelId}, assistant: ${assistant.name}`);
+            this.logger.log(`Starting new call session for channel ${channelId}`);
 
             const session = new CallSession(
                 this,
@@ -216,7 +222,7 @@ export class AriConnection {
 
             this.sessions.set(channelId, session);
 
-            await session.initialize(assistant);
+            await session.init();
 
         } catch (err) {
             this.logger.error(`Error handling StasisStart for channel ${channelId}:`, err);
@@ -247,7 +253,7 @@ export class AriConnection {
         const value = event.value;
 
         if (variable === 'UNICASTRTP_LOCAL_ADDRESS' || variable === 'UNICASTRTP_LOCAL_PORT') {
-            this.logger.debug(`Channel ${channelId} ${variable} = ${value}`);
+            this.logger.debug(`Установка переменных канала: ${event}`);
 
             // Обновляем параметры RTP в соответствующей сессии
             const session = this.sessions.get(channelId);

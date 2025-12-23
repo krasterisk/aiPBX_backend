@@ -17,7 +17,8 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
         private readonly openAiService: OpenAiService,
         private readonly streamAudioService: StreamAudioService,
         private readonly assistantsService: AssistantsService
-    ) {}
+    ) {
+    }
 
     async onModuleInit() {
         this.logger.log('Initializing ARI service...');
@@ -44,9 +45,9 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
 
                 await connection.connect();
                 this.connections.push(connection);
+                this.logger.log(`Successfully connected to ARI server: ${server.name}  ${server.id}`);
 
-                this.logger.log(`Successfully connected to ARI server: ${server.name}`);
-
+                this.logger.log(`Connected to ARI server ${server.name}`);
             } catch (err) {
                 this.logger.error(
                     `Failed to connect to ARI server ${server.name}:`,

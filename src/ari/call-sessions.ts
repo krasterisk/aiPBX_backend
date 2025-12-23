@@ -142,7 +142,7 @@ export class CallSession {
                 assistant
             };
 
-            await this.ariClient.playMedia(this.channel.id, 'hello-world', 'en');
+            await this.ariClient.playMedia(this.channel.id, 'silence/1', 'en');
 
             // 8. Запускаем потоковую передачу
             await this.startStreaming(sessionUrl,sessionData);

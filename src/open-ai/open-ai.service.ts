@@ -205,6 +205,8 @@ export class OpenAiService implements OnModuleInit {
     public async dataDecode(e, channelId: string, callerId: string, assistant: Assistant) {
 
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
+        const currentSession = this.sessions.get(channelId)
+
 
         if (serverEvent.type !== "response.audio.delta" &&
             serverEvent.type !== "response.audio_transcript.delta"
@@ -214,12 +216,11 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "input_audio_buffer.speech_started") {
-            const currentSession = this.sessions.get(channelId);
-            this.logger.log('SPEECH: ', currentSession.currentResponseId)
+            // const currentSession = this.sessions.get(channelId);
             const responseId = currentSession?.currentResponseId
-
+            this.logger.log(`Speech started`)
             if (responseId) {
-
+                this.logger.log(`Current responseId: ${responseId}`)
                 const cancelEvent = {
                     type: 'response.cancel',
                     response_id: responseId
@@ -240,7 +241,7 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "response.audio.delta") {
-            const currentSession = this.getSessionByField('itemIds', serverEvent.item_id)
+            // const currentSession = this.getSessionByField('itemIds', serverEvent.item_id)
             if (currentSession) {
                 const delta = serverEvent.delta
                 const deltaBuffer = Buffer.from(delta, 'base64')
@@ -255,8 +256,12 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "error") {
-            this.logger.error(JSON.stringify(serverEvent))
-            await this.loggingEvents(channelId, callerId, e, assistant)
+            if (serverEvent.error?.code === 'response_cancel_not_active') {
+                this.logger.warn(`Cancel ignored (no active response): ${channelId}`)
+            } else {
+                this.logger.error(JSON.stringify(serverEvent))
+                await this.loggingEvents(channelId, callerId, e, assistant)
+            }
         }
 
         if (serverEvent.type === "response.created") {
@@ -272,7 +277,7 @@ export class OpenAiService implements OnModuleInit {
             const output = serverEvent?.response?.output;
 
             if (Array.isArray(output)) {
-                const currentSession = this.sessions.get(channelId);
+                // const currentSession = this.sessions.get(channelId);
                 for (const item of output) {
                     if (
                         item.type === "function_call"
@@ -298,8 +303,6 @@ export class OpenAiService implements OnModuleInit {
                                     // context: 'sip-out'+assistant.userId
                                 }
 
-                                // console.log(params)
-
                                 this.eventEmitter.emit(`transferToDialplan.${currentSession.channelId}`, params)
                             }
                         } else if (item.name === 'hangup_call') {
@@ -308,7 +311,8 @@ export class OpenAiService implements OnModuleInit {
                         } else {
                             const result = await this.aiToolsHandlersService.functionHandler(item.name, item.arguments, assistant)
                             if (result) {
-                                console.log("RESULT:", typeof result === 'string' ? result : JSON.stringify(result))
+
+                                this.logger.log("RESULT:", typeof result === 'string' ? result : JSON.stringify(result))
 
                                 const functionEvent = {
                                     type: "conversation.item.create",
@@ -446,12 +450,13 @@ export class OpenAiService implements OnModuleInit {
                         prefix_padding_ms: Number(assistant.turn_detection_prefix_padding_ms),
                         silence_duration_ms: Number(assistant.turn_detection_silence_duration_ms),
                         create_response: false,
-                        interrupt_response: false
+                        interrupt_response: false,
+                        idle_timeout_ms: Number(assistant.idle_timeout_ms) || 10000
                     },
                     temperature: Number(assistant.temperature),
                     max_response_output_tokens: assistant.max_response_output_tokens,
                     tools,
-                    tool_choice: 'auto'
+                    tool_choice: assistant.tool_choice || 'auto'
                 }
             };
             this.logger.log(initAudioSession)

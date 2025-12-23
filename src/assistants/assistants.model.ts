@@ -53,7 +53,13 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: '500', description: "Silence duration ms" })
     @Column({ type: DataType.STRING, allowNull: true })
     turn_detection_silence_duration_ms: string
-    @ApiProperty({ example: 'Auto', description: "Semantic eagerness(Low,Medium,High)" })
+    @ApiProperty({ example: '10000', description: "Idle timeout ms" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    idle_timeout_ms: string
+    @ApiProperty({ example: 'auto', description: "Tool choice method" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    tool_choice: string
+    @ApiProperty({ example: 'auto', description: "Semantic eagerness(Low,Medium,High)" })
     @Column({ type: DataType.STRING, allowNull: true })
     semantic_eagerness: string
     @ApiProperty({ example: 'none', description: "Type of noise reduction: none, near_field, far_field" })

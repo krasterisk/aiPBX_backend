@@ -25,6 +25,7 @@ interface SessionData {
 
 export class CallSession {
     public bridge: Bridge;
+    public playBridge: Bridge;
     public externalChannel: Channel;
     private logger = new Logger(CallSession.name);
     private openAiConnection: OpenAiConnection;
@@ -101,14 +102,29 @@ export class CallSession {
     async initializeAri(assistant: Assistant) {
         try {
             // 1. Создаем bridge
-            const bridgeData = await this.ariClient.createBridge('mixing');
-            this.bridge = bridgeData;
+            this.bridge = await this.ariClient.createBridge('mixing');
 
             // 2. Добавляем основной канал в bridge
             await this.ariClient.addChannelToBridge(this.bridge.id, this.channel.id);
 
             // 3. Отвечаем на основной канал
             await this.ariClient.answerChannel(this.channel.id);
+
+            if(assistant.moh) {
+                const snoop = await this.ariClient.snoopChannel(
+                    this.channel.id,
+                    this.ariConnection.getAppName(),
+                    'moh-whisper',
+                    'none',     // spy
+                    'out'       // whisper
+                );
+                // 2.2 отдельный bridge ТОЛЬКО для MOH
+                this.playBridge = await this.ariClient.createBridge('mixing');
+                await this.ariClient.addChannelToBridge(this.playBridge.id, snoop.id);
+
+                // 2.3 запускаем MOH
+                await this.ariClient.startMohToChannel(snoop.id, assistant.moh);
+            }
 
             // 4. ПРЯМОЕ СОЗДАНИЕ EXTERNAL MEDIA КАНАЛА
             // Asterisk позволяет создать канал сразу с external media
@@ -147,7 +163,6 @@ export class CallSession {
             // 8. Запускаем потоковую передачу
             await this.startStreaming(sessionUrl,sessionData);
             this.logger.log(`Call session initialized successfully for channel ${this.channel.id}`);
-
         } catch (err) {
             this.logger.error('Error in initialize:', err.response.data);
             throw 'ERR'
@@ -167,7 +182,16 @@ export class CallSession {
                     await this.ariClient.destroyBridge(this.bridge.id);
                     this.logger.log(`Bridge ${this.bridge.id} destroyed`);
                 } catch (err) {
-                    this.logger.warn(`Failed to destroy bridge ${this.bridge?.id}:`, err.response.data);
+
+                }
+            }
+            // Удаляем bridge
+            if (this.playBridge?.id) {
+                try {
+                    await this.ariClient.destroyBridge(this.playBridge.id);
+                    this.logger.log(`Bridge ${this.playBridge.id} destroyed`);
+                } catch (err) {
+
                 }
             }
 

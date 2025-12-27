@@ -153,6 +153,9 @@ export class AriConnection {
             this.logger.warn('StasisStart event without channel id');
             return;
         }
+
+        const args = event.args || [];
+
         // Checking on exist channelId
         if (this.sessions.has(channelId)) {
             this.logger.warn(`Session already exists for channel ${channelId}`);
@@ -162,6 +165,18 @@ export class AriConnection {
         // Checking on exist channelId (second leg)
         if (event.channel?.name.startsWith('UnicastRTP/')) {
             this.logger.warn(`Second leg already exists for channel ${channelId}`);
+            return;
+        }
+
+        // Checking for snoop channel
+        if (event.channel?.name.startsWith('Snoop/')) {
+            this.logger.debug(`Ignore snoop channel ${channelId}`);
+            return;
+        }
+
+        // Checking for working appArgs
+        if (args.includes('moh-whisper')) {
+            this.logger.debug(`Ignore MOH snoop StasisStart`);
             return;
         }
 
@@ -201,7 +216,7 @@ export class AriConnection {
                 id: channelId,
                 name: event.channel?.name || '',
                 state: event.channel?.state || '',
-                callerId: event.channel?.callerId?.number || '',
+                callerId: event.channel?.caller?.number || '',
                 dialplan: event.channel?.dialplan || '',
                 creationtime: event.channel?.creationtime || new Date().toISOString()
             };

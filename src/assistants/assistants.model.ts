@@ -71,10 +71,12 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: 'inf', description: "Max tokens" })
     @Column({ type: DataType.STRING, allowNull: true })
     max_response_output_tokens: string
+    @ApiProperty({ example: 'default', description: "moh class" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    moh: string
     @ApiProperty({ example: 'comment', description: "Any comments" })
     @Column({ type: DataType.STRING, allowNull: true })
     comment: string
-
     @ForeignKey(() => User)
     @Column({type: DataType.INTEGER})
     userId: number

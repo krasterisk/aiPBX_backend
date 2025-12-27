@@ -99,6 +99,20 @@ export class AriHttpClient {
         return response.data;
     }
 
+    async snoopChannel(
+        channelId: string,
+        app: string,
+        appArgs: string,
+        spy: 'none' | 'in' | 'out' | 'both' = 'none',
+        whisper: 'none' | 'in' | 'out' | 'both' = 'out'
+    ): Promise<Channel> {
+        const response = await this.client.post(
+            `${this.baseURL}/channels/${channelId}/snoop`,
+            { app, appArgs, spy, whisper }
+        );
+        return response.data;
+    }
+
     // ==================== Channel Operations ====================
     async createChannel(endpoint: string, app: string, appArgs?: string): Promise<Channel> {
         const params: any = {
@@ -136,6 +150,40 @@ export class AriHttpClient {
             extension,
             priority
         });
+    }
+
+    async startMohToChannel(channelId: string, mohClass?: string): Promise<void> {
+        await this.client.post(
+            this.baseURL + `/channels/${channelId}/moh`,
+            undefined,
+            {
+                params: mohClass ? { mohClass } : undefined,
+            }
+        );
+    }
+
+
+    async stopMohToChannel(channelId: string): Promise<void> {
+        await this.client.delete(
+            this.baseURL + `/channels/${channelId}/moh`
+        );
+    }
+
+    async startMohToBridge(bridgeId: string, mohClass?: string): Promise<void> {
+        await this.client.post(
+            this.baseURL + `/bridges/${bridgeId}/moh`,
+            undefined,
+            {
+                params: mohClass ? { mohClass } : undefined,
+            }
+        );
+    }
+
+
+    async stopMohToBridge(bridgeId: string): Promise<void> {
+        await this.client.delete(
+            this.baseURL + `/bridges/${bridgeId}/moh`
+        );
     }
 
     async playMedia(channelId: string, media: string, lang: string = 'ru'): Promise<string> {

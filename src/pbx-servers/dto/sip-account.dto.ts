@@ -1,5 +1,12 @@
+import { IsNumber, IsString, IsIP } from 'class-validator';
+
 export class SipAccountDto {
-    readonly id: number;
-    readonly name: string;
-    readonly extension: string;
+    @IsString()
+    readonly assistantId: string;
+
+    @IsNumber()
+    readonly serverId: number;
+
+    @IsIP('4')
+    readonly ipAddress: string;
 }

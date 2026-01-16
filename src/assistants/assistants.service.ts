@@ -1,8 +1,8 @@
-import {HttpException, HttpStatus, Injectable, Logger} from '@nestjs/common';
-import {InjectModel} from "@nestjs/sequelize";
-import {Assistant} from "./assistants.model";
-import {AssistantDto} from "./dto/assistant.dto";
-import {GetAssistantsDto} from "./dto/getAssistants.dto";
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { InjectModel } from "@nestjs/sequelize";
+import { Assistant } from "./assistants.model";
+import { AssistantDto } from "./dto/assistant.dto";
+import { GetAssistantsDto } from "./dto/getAssistants.dto";
 import sequelize from "sequelize";
 import { nanoid } from 'nanoid';
 
@@ -10,13 +10,13 @@ import { nanoid } from 'nanoid';
 export class AssistantsService {
     private readonly logger = new Logger(AssistantsService.name);
 
-    constructor(@InjectModel(Assistant) private assistantsRepository: typeof Assistant) {}
+    constructor(@InjectModel(Assistant) private assistantsRepository: typeof Assistant) { }
 
     async create(dto: AssistantDto[], isAdmin: boolean, userId: string) {
         try {
             const assistants = [];
-            for(const assistant of dto) {
-                if(!assistant.userId) {
+            for (const assistant of dto) {
+                if (!assistant.userId) {
                     assistant.userId = Number(userId)
                 }
 
@@ -25,7 +25,7 @@ export class AssistantsService {
 
                 const result = await this.assistantsRepository.create(assistant)
 
-                if(result && assistant.tools.length) {
+                if (result && assistant.tools.length) {
                     const toolsIds = assistant.tools.map((tool) => tool.id)
                     await result.$set('tools', toolsIds)
                     result.tools = assistant.tools
@@ -61,15 +61,15 @@ export class AssistantsService {
             }
             return assistant
         } catch (e) {
-            throw new HttpException('[Assistant]:  Request error' +e, HttpStatus.BAD_REQUEST)
+            throw new HttpException('[Assistant]:  Request error' + e, HttpStatus.BAD_REQUEST)
 
         }
     }
 
     async delete(id: string) {
         try {
-            await this.assistantsRepository.destroy({where: {id: id}})
-            return {message: 'Assistant deleted successfully', statusCode: HttpStatus.OK}
+            await this.assistantsRepository.destroy({ where: { id: id } })
+            return { message: 'Assistant deleted successfully', statusCode: HttpStatus.OK }
         } catch (e) {
             throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
         }
@@ -84,7 +84,7 @@ export class AssistantsService {
 
             const assistantUser = !isAdmin ? Number(userId) : Number(query.userId) || undefined
 
-            if(!userId && !isAdmin) {
+            if (!userId && !isAdmin) {
                 this.logger.error("No userId detected and user is not admin")
                 throw new HttpException({ message: "Request error" }, HttpStatus.BAD_REQUEST);
             }
@@ -169,13 +169,13 @@ export class AssistantsService {
                 return assistant
             }
         } catch (e) {
-            throw new HttpException({message: '[Assistant]:  Request error'} +e, HttpStatus.BAD_REQUEST)
+            throw new HttpException({ message: '[Assistant]:  Request error' } + e, HttpStatus.BAD_REQUEST)
         }
     }
 
     async getById(id: number) {
         const assistant = await this.assistantsRepository.findOne({
-            where: {id},
+            where: { id },
             include: [
                 {
                     all: true,
@@ -194,7 +194,7 @@ export class AssistantsService {
                 }
             ]
         })
-        if(!assistant) {
+        if (!assistant) {
             throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
         } else {
             return assistant
@@ -203,7 +203,7 @@ export class AssistantsService {
 
     async getByUniqueId(uniqueId: string) {
         const assistant = await this.assistantsRepository.findOne({
-            where: {uniqueId},
+            where: { uniqueId },
             include: [
                 {
                     all: true,
@@ -222,10 +222,66 @@ export class AssistantsService {
                 }
             ]
         })
-        if(!assistant) {
+        if (!assistant) {
             new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
         } else {
             return assistant
+        }
+    }
+
+    async generatePrompt(assistantId: string, prompt: string) {
+        try {
+            const assistant = await this.getById(Number(assistantId));
+
+            if (!assistant) {
+                throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND);
+            }
+
+            // Initialize OpenAI client
+            const OpenAI = require('openai').default;
+            const openai = new OpenAI({
+                apiKey: process.env.OPENAI_API_KEY
+            });
+
+            const systemPrompt = `You are an AI assistant that helps generate greeting messages and instructions for voice bots.
+Based on the user's request, generate two things:
+1. A greeting message (short, friendly, welcoming)
+2. Detailed instructions for the bot's behavior
+
+Return your response in JSON format with two fields: "greeting" and "instruction".
+The greeting should be 1-2 sentences maximum.
+The instruction should be detailed and comprehensive.`;
+
+            const response = await openai.chat.completions.create({
+                model: 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: prompt }
+                ],
+                response_format: { type: 'json_object' },
+                temperature: 0.7
+            });
+
+            const content = response.choices[0]?.message?.content;
+
+            if (!content) {
+                throw new HttpException('Failed to generate prompt', HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+
+            const result = JSON.parse(content);
+
+            return {
+                success: true,
+                greeting: result.greeting || '',
+                instruction: result.instruction || ''
+            };
+
+        } catch (e) {
+            this.logger.error('Generate prompt error:', e);
+            throw new HttpException(
+                e.message || 'Failed to generate prompt',
+                e.status || HttpStatus.INTERNAL_SERVER_ERROR
+            );
         }
     }
 

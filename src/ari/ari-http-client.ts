@@ -215,6 +215,16 @@ export class AriHttpClient {
         });
         return response.data;
     }
+
+    async recordBridge(bridgeId: string, name: string, format: string = 'wav'): Promise<any> {
+        const response = await this.client.post(this.baseURL + `/bridges/${bridgeId}/record`, {
+            name,
+            format,
+            ifExists: 'overwrite'
+        });
+        return response.data;
+    }
+
     // ==================== Utility Methods ====================
     async getAsteriskInfo(): Promise<any> {
         const response = await this.client.get(this.baseURL + '/asterisk/info');

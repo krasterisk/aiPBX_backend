@@ -1,12 +1,12 @@
-import {Injectable, Logger, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import * as dgram from "dgram";
-import {OpenAiService, sessionData} from "../open-ai/open-ai.service";
+import { OpenAiService, sessionData } from "../open-ai/open-ai.service";
 import * as fs from 'fs';
 import * as path from 'path';
-import {AudioService} from "../audio/audio.service";
-import {OpenAiConnection} from "../open-ai/open-ai.connection";
-import {Assistant} from "../assistants/assistants.model";
-import {FileWriter} from 'wav'
+import { AudioService } from "../audio/audio.service";
+import { OpenAiConnection } from "../open-ai/open-ai.connection";
+import { Assistant } from "../assistants/assistants.model";
+import { FileWriter } from 'wav'
 
 interface requestData {
     channelId?: string,
@@ -16,20 +16,14 @@ interface requestData {
     openAiConn?: OpenAiConnection
     events?: object[],
     assistant?: Assistant
-
-    writeStreamIn?: FileWriter;
-    writeStreamOut?: FileWriter;
-    silenceTimer?: NodeJS.Timeout;
-    inFilePath?: string;
-    outFilePath?: string;
 }
 
 @Injectable()
 export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
     private UDP_PORT = Number(process.env.UDP_SERVER_PORT);
-//     private UDP_PORT = Math.floor(
-//         Math.random() * 5001 // 5000 + 1, чтобы включить верхнюю границу
-//     ) + Number(process.env.UDP_SERVER_PORT);
+    //     private UDP_PORT = Math.floor(
+    //         Math.random() * 5001 // 5000 + 1, чтобы включить верхнюю границу
+    //     ) + Number(process.env.UDP_SERVER_PORT);
 
     public server: dgram.Socket;
     private external_local_Address: string
@@ -58,7 +52,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             const sessionUrl = `${rinfo.address}:${rinfo.port}`
             const currentSession = this.sessions.get(sessionUrl);
 
-            if(!currentSession) return
+            if (!currentSession) return
 
             if (currentSession && currentSession.init === 'false') {
                 this.logger.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port}`);
@@ -66,31 +60,12 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
                 this.external_local_Address = rinfo.address
                 this.external_local_Port = Number(rinfo.port)
 
-                const inFile = path.join(audioDir, `audio_in_${currentSession.channelId}.wav`);
-                const outFile = path.join(audioDir, `audio_out_${currentSession.channelId}.wav`);
-
-                currentSession.inFilePath = inFile
-                currentSession.outFilePath = outFile
-
-                currentSession.writeStreamIn = this.audioService.createWavWriteStream(inFile);
-                currentSession.writeStreamOut = this.audioService.createWavWriteStream(outFile);
-
-                // >>> добавляем таймер тишины для исходящего потока
-                currentSession.silenceTimer = setInterval(() => {
-                    const silence = Buffer.alloc(160);
-                    this.audioService.writeChunkToStream(currentSession.writeStreamOut, silence);
-                }, 20); // каждые 20 мс
-
                 await this.openAi.updateRtAudioSession(currentSession)
                 await this.openAi.rtInitAudioResponse(currentSession)
             }
 
             try {
                 const audioChunk = this.audioService.removeRTPHeader(msg, false)
-                if (currentSession.writeStreamIn) {
-                    this.audioService.writeChunkToStream(currentSession.writeStreamIn, audioChunk);
-                }
-
                 this.server.emit('data', audioChunk, currentSession.channelId);
             } catch (error) {
                 this.logger.error(`Error processing RTP packet: ${error}`);
@@ -111,7 +86,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
                 //     console.log('User text: ', transcription,)
                 //     // const aiText = await this.openAi.textResponse(transcription)
                 //     const aiText = await this.openAi.rtTextAppend(transcription)
-//                console.log(aiText)
+                //                console.log(aiText)
                 // if (aiText) {
                 //     console.log('AI text: ', aiText)
                 //     const voice = await this.openAi.textToSpeech(aiText)
@@ -122,7 +97,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
                 // }
                 // }
-//            }
+                //            }
             } finally {
                 this.activeChannels.delete(channelId);
                 // await this.handleSessionEnd(channelId)
@@ -158,23 +133,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
         if (session) {
             session.openAiConn?.close();
-            this.logger.log(`Closing ${sessionId} and write stream...`);
-
-            if (session.silenceTimer) clearInterval(session.silenceTimer);
-            if (session.writeStreamIn) await session.writeStreamIn.end();
-            if (session.writeStreamOut) await session.writeStreamOut.end();
-            const audioDir = path.join(__dirname, '..', 'static');
-            if (!fs.existsSync(audioDir)) {
-                fs.mkdirSync(audioDir);
-            }
-            // const audioIn = path.join(audioDir, `audio_in_${sessionId}.wav`);
-            const audioFile = path.join(audioDir, `audio_mixed_${sessionId}.wav`);
-            if (!session.inFilePath || !session.outFilePath) {
-                this.logger.error(`Missing WAV paths for session ${sessionId}: in=${session.inFilePath}, out=${session.outFilePath}`);
-                this.sessions.delete(sessionId);
-                return;
-            }
-            await this.audioService.mixWavFiles(session.inFilePath, session.outFilePath, audioFile)
+            this.logger.log(`Closing ${sessionId}...`);
         }
 
         this.sessions.delete(sessionId);

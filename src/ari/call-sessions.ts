@@ -4,7 +4,7 @@ import { Logger } from "@nestjs/common";
 import { OpenAiService, sessionData } from "../open-ai/open-ai.service";
 import { RtpUdpServerService } from "../rtp-udp-server/rtp-udp-server.service";
 import { StreamAudioService } from "../audio/streamAudio.service";
-import {AriConnection, ChannelData} from "./ari-connection";
+import { AriConnection, ChannelData } from "./ari-connection";
 import { PbxServers } from "../pbx-servers/pbx-servers.model";
 import { AriHttpClient, Bridge, Channel } from "./ari-http-client";
 
@@ -110,7 +110,7 @@ export class CallSession {
             // 3. Отвечаем на основной канал
             await this.ariClient.answerChannel(this.channel.id);
 
-            if(assistant.moh) {
+            if (assistant.moh) {
                 const snoop = await this.ariClient.snoopChannel(
                     this.channel.id,
                     this.ariConnection.getAppName(),
@@ -139,7 +139,7 @@ export class CallSession {
             // 5. Добавляем external media канал в bridge
             await this.ariClient.addChannelToBridge(this.bridge.id, this.externalChannel.id);
 
-            // 6. Получаем RTP параметры из переменных канала
+            // 7. Получаем RTP параметры из переменных канала
             const vars = this.externalChannel.channelvars || {};
 
             const rtpAddress = vars.UNICASTRTP_LOCAL_ADDRESS || this.externalHost;
@@ -161,7 +161,7 @@ export class CallSession {
             await this.ariClient.playMedia(this.channel.id, 'silence/1', 'en');
 
             // 8. Запускаем потоковую передачу
-            await this.startStreaming(sessionUrl,sessionData);
+            await this.startStreaming(sessionUrl, sessionData);
             this.logger.log(`Call session initialized successfully for channel ${this.channel.id}`);
         } catch (err) {
             this.logger.error('Error in initialize:', err.response.data);

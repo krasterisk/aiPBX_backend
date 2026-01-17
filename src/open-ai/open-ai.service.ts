@@ -1,10 +1,10 @@
-import {Inject, Injectable, Logger, OnModuleInit} from '@nestjs/common';
-import {EventEmitter2} from '@nestjs/event-emitter';
-import {OpenAiConnection} from "./open-ai.connection";
-import {WsServerGateway} from "../ws-server/ws-server.gateway";
-import {Assistant} from "../assistants/assistants.model";
-import {AiCdrService} from "../ai-cdr/ai-cdr.service";
-import {AiToolsHandlersService} from "../ai-tools-handlers/ai-tools-handlers.service";
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { OpenAiConnection } from "./open-ai.connection";
+import { WsServerGateway } from "../ws-server/ws-server.gateway";
+import { Assistant } from "../assistants/assistants.model";
+import { AiCdrService } from "../ai-cdr/ai-cdr.service";
+import { AiToolsHandlersService } from "../ai-tools-handlers/ai-tools-handlers.service";
 
 
 export interface sessionData {
@@ -190,7 +190,7 @@ export class OpenAiService implements OnModuleInit {
                     assistantId: assistant?.id,
                     assistantName: assistant?.name,
                     userId: assistant?.userId,
-                    vPbxUserId: assistant?.user.vpbx_user_id
+                    vPbxUserId: assistant?.user?.vpbx_user_id
                 })
             }
         } catch (e) {
@@ -326,7 +326,7 @@ export class OpenAiService implements OnModuleInit {
         if (serverEvent.type === "response.done") {
             const tokens = serverEvent?.response?.usage?.total_tokens ?? 0
             if (tokens) {
-                await this.aiCdrService.cdrUpdate({channelId, callerId, tokens})
+                await this.aiCdrService.cdrUpdate({ channelId, callerId, tokens })
             }
 
             const output = serverEvent?.response?.output;
@@ -398,8 +398,8 @@ export class OpenAiService implements OnModuleInit {
 
         }
 
-        if (serverEvent.type === "call.hangup") {
-            await this.aiCdrService.cdrHangup(channelId)
+        if (serverEvent.type === "call.hangup" && assistant) {
+            await this.aiCdrService.cdrHangup(channelId, assistant.id)
         }
 
         if (serverEvent.type === "session.created") {
@@ -482,10 +482,10 @@ export class OpenAiService implements OnModuleInit {
 
             const tools = (assistant.tools || []).map(tool => {
                 const data = tool.toJSON?.() || tool.dataValues;
-                const {type, name, description, parameters, toolData} = data;
+                const { type, name, description, parameters, toolData } = data;
 
                 if (type === 'function') {
-                    return {type, name, description, parameters};
+                    return { type, name, description, parameters };
                 } else {
                     return toolData && typeof toolData === 'object' ? toolData : {}
                 }

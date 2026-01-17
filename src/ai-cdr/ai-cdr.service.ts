@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from "@nestjs/sequelize";
 import { AiCdrDto } from "./dto/ai-cdr.dto";
 import sequelize, { Op } from "sequelize";
@@ -8,8 +8,9 @@ import { AiEvents } from "./ai-events.model";
 import { AiEventDto } from "./dto/ia-events.dto";
 import { GetDashboardAllData, GetDashboardData, GetDashboardDoneData, GetDashboardDto } from "./dto/getDashboardDto";
 import { Prices } from "../prices/prices.model";
-import { PaymentsService } from "../payments/payments.service";
 import { UsersService } from "../users/users.service";
+import { Assistant } from '../assistants/assistants.model';
+import { SipAccounts } from '../pbx-servers/sip-accounts.model';
 
 interface AudioTranscriptionEvent {
     type: 'conversation.item.input_audio_transcription.completed';
@@ -29,11 +30,13 @@ type AiEventItem = AudioTranscriptionEvent | AssistantResponseEvent;
 
 @Injectable()
 export class AiCdrService {
+    private readonly logger = new Logger(AiCdrService.name);
 
     constructor(
         @InjectModel(AiCdr) private aiCdrRepository: typeof AiCdr,
         @InjectModel(AiEvents) private aiEventsRepository: typeof AiEvents,
         @InjectModel(Prices) private readonly pricesRepository: typeof Prices,
+        @InjectModel(Assistant) private readonly assistantRepository: typeof Assistant,
         private readonly usersService: UsersService
     ) { }
 
@@ -65,13 +68,14 @@ export class AiCdrService {
         }
     }
 
-    async cdrHangup(channelId: string) {
+    async cdrHangup(channelId: string, assistantId: number) {
         try {
             const aiCdr = await this.aiCdrRepository.findOne({
                 where: { channelId }
             })
 
             if (!aiCdr) {
+                this.logger.error('aiCdr not found')
                 throw new HttpException('aiCdr not found', HttpStatus.NOT_FOUND)
             }
             const now = new Date();
@@ -92,9 +96,26 @@ export class AiCdrService {
 
             }
 
-            await aiCdr.update({ duration, cost })
+            // Generate recordUrl
+            let recordUrl = '';
+            if (assistantId) {
+                const assistant = await this.assistantRepository.findOne({
+                    where: { id: assistantId },
+                    include: [SipAccounts]
+                });
+
+                if (assistant && assistant.sipAccount) {
+                    const sipUri = assistant.sipAccount.sipUri;
+                    const serverUrl = sipUri.split('@')[1];
+                    if (serverUrl) {
+                        recordUrl = `https://${serverUrl}/records/assistants/${assistant.uniqueId}/${channelId}.mp3`;
+                    }
+                }
+            }
+            await aiCdr.update({ duration, cost, recordUrl })
             return aiCdr
         } catch (e) {
+            this.logger.error('[AiCdr]: Update error ' + e.message)
             throw new HttpException('[AiCdr]: Update error' + e, HttpStatus.BAD_REQUEST)
         }
     }

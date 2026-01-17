@@ -164,7 +164,7 @@ export class CallSession {
             await this.startStreaming(sessionUrl, sessionData);
             this.logger.log(`Call session initialized successfully for channel ${this.channel.id}`);
         } catch (err) {
-            this.logger.error('Error in initialize:', err.response.data);
+            this.logger.error('Error in initialize:', err.response?.data || err.message);
             throw 'ERR'
         }
     }
@@ -174,13 +174,15 @@ export class CallSession {
         this.cleanedUp = true;
 
         try {
-            this.logger.log(`[${this.connectionId}] Cleaning up session for channel ${this.channel.id}`);
+            const channelId = this.channel?.id || 'unknown';
+            this.logger.log(`[${this.connectionId}] Cleaning up session for channel ${channelId}`);
 
             // Удаляем bridge
             if (this.bridge?.id) {
                 try {
-                    await this.ariClient.destroyBridge(this.bridge.id);
-                    this.logger.log(`Bridge ${this.bridge.id} destroyed`);
+                    const bridgeId = this.bridge.id;
+                    await this.ariClient.destroyBridge(bridgeId);
+                    this.logger.log(`Bridge ${bridgeId} destroyed`);
                 } catch (err) {
 
                 }
@@ -188,8 +190,9 @@ export class CallSession {
             // Удаляем bridge
             if (this.playBridge?.id) {
                 try {
-                    await this.ariClient.destroyBridge(this.playBridge.id);
-                    this.logger.log(`Bridge ${this.playBridge.id} destroyed`);
+                    const playBridgeId = this.playBridge.id;
+                    await this.ariClient.destroyBridge(playBridgeId);
+                    this.logger.log(`Bridge ${playBridgeId} destroyed`);
                 } catch (err) {
 
                 }
@@ -198,42 +201,43 @@ export class CallSession {
             // Завершаем внешний канал
             if (this.externalChannel?.id) {
                 try {
-                    await this.ariClient.hangupChannel(this.externalChannel.id);
-                    this.logger.log(`External channel ${this.externalChannel.id} hung up`);
+                    const externalChannelId = this.externalChannel.id;
+                    await this.ariClient.hangupChannel(externalChannelId);
+                    this.logger.log(`External channel ${externalChannelId} hung up`);
                 } catch (err) {
-                    this.logger.warn(`Failed to hangup external channel ${this.externalChannel?.id}:`, err.response.data);
+                    this.logger.warn(`Failed to hangup external channel ${this.externalChannel?.id}:`, err.response?.data || err.message);
                 }
             }
 
             // Очищаем OpenAI
             if (this.channel?.id) {
+                const safeChannelId = this.channel.id;
                 await this.openAiService.dataDecode(
                     { type: 'call.hangup' },
-                    this.channel.id,
+                    safeChannelId,
                     this.channel?.callerId || '',
-                    null
+                    this.assistant
                 );
 
                 this.openAiService.eventEmitter.off(
-                    `audioDelta.${this.channel.id}`,
+                    `audioDelta.${safeChannelId}`,
                     this.audioDeltaHandler
                 );
 
                 this.openAiService.eventEmitter.off(
-                    `audioInterrupt.${this.channel.id}`,
+                    `audioInterrupt.${safeChannelId}`,
                     this.audioInterruptHandler
                 );
 
-                await this.openAiService.closeConnection(this.channel.id);
-
-                await this.streamAudioService.removeStream(this.channel.id);
-                await this.rtpUdpServer.handleSessionEnd(this.channel.id);
+                await this.openAiService.closeConnection(safeChannelId)
+                await this.streamAudioService.removeStream(safeChannelId);
+                await this.rtpUdpServer.handleSessionEnd(safeChannelId);
             }
 
             this.logger.log(`[${this.connectionId}] Session cleanup completed`);
 
         } catch (err) {
-            this.logger.error('Error during session cleanup:', err.response.data);
+            this.logger.error('Error during session cleanup:', err.response?.data || err.message);
         }
     }
 
@@ -258,7 +262,7 @@ export class CallSession {
             await this.ariClient.redirectChannel(this.channel.id, context, extension, priority);
             this.logger.log(`Channel ${this.channel.id} redirected to ${context},${extension},${priority}`);
         } catch (err) {
-            this.logger.error('Failed to redirect channel:', err.response.data);
+            this.logger.error('Failed to redirect channel:', err.response?.data || err.message);
         }
     }
 
@@ -272,7 +276,7 @@ export class CallSession {
             await this.ariClient.hangupChannel(this.channel.id);
             this.logger.log(`Channel ${this.channel.id} hung up`);
         } catch (err) {
-            this.logger.error('Failed to hangup channel:', err.response.data);
+            this.logger.error('Failed to hangup channel:', err.response?.data || err.message);
         }
     }
 

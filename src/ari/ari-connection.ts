@@ -106,13 +106,16 @@ export class AriConnection {
 
             this.webSocket.on('close', () => {
                 this.logger.log(`WebSocket disconnected for ${this.pbxServer.name}`);
-                this.logger.error(`Failed to connect WebSocket for ${this.pbxServer.name}:`);
-                // Можно добавить логику переподключения через 5 секунд
-                // setTimeout(() => {
-                //     this.connectWebSocket().catch(err => {
-                //         this.logger.error(`Failed to reconnect WebSocket for ${this.pbxServer.name}:`, err);
-                //     });
-                // }, 5000);
+
+                // Reconnect logic after 5 seconds
+                setTimeout(() => {
+                    if (this.webSocket) { // Only reconnect if it wasn't intentionally cleared
+                        this.logger.log(`Attempting to reconnect WebSocket for ${this.pbxServer.name}...`);
+                        this.connectWebSocket().catch(err => {
+                            this.logger.error(`Failed to reconnect WebSocket for ${this.pbxServer.name}:`, err);
+                        });
+                    }
+                }, 5000);
             });
         });
     }
@@ -147,7 +150,7 @@ export class AriConnection {
 
     private async handleStasisStart(event: any): Promise<void> {
 
-          const channelId = event.channel?.id;
+        const channelId = event.channel?.id;
 
         if (!channelId) {
             this.logger.warn('StasisStart event without channel id');

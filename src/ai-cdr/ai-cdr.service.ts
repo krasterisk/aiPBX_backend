@@ -1,15 +1,15 @@
-import {HttpException, HttpStatus, Inject, Injectable} from '@nestjs/common';
-import {InjectModel} from "@nestjs/sequelize";
-import {AiCdrDto} from "./dto/ai-cdr.dto";
-import sequelize, {Op} from "sequelize";
-import {GetAiCdrDto} from "./dto/getAiCdr.dto";
-import {AiCdr} from "./ai-cdr.model";
-import {AiEvents} from "./ai-events.model";
-import {AiEventDto} from "./dto/ia-events.dto";
-import {GetDashboardAllData, GetDashboardData, GetDashboardDoneData, GetDashboardDto} from "./dto/getDashboardDto";
-import {Prices} from "../prices/prices.model";
-import {PaymentsService} from "../payments/payments.service";
-import {UsersService} from "../users/users.service";
+import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { InjectModel } from "@nestjs/sequelize";
+import { AiCdrDto } from "./dto/ai-cdr.dto";
+import sequelize, { Op } from "sequelize";
+import { GetAiCdrDto } from "./dto/getAiCdr.dto";
+import { AiCdr } from "./ai-cdr.model";
+import { AiEvents } from "./ai-events.model";
+import { AiEventDto } from "./dto/ia-events.dto";
+import { GetDashboardAllData, GetDashboardData, GetDashboardDoneData, GetDashboardDto } from "./dto/getDashboardDto";
+import { Prices } from "../prices/prices.model";
+import { PaymentsService } from "../payments/payments.service";
+import { UsersService } from "../users/users.service";
 
 interface AudioTranscriptionEvent {
     type: 'conversation.item.input_audio_transcription.completed';
@@ -35,7 +35,7 @@ export class AiCdrService {
         @InjectModel(AiEvents) private aiEventsRepository: typeof AiEvents,
         @InjectModel(Prices) private readonly pricesRepository: typeof Prices,
         private readonly usersService: UsersService
-) {}
+    ) { }
 
     async cdrCreate(dto: AiCdrDto) {
         try {
@@ -52,7 +52,7 @@ export class AiCdrService {
     async cdrUpdate(updates: Partial<AiCdr>) {
         try {
             const aiCdr = await this.aiCdrRepository.findOne({
-                where: {channelId: updates.channelId}
+                where: { channelId: updates.channelId }
             })
 
             if (!aiCdr) {
@@ -68,7 +68,7 @@ export class AiCdrService {
     async cdrHangup(channelId: string) {
         try {
             const aiCdr = await this.aiCdrRepository.findOne({
-                where: {channelId}
+                where: { channelId }
             })
 
             if (!aiCdr) {
@@ -80,19 +80,19 @@ export class AiCdrService {
 
             const tokens = aiCdr.tokens
             let cost: number = 0
-            if(tokens>0) {
+            if (tokens > 0) {
                 const userId = aiCdr.userId
                 const price = await this.pricesRepository.findOne({
                     where: { userId }
                 })
-                cost = tokens * (price.price/1000000)
-                if(cost>0) {
+                cost = tokens * (price.price / 1000000)
+                if (cost > 0) {
                     await this.usersService.decrementUserBalance(userId, cost)
                 }
 
             }
 
-            await aiCdr.update({duration, cost})
+            await aiCdr.update({ duration, cost })
             return aiCdr
         } catch (e) {
             throw new HttpException('[AiCdr]: Update error' + e, HttpStatus.BAD_REQUEST)
@@ -115,7 +115,7 @@ export class AiCdrService {
     async getEvents(channelId: string) {
         try {
             const aiEvents = await this.aiEventsRepository.findAll({
-                where: {channelId}
+                where: { channelId }
             })
             if (!aiEvents) {
                 throw new HttpException('aiEvents not found', HttpStatus.NOT_FOUND)
@@ -158,13 +158,36 @@ export class AiCdrService {
 
                     if (event.type === 'response.done') {
                         const items = event.response?.output || [];
-                        return items.flatMap((item: any) =>
-                            item?.content?.map((c: any) => ({
-                                timestamp,
-                                role: 'Assistant',
-                                text: c.transcript
-                            })) || []
-                        );
+                        return items.flatMap((item: any) => {
+                            const entries = [];
+                            if (item?.content) {
+                                item.content.forEach((c: any) => {
+                                    if (c.transcript) {
+                                        entries.push({
+                                            timestamp,
+                                            role: 'Assistant',
+                                            text: c.transcript
+                                        });
+                                    }
+                                });
+                            }
+                            if (item.type === 'function_call') {
+                                entries.push({
+                                    timestamp,
+                                    role: 'Assistant',
+                                    text: `Function call: ${item.name}(${item.arguments})`
+                                });
+                            }
+                            return entries;
+                        });
+                    }
+
+                    if (event.type === 'conversation.item.created' && event.item?.type === 'function_call_output') {
+                        return [{
+                            timestamp,
+                            role: 'System',
+                            text: `Function result: ${event.item.output}`
+                        }];
                     }
 
                     return [];
@@ -249,7 +272,7 @@ export class AiCdrService {
                 };
             }
 
-            const {count, rows} = await this.aiCdrRepository.findAndCountAll({
+            const { count, rows } = await this.aiCdrRepository.findAndCountAll({
                 offset,
                 limit,
                 distinct: true,
@@ -263,10 +286,10 @@ export class AiCdrService {
             const totalCost = parseFloat((totalCostRaw || 0).toFixed(2));
 
 
-            return {count, totalCost, rows}
+            return { count, totalCost, rows }
 
         } catch (e) {
-            throw new HttpException({message: "[AiCdr]: Request error", error: e}, HttpStatus.BAD_REQUEST);
+            throw new HttpException({ message: "[AiCdr]: Request error", error: e }, HttpStatus.BAD_REQUEST);
         }
     }
 

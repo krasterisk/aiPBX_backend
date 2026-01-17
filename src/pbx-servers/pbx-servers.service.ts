@@ -251,10 +251,8 @@ export class PbxServersService {
                 throw new HttpException('Assistant ID is empty', HttpStatus.NOT_FOUND);
             }
 
-            console.log(userId)
-
             const sipAccount = await this.SipAccountsRepository.findOne({
-                where: { assistantId: Number(assistantId), userId: Number(userId) },
+                where: { assistantId: Number(assistantId) },
             });
 
 

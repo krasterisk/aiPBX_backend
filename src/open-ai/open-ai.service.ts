@@ -5,7 +5,7 @@ import { WsServerGateway } from "../ws-server/ws-server.gateway";
 import { Assistant } from "../assistants/assistants.model";
 import { AiCdrService } from "../ai-cdr/ai-cdr.service";
 import { AiToolsHandlersService } from "../ai-tools-handlers/ai-tools-handlers.service";
-
+import { ConfigService } from "@nestjs/config";
 
 export interface sessionData {
     channelId?: string
@@ -26,7 +26,7 @@ export interface sessionData {
 
 @Injectable()
 export class OpenAiService implements OnModuleInit {
-    private readonly API_KEY = process.env.OPENAI_API_KEY;
+    private API_KEY: string;
     private sessions = new Map<string, sessionData>();
     private readonly logger = new Logger(OpenAiService.name);
 
@@ -34,8 +34,10 @@ export class OpenAiService implements OnModuleInit {
         public eventEmitter: EventEmitter2,
         @Inject(WsServerGateway) private readonly wsGateway: WsServerGateway,
         @Inject(AiCdrService) private readonly aiCdrService: AiCdrService,
-        @Inject(AiToolsHandlersService) private readonly aiToolsHandlersService: AiToolsHandlersService
+        @Inject(AiToolsHandlersService) private readonly aiToolsHandlersService: AiToolsHandlersService,
+        private readonly configService: ConfigService
     ) {
+        this.API_KEY = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
     }
 
     async createConnection(channelId: string, assistant: Assistant): Promise<OpenAiConnection> {
@@ -106,6 +108,12 @@ export class OpenAiService implements OnModuleInit {
     }
 
     onModuleInit() {
+        if (!this.API_KEY) {
+            this.logger.error('OPENAI_API_KEY is not defined in configuration!');
+        } else {
+            this.logger.log(`OpenAI Service initialized with API Key: ${this.API_KEY.substring(0, 7)}...`);
+        }
+
         // if (this.isRealtime) {
         //     this.RTConnect();
         // }
@@ -478,10 +486,25 @@ export class OpenAiService implements OnModuleInit {
                 'Use customer phone if necessary, example, when calling the create order tool.'
                 : ''
 
-            const instructions = assistant.greeting + assistant.instruction + customer_phone
+            // Debug: Check if greeting and instruction exist
+            if (!assistant.greeting || !assistant.instruction) {
+                this.logger.warn(`Missing assistant fields: greeting=${!!assistant.greeting}, instruction=${!!assistant.instruction}`);
+                this.logger.warn(`Assistant object keys: ${Object.keys(assistant).join(', ')}`);
+            }
+
+            const instructions = (assistant.greeting || '') + (assistant.instruction || '') + customer_phone
+
+            this.logger.log(`Final instructions length: ${instructions.length} characters`);
 
             const tools = (assistant.tools || []).map(tool => {
-                const data = tool.toJSON?.() || tool.dataValues;
+                // Handle both Sequelize models and plain objects
+                const data = tool.toJSON?.() || tool.dataValues || tool;
+
+                if (!data) {
+                    this.logger.warn('Tool data is undefined, skipping');
+                    return null;
+                }
+
                 const { type, name, description, parameters, toolData } = data;
 
                 if (type === 'function') {
@@ -489,7 +512,7 @@ export class OpenAiService implements OnModuleInit {
                 } else {
                     return toolData && typeof toolData === 'object' ? toolData : {}
                 }
-            });
+            }).filter(tool => tool !== null);
             const initAudioSession = {
                 type: 'session.update',
                 session: {
@@ -519,7 +542,15 @@ export class OpenAiService implements OnModuleInit {
                     tool_choice: assistant.tool_choice || 'auto'
                 }
             };
+
+            this.logger.log(`Updating OpenAI session for ${session.channelId}: input=${assistant.input_audio_format}, output=${assistant.output_audio_format}`);
             this.logger.log(initAudioSession)
+
+            // Update internal session data with new assistant (important for playground overrides)
+            const existingSession = this.sessions.get(session.channelId);
+            if (existingSession) {
+                existingSession.assistant = assistant;
+            }
 
             connection.send(initAudioSession)
         } else {
@@ -615,12 +646,18 @@ export class OpenAiService implements OnModuleInit {
                 port: metadata?.port || '',
                 init: metadata.init,
                 openAiConn: metadata.openAiConn,
+                assistant: metadata.assistant, // Preserve assistant!
                 responseIds: [],
                 itemIds: [],
                 events: []
             };
 
-            this.sessions.set(metadata.channelId, initSessionData);
+            const existingSession = this.sessions.get(metadata.channelId);
+            if (existingSession) {
+                this.sessions.set(metadata.channelId, { ...existingSession, ...initSessionData });
+            } else {
+                this.sessions.set(metadata.channelId, initSessionData);
+            }
 
             const event = {
                 type: "response.create",

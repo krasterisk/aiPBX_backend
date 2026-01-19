@@ -243,17 +243,13 @@ export class AssistantsService {
                 apiKey: process.env.OPENAI_API_KEY
             });
 
-            const systemPrompt = `You are an AI assistant that helps generate greeting messages and instructions for voice bots.
-Based on the user's request, generate two things:
-1. A greeting message (short, friendly, welcoming)
-2. Detailed instructions for the bot's behavior
-
-Return your response in JSON format with two fields: "greeting" and "instruction".
-The greeting should be 1-2 sentences maximum.
+            const systemPrompt = `You are an AI assistant that helps generate system prompt for voice bots.
+Based on the user's request, generate system prompt for the bot's behavior
+Return your response in JSON format with one field: "instruction".
 The instruction should be detailed and comprehensive.`;
 
             const response = await openai.chat.completions.create({
-                model: 'gpt-4o-mini',
+                model: 'gpt-5-mini',
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: prompt }
@@ -272,7 +268,6 @@ The instruction should be detailed and comprehensive.`;
 
             return {
                 success: true,
-                greeting: result.greeting || '',
                 instruction: result.instruction || ''
             };
 
@@ -285,4 +280,7 @@ The instruction should be detailed and comprehensive.`;
         }
     }
 
+    async getAssistantById(id: string | number) {
+        return this.getById(Number(id));
+    }
 }

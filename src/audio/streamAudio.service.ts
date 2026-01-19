@@ -1,10 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as dgram from 'dgram';
 import { Mutex } from 'async-mutex';
-import { FileWriter } from "wav";
-import path from "path";
 import { AudioService } from "./audio.service";
-import fs from "fs";
 
 interface StreamState {
     bufferQueue: Buffer[];
@@ -27,10 +24,13 @@ export class StreamAudioService {
     private mutex = new Mutex();
     private RTP_SSRC = Math.floor(Math.random() * 0xffffffff);
 
+    private server: dgram.Socket;
+
     constructor(
-        private server: dgram.Socket,
         private audioService: AudioService,
-    ) { }
+    ) {
+        this.server = dgram.createSocket('udp4');
+    }
 
 
     // Добавление потока с инициализацией состояния

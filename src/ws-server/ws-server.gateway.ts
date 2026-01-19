@@ -7,6 +7,7 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { EventEmitter2 } from "@nestjs/event-emitter";
 
 @WebSocketGateway(3033, {
   cors: {
@@ -17,6 +18,8 @@ export class WsServerGateway {
   private readonly logger = new Logger(WsServerGateway.name);
   @WebSocketServer() server: Server;
   public port: number = 3033;
+
+  constructor(private eventEmitter: EventEmitter2) { }
 
   // userId → socket.id[]
   private userSockets: Map<number, Set<string>> = new Map();
@@ -55,6 +58,21 @@ export class WsServerGateway {
   handleJoin(@MessageBody() channelId: string, @ConnectedSocket() client: Socket) {
     client.join(channelId);
     this.logger.log(`Client ${client.id} joined room: ${channelId}`);
+  }
+
+  @SubscribeMessage('playground_init')
+  handlePlaygroundInit(@MessageBody() data: { assistantId: string }, @ConnectedSocket() client: Socket) {
+    this.eventEmitter.emit('playground.init', client, data.assistantId);
+  }
+
+  @SubscribeMessage('playground_audio')
+  handlePlaygroundAudio(@MessageBody() audio: Buffer, @ConnectedSocket() client: Socket) {
+    this.eventEmitter.emit('playground.audio_in', client.id, audio);
+  }
+
+  @SubscribeMessage('playground_stop')
+  handlePlaygroundStop(@ConnectedSocket() client: Socket) {
+    this.eventEmitter.emit('playground.stop', client.id);
   }
 
   @SubscribeMessage('leave')

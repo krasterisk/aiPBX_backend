@@ -1,6 +1,6 @@
 {
-  "name": "aiPBX",
-  "version": "1.0.6",
+  "name": "aiPbxBackend",
+  "version": "1.0.7",
   "description": "aiPBX",
   "author": "Krasterisk LTD",
   "private": true,

@@ -102,8 +102,8 @@ export class PlaygroundService implements OnModuleInit {
             };
 
             this.logger.log(`Initializing OpenAI session with PCM16 audio format for playground`);
+            await this.openAiService.rtInitAudioResponse(playgroundSessionData);
             await this.openAiService.updateRtAudioSession(playgroundSessionData);
-            // await this.openAiService.rtInitAudioResponse(playgroundSessionData);
 
             this.wsGateway.server.to(socketId).emit('playground.ready');
 

@@ -104,4 +104,15 @@ export class WsServerGateway {
       }
     }
   }
+
+  // Отправка событий для playground сессий
+  sendToPlayground(socketId: string, channelId: string, assistant: string, event: any) {
+    const fullEvent = {
+      channelId,
+      assistant,
+      ...event,
+    };
+
+    this.server.to(socketId).emit('playground.event', fullEvent);
+  }
 }

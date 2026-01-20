@@ -103,7 +103,7 @@ export class PlaygroundService implements OnModuleInit {
             // Use the same normalized assistant object
             const playgroundSessionData: sessionData = {
                 channelId,
-                callerId: 'playground',
+                callerId: 'Playground',
                 address: 'websocket',
                 port: '0',
                 init: 'true',
@@ -171,15 +171,26 @@ export class PlaygroundService implements OnModuleInit {
     }
 
     private registerOpenAiHandlers(session: PlaygroundSession) {
-        // Main OpenAI event handler - processes ALL events from OpenAI
-        this.openAiService.eventEmitter.on(
-            `openai.${session.channelId}`,
-            (event) => this.openAiService.dataDecode(
+        // Handler for ALL OpenAI events - forward to frontend for visualization
+        const playgroundEventHandler = (event: any) => {
+            // Parse if string
+            const parsedEvent = typeof event === 'string' ? JSON.parse(event) : event;
+            // Forward ALL events to frontend (including deltas for real-time text display)
+            this.wsGateway.server.to(session.socketId).emit('playground.event', parsedEvent);
+            // Also process through dataDecode for logging and function handling
+            this.openAiService.dataDecode(
                 event,
                 session.channelId,
-                '', // No caller ID for playground
+                'Playground',
                 session.assistant
-            )
+            );
+        };
+
+
+        // Register the unified event handler
+        this.openAiService.eventEmitter.on(
+            `openai.${session.channelId}`,
+            playgroundEventHandler
         );
 
         session.audioDeltaHandler = async (outAudio: Buffer, serverData: sessionData) => {

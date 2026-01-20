@@ -22,6 +22,7 @@ export interface sessionData {
     lastResponseAt?: number
     lastEventAt?: number
     watchdogTimer?: NodeJS.Timeout
+    isPlayground?: boolean  // Flag to identify playground sessions
 }
 
 @Injectable()
@@ -211,7 +212,17 @@ export class OpenAiService implements OnModuleInit {
             if (channelId) {
                 const assistantName = assistant?.name || ''
                 const userId = assistant?.userId || null
-                this.wsGateway.sendToClient(channelId, callerId, assistantName, userId, event)
+
+                // Check if this is a playground session
+                if (channelId.startsWith('playground-')) {
+                    // Extract socketId from channelId (format: playground-{socketId})
+                    const socketId = channelId.replace('playground-', '');
+                    this.wsGateway.sendToPlayground(socketId, channelId, assistantName, event);
+                } else {
+                    // Regular SIP/Asterisk session
+                    this.wsGateway.sendToClient(channelId, callerId, assistantName, userId, event);
+                }
+
                 await this.aiCdrService.eventCreate({
                     channelId,
                     callerId,
@@ -492,7 +503,7 @@ export class OpenAiService implements OnModuleInit {
                     input_audio_format: assistant.input_audio_format,
                     output_audio_format: assistant.output_audio_format,
                     input_audio_transcription: {
-                        model: assistant.input_audio_transcription_model,
+                        model: assistant.input_audio_transcription_model || 'whisper-1',
                         ...(assistant.input_audio_transcription_language && {
                             language: assistant.input_audio_transcription_language
                         })

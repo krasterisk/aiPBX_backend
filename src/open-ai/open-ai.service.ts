@@ -225,46 +225,6 @@ export class OpenAiService implements OnModuleInit {
         }
     }
 
-    private hardReset(session: sessionData) {
-        this.closeConnection(session.channelId)
-        this.createConnection(session.channelId, session.assistant)
-    }
-
-
-    private recoverSession(session: sessionData) {
-        if (session.currentResponseId) {
-            session.openAiConn.send({
-                type: "response.cancel",
-                response_id: session.currentResponseId
-            })
-        }
-
-        session.currentResponseId = undefined
-
-        this.pingResponse(session)
-    }
-
-    private pingResponse(session: sessionData) {
-        session.openAiConn.send({
-            type: "conversation.item.create",
-            item: {
-                type: "message",
-                role: "system",
-                content: [{
-                    type: "input_text",
-                    text: "continue"
-                }]
-            }
-        })
-
-        session.openAiConn.send({
-            type: "response.create",
-            response: {
-                modalities: ["text", "audio"]
-            }
-        })
-    }
-
     public async dataDecode(e, channelId: string, callerId: string, assistant: Assistant) {
 
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
@@ -477,9 +437,19 @@ export class OpenAiService implements OnModuleInit {
         if (session && session.openAiConn) {
             const connection = session.openAiConn
             const assistant = session.assistant
+
+            // ✅ Detailed diagnostics
+            this.logger.log(`[updateRtAudioSession] Updating session for ${session.channelId}`);
+            this.logger.log(`[updateRtAudioSession] Assistant present: ${!!assistant}`);
+
             if (!assistant) {
-                this.logger.error(`Can't update session, not assistant data`)
+                this.logger.error(`[updateRtAudioSession] CRITICAL: No assistant data for ${session.channelId}`);
+                this.logger.error(`[updateRtAudioSession] Session keys: ${Object.keys(session).join(', ')}`);
+                return;
             }
+
+            this.logger.log(`[updateRtAudioSession] Assistant type: ${assistant.constructor?.name || 'unknown'}`);
+            this.logger.log(`[updateRtAudioSession] Assistant keys: ${Object.keys(assistant).join(', ')}`);
 
             const customer_phone = session.callerId
                 ? 'Customer phone number is ' + session.callerId + '. ' +
@@ -488,13 +458,13 @@ export class OpenAiService implements OnModuleInit {
 
             // Debug: Check if greeting and instruction exist
             if (!assistant.greeting || !assistant.instruction) {
-                this.logger.warn(`Missing assistant fields: greeting=${!!assistant.greeting}, instruction=${!!assistant.instruction}`);
-                this.logger.warn(`Assistant object keys: ${Object.keys(assistant).join(', ')}`);
+                this.logger.warn(`[updateRtAudioSession] Missing assistant fields: greeting=${!!assistant.greeting}, instruction=${!!assistant.instruction}`);
+                this.logger.warn(`[updateRtAudioSession] Full assistant object keys: ${Object.keys(assistant).join(', ')}`);
             }
 
             const instructions = (assistant.greeting || '') + (assistant.instruction || '') + customer_phone
 
-            this.logger.log(`Final instructions length: ${instructions.length} characters`);
+            this.logger.log(`[updateRtAudioSession] Final instructions length: ${instructions.length} characters`);
 
             const tools = (assistant.tools || []).map(tool => {
                 // Handle both Sequelize models and plain objects
@@ -544,17 +514,25 @@ export class OpenAiService implements OnModuleInit {
             };
 
             this.logger.log(`Updating OpenAI session for ${session.channelId}: input=${assistant.input_audio_format}, output=${assistant.output_audio_format}`);
-            this.logger.log(initAudioSession)
+            this.logger.log(`[updateRtAudioSession] Sending session.update event to OpenAI...`);
+            this.logger.log(initAudioSession);
 
             // Update internal session data with new assistant (important for playground overrides)
             const existingSession = this.sessions.get(session.channelId);
             if (existingSession) {
                 existingSession.assistant = assistant;
+                this.logger.log(`[updateRtAudioSession] Updated internal session assistant for ${session.channelId}`);
+            } else {
+                this.logger.warn(`[updateRtAudioSession] No existing session found for ${session.channelId} in sessions Map`);
             }
 
-            connection.send(initAudioSession)
+            connection.send(initAudioSession);
+            this.logger.log(`[updateRtAudioSession] Successfully sent session.update to OpenAI for ${session.channelId}`);
         } else {
-            this.logger.error('WebSocket is not open, cannot send session update');
+            this.logger.error(`[updateRtAudioSession] WebSocket is not open or session is invalid, cannot send session update`);
+            if (session) {
+                this.logger.error(`[updateRtAudioSession] Session details: channelId=${session.channelId}, hasConnection=${!!session.openAiConn}`);
+            }
         }
     }
 
@@ -618,6 +596,8 @@ export class OpenAiService implements OnModuleInit {
 
     async rtInitAudioResponse(metadata: sessionData) {
 
+        this.logger.log(`[rtInitAudioResponse] Called for channel ${metadata.channelId}`);
+
         if (metadata.openAiConn) {
 
             // const customer_phone = metadata.callerId
@@ -632,7 +612,10 @@ export class OpenAiService implements OnModuleInit {
             //     : `This is a service request, don't do anything. Don't answer anything, just return empty response.`
             //     + customer_phone;
 
-            if (!metadata.channelId && !metadata.address && !metadata.port) return;
+            if (!metadata.channelId && !metadata.address && !metadata.port) {
+                this.logger.warn(`[rtInitAudioResponse] Missing required metadata, skipping`);
+                return;
+            }
 
             const initOpenAiData = {
                 channelId: metadata.channelId,
@@ -655,8 +638,10 @@ export class OpenAiService implements OnModuleInit {
             const existingSession = this.sessions.get(metadata.channelId);
             if (existingSession) {
                 this.sessions.set(metadata.channelId, { ...existingSession, ...initSessionData });
+                this.logger.log(`[rtInitAudioResponse] Updated existing session for ${metadata.channelId}`);
             } else {
                 this.sessions.set(metadata.channelId, initSessionData);
+                this.logger.log(`[rtInitAudioResponse] Created new session for ${metadata.channelId}`);
             }
 
             const event = {
@@ -670,12 +655,16 @@ export class OpenAiService implements OnModuleInit {
                 }
 
             }
+            this.logger.log(`[rtInitAudioResponse] Sending response.create event...`);
+            this.logger.log(event);
             metadata.openAiConn.send(event);
+            this.logger.log(`[rtInitAudioResponse] Successfully sent response.create for ${metadata.channelId}`);
             return
         } else {
-            this.logger.error(`WS session ${metadata.channelId} do not exist`)
+            this.logger.error(`[rtInitAudioResponse] WS session ${metadata.channelId} does not exist or no connection`);
         }
     }
+
 
     // async textResponse(input: string) {
     //     this.connect()

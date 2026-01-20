@@ -5,6 +5,7 @@ import { AssistantsService } from '../assistants/assistants.service';
 import { OpenAiService, sessionData } from '../open-ai/open-ai.service';
 import { Assistant } from '../assistants/assistants.model';
 import { WsServerGateway } from '../ws-server/ws-server.gateway';
+import { AiCdrService } from '../ai-cdr/ai-cdr.service';
 
 interface PlaygroundSession {
     socketId: string;
@@ -25,7 +26,8 @@ export class PlaygroundService implements OnModuleInit {
         private assistantsService: AssistantsService,
         private openAiService: OpenAiService,
         private eventEmitter: EventEmitter2,
-        private wsGateway: WsServerGateway
+        private wsGateway: WsServerGateway,
+        private aiCdrService: AiCdrService
     ) { }
 
     onModuleInit() {
@@ -63,49 +65,79 @@ export class PlaygroundService implements OnModuleInit {
 
             const channelId = `playground-${socketId}`; // Unique ID for OpenAI context
 
+            // ✅ FIX: Normalize assistant data BEFORE creating connection
+            // Extract Sequelize model data if needed
+            const assistantData = assistant.toJSON ? assistant.toJSON() : assistant;
+
+            this.logger.log(`[Init] Playground assistant data: instruction=${!!assistantData.instruction}`);
+            this.logger.log(`[Init] Original audio formats: input=${assistantData.input_audio_format}, output=${assistantData.output_audio_format}`);
+
+            if (!assistantData.instruction) {
+                this.logger.error(`CRITICAL: Assistant ${assistantId} has NO instruction! Keys: ${Object.keys(assistantData).join(', ')}`);
+            }
+
+            // ✅ FIX: Override audio formats for browser compatibility BEFORE connection
+            const playgroundAssistant = {
+                ...assistantData,
+                input_audio_format: 'pcm16',
+                output_audio_format: 'pcm16'
+            } as Assistant;
+
+            this.logger.log(`[Init] Overridden audio formats for playground: input=pcm16, output=pcm16`);
+
             const session: PlaygroundSession = {
                 socketId,
                 channelId,
-                assistant
+                assistant: playgroundAssistant  // ✅ Use normalized assistant
             };
             this.sessions.set(socketId, session);
 
-            // Init OpenAI Connection
-            const openAiConnection = await this.openAiService.createConnection(channelId, assistant);
+            // Init OpenAI Connection with normalized assistant
+            const openAiConnection = await this.openAiService.createConnection(channelId, playgroundAssistant);
             session.openAiConn = openAiConnection;
 
             // Register handlers to receive audio from OpenAI
             this.registerOpenAiHandlers(session);
 
             // Initialize OpenAI Session
-            // IMPORTANT: Override audio formats for playground (browser uses PCM16, not G.711)
-            // We need to properly extract Sequelize model data first
-            const assistantData = assistant.toJSON ? assistant.toJSON() : assistant;
-
-            this.logger.log(`Playground assistant data check: greeting=${!!assistantData.greeting}, instruction=${!!assistantData.instruction}`);
-            if (!assistantData.instruction) {
-                this.logger.error(`CRITICAL: Assistant ${assistantId} has NO instruction in playgroundData! Keys: ${Object.keys(assistantData).join(', ')}`);
-            }
-
+            // Use the same normalized assistant object
             const playgroundSessionData: sessionData = {
                 channelId,
+                callerId: 'playground',
                 address: 'websocket',
                 port: '0',
-                init: 'false',
+                init: 'true',
                 openAiConn: openAiConnection,
-                assistant: {
-                    ...assistantData,
-                    // Override audio formats for browser compatibility
-                    input_audio_format: 'pcm16',
-                    output_audio_format: 'pcm16'
-                } as Assistant
+                assistant: playgroundAssistant  // Same normalized object
             };
 
-            this.logger.log(`Initializing OpenAI session with PCM16 audio format for playground`);
-            await this.openAiService.rtInitAudioResponse(playgroundSessionData);
-            await this.openAiService.updateRtAudioSession(playgroundSessionData);
+            // ✅ FIX: Wait for connection to be OPEN before sending session update
+            this.logger.log(`[Init] Waiting for OpenAI WebSocket connection for ${channelId}...`);
 
-            this.wsGateway.server.to(socketId).emit('playground.ready');
+            const onConnected = async () => {
+                this.logger.log(`[Init] WebSocket connected for ${channelId}, sending configuration...`);
+
+                try {
+                    this.logger.log(`[Init] Calling updateRtAudioSession for ${channelId}`);
+                    await this.openAiService.updateRtAudioSession(playgroundSessionData);
+
+                    this.logger.log(`[Init] Calling rtInitAudioResponse for ${channelId}`);
+                    await this.openAiService.rtInitAudioResponse(playgroundSessionData);
+
+                    this.wsGateway.server.to(socketId).emit('playground.ready');
+                } catch (err) {
+                    this.logger.error(`[Init] Error during session config: ${err.message}`, err.stack);
+                    this.wsGateway.server.to(socketId).emit('playground.error', 'Failed to configure OpenAI session');
+                }
+            };
+
+            // Listen for connected event
+            this.eventEmitter.once(`openai.connected.${channelId}`, onConnected);
+
+            // Fallback/Timeout safety (if connection is already open or event missed)
+            // But since we just created it, it should trigger. 
+            // We can check if it's already open by sending a ping or check internal state if we had access.
+            // For now, let's rely on the event.
 
         } catch (e) {
             this.logger.error(`Error initializing playground: ${e.message}`, e.stack);
@@ -190,6 +222,14 @@ export class PlaygroundService implements OnModuleInit {
         }
         if (session.audioInterruptHandler) {
             this.openAiService.eventEmitter.off(`audioInterrupt.${session.channelId}`, session.audioInterruptHandler);
+        }
+
+        // ✅ Calculate tokens and update balance (CDR Hangup)
+        try {
+            await this.aiCdrService.cdrHangup(session.channelId, session.assistant.id);
+            this.logger.log(`CDR Hangup processed for ${session.channelId}`);
+        } catch (e) {
+            this.logger.error(`Error processing CDR Hangup for ${session.channelId}: ${e.message}`);
         }
 
         await this.openAiService.closeConnection(session.channelId);

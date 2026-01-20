@@ -50,6 +50,7 @@ export class OpenAiConnection {
 
         this.ws.on('open', () => {
             this.logger.log(`WebSocket connection established for ${this.channelId}`);
+            this.eventEmitter.emit(`openai.connected.${this.channelId}`);
         });
 
         this.ws.on('message', (data) => this.handleMessage(data));
@@ -81,6 +82,8 @@ export class OpenAiConnection {
     send(data: any) {
         if (this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify(data));
+        } else {
+            this.logger.warn(`[Connection] Cannot send data, WebSocket state is ${this.ws.readyState} (not OPEN) for ${this.channelId}`);
         }
     }
 

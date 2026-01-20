@@ -5,9 +5,10 @@ import { OpenAiModule } from '../open-ai/open-ai.module';
 import { AssistantsModule } from '../assistants/assistants.module';
 import { AudioModule } from '../audio/audio.module';
 import { WsServerModule } from '../ws-server/ws-server.module';
+import { AiCdrModule } from '../ai-cdr/ai-cdr.module';
 
 @Module({
-    imports: [OpenAiModule, AssistantsModule, AudioModule, WsServerModule],
+    imports: [OpenAiModule, AssistantsModule, AudioModule, WsServerModule, AiCdrModule],
     controllers: [PlaygroundController],
     providers: [PlaygroundService],
     exports: [PlaygroundService]

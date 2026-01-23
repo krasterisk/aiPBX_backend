@@ -5,6 +5,7 @@ import { PaymentsDto } from "./dto/payments.dto";
 import { UsersService } from "../users/users.service";
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
+import { TelegramService } from "../telegram/telegram.service";
 
 @Injectable()
 export class PaymentsService {
@@ -13,7 +14,8 @@ export class PaymentsService {
     constructor(
         @InjectModel(Payments) private paymentsRepository: typeof Payments,
         private readonly usersService: UsersService,
-        private configService: ConfigService
+        private configService: ConfigService,
+        private readonly telegramService: TelegramService
     ) {
         this.stripe = new Stripe(this.configService.get<string>('STRIPE_SECRET_KEY'), {
             apiVersion: '2025-12-15.clover',
@@ -94,12 +96,40 @@ export class PaymentsService {
         return { received: true };
     }
 
+    async getUserPayments(userId: string, page: number = 1, limit: number = 10) {
+        try {
+            const offset = (page - 1) * limit;
+            const payments = await this.paymentsRepository.findAndCountAll({
+                where: { userId },
+                attributes: [
+                    'id',
+                    'amount',
+                    'currency',
+                    'status',
+                    'createdAt',
+                    'paymentMethod',
+                    ['paymentInfo', 'description']
+                ],
+                order: [['createdAt', 'DESC']],
+                limit,
+                offset
+            });
+            return payments;
+        } catch (e) {
+            throw new HttpException('Error fetching payments', HttpStatus.BAD_REQUEST);
+        }
+    }
+
     private async finalizePayment(paymentIntent: Stripe.PaymentIntent) {
         const payment = await this.paymentsRepository.findOne({ where: { stripePaymentIntentId: paymentIntent.id } });
         if (payment && payment.status !== 'succeeded') {
             payment.status = 'succeeded';
             await payment.save();
             await this.usersService.updateUserBalance(payment.userId, payment.amount);
+
+            await this.telegramService.sendMessage(
+                `✅ Payment Successful!\nUser ID: ${payment.userId}\nAmount: ${payment.amount} ${payment.currency.toUpperCase()}\nStatus: ${payment.status}`
+            );
         }
     }
 
@@ -108,6 +138,10 @@ export class PaymentsService {
         if (payment) {
             payment.status = 'failed';
             await payment.save();
+
+            await this.telegramService.sendMessage(
+                `❌ Payment Failed!\nUser ID: ${payment.userId}\nAmount: ${payment.amount} ${payment.currency.toUpperCase()}\nStatus: ${payment.status}`
+            );
         }
     }
 }

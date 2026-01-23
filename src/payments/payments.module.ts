@@ -6,6 +6,7 @@ import { PaymentsService } from "./payments.service";
 import { PaymentsController } from "./payments.controller";
 import { Payments } from "./payments.model";
 import { UsersModule } from "../users/users.module";
+import { TelegramModule } from "../telegram/telegram.module";
 
 @Module({
     providers: [PaymentsService],
@@ -14,7 +15,8 @@ import { UsersModule } from "../users/users.module";
         SequelizeModule.forFeature([Payments]),
         forwardRef(() => AuthModule),
         UsersModule,
-        ConfigModule
+        ConfigModule,
+        TelegramModule
     ],
     exports: [PaymentsService]
 })

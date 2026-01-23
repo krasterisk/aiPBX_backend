@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards, Req, Headers, HttpException, HttpStatus, RawBodyRequest } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards, Req, Headers, HttpException, HttpStatus, RawBodyRequest, Get, Param, Query } from '@nestjs/common';
 import { ApiOperation, ApiResponse } from "@nestjs/swagger";
 import { Payments } from "./payments.model";
 import { PaymentsDto } from "./dto/payments.dto";
@@ -6,11 +6,25 @@ import { PaymentsService } from "./payments.service";
 import { Request } from 'express';
 import { Roles } from 'src/auth/roles-auth.decorator';
 import { RolesGuard } from 'src/auth/roles.guard';
+import { GetPaymentsDto } from './dto/get-payments.dto';
 
 @Controller('payments')
 export class PaymentsController {
 
     constructor(private paymentsService: PaymentsService) { }
+
+    @ApiOperation({ summary: "Get user payment history" })
+    @ApiResponse({ status: 200, type: [Payments] })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get()
+    getUserPayments(@Req() req: any, @Query() query: GetPaymentsDto) {
+        return this.paymentsService.getUserPayments(
+            req.tokenUserId,
+            Number(query.page),
+            Number(query.limit)
+        );
+    }
 
     @ApiOperation({ summary: "Create payment (Manual)" })
     @ApiResponse({ status: 200, type: Payments })
@@ -34,7 +48,6 @@ export class PaymentsController {
         if (!signature) {
             throw new HttpException('Missing stripe-signature header', HttpStatus.BAD_REQUEST);
         }
-        console.log(req.rawBody)
         return this.paymentsService.handleWebhook(signature, req.rawBody);
     }
 

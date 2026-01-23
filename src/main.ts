@@ -8,6 +8,8 @@ async function start() {
     const PORT = process.env.PORT
     const app = await NestFactory.create(AppModule, { rawBody: true })
     app.setGlobalPrefix('api')
+
+
     const config = new DocumentBuilder()
         .setTitle('AI PBX')
         .setDescription('REST API Documentation')

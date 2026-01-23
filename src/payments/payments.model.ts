@@ -25,7 +25,7 @@ export class Payments extends Model<Payments, CreatePayment> {
     @Column({ type: DataType.STRING, allowNull: true })
     paymentMethod: string
     @ApiProperty({ example: 'BankCardAE', description: "Payment Info, Label, etc" })
-    @Column({ type: DataType.INTEGER, allowNull: true })
+    @Column({ type: DataType.STRING, allowNull: true })
     paymentInfo: string
     @ApiProperty({ example: '10', description: "Payment system id" })
     @Column({ type: DataType.INTEGER, allowNull: true })

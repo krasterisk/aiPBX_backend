@@ -1,10 +1,11 @@
-import {forwardRef, Module} from '@nestjs/common';
-import {SequelizeModule} from "@nestjs/sequelize";
-import {AuthModule} from "../auth/auth.module";
-import {PaymentsService} from "./payments.service";
-import {PaymentsController} from "./payments.controller";
-import {Payments} from "./payments.model";
-import {UsersModule} from "../users/users.module";
+import { forwardRef, Module } from '@nestjs/common';
+import { SequelizeModule } from "@nestjs/sequelize";
+import { ConfigModule } from "@nestjs/config";
+import { AuthModule } from "../auth/auth.module";
+import { PaymentsService } from "./payments.service";
+import { PaymentsController } from "./payments.controller";
+import { Payments } from "./payments.model";
+import { UsersModule } from "../users/users.module";
 
 @Module({
     providers: [PaymentsService],
@@ -13,7 +14,8 @@ import {UsersModule} from "../users/users.module";
         SequelizeModule.forFeature([Payments]),
         forwardRef(() => AuthModule),
         UsersModule,
+        ConfigModule
     ],
     exports: [PaymentsService]
 })
-export class PaymentsModule {}
+export class PaymentsModule { }

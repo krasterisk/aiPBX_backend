@@ -449,7 +449,7 @@ export class OpenAiService implements OnModuleInit {
             const connection = session.openAiConn
             const assistant = session.assistant
 
-            // ✅ Detailed diagnostics
+            // Detailed diagnostics
             this.logger.log(`[updateRtAudioSession] Updating session for ${session.channelId}`);
             this.logger.log(`[updateRtAudioSession] Assistant present: ${!!assistant}`);
 
@@ -462,14 +462,14 @@ export class OpenAiService implements OnModuleInit {
             this.logger.log(`[updateRtAudioSession] Assistant type: ${assistant.constructor?.name || 'unknown'}`);
             this.logger.log(`[updateRtAudioSession] Assistant keys: ${Object.keys(assistant).join(', ')}`);
 
-            const customer_phone = session.callerId
+            const customer_phone = session.callerId && session.callerId !== 'Playground'
                 ? 'Customer phone number is ' + session.callerId + '. ' +
                 'Use customer phone if necessary, example, when calling the create order tool.'
                 : ''
 
             // Debug: Check if greeting and instruction exist
-            if (!assistant.greeting || !assistant.instruction) {
-                this.logger.warn(`[updateRtAudioSession] Missing assistant fields: greeting=${!!assistant.greeting}, instruction=${!!assistant.instruction}`);
+            if (!assistant.instruction) {
+                this.logger.warn(`[updateRtAudioSession] Missing assistant fields: instruction=${!!assistant.instruction}`);
                 this.logger.warn(`[updateRtAudioSession] Full assistant object keys: ${Object.keys(assistant).join(', ')}`);
             }
 
@@ -667,7 +667,6 @@ export class OpenAiService implements OnModuleInit {
 
             }
             this.logger.log(`[rtInitAudioResponse] Sending response.create event...`);
-            this.logger.log(event);
             metadata.openAiConn.send(event);
             this.logger.log(`[rtInitAudioResponse] Successfully sent response.create for ${metadata.channelId}`);
             return

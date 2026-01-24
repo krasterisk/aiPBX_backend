@@ -22,6 +22,7 @@ import { ScheduleModule } from "@nestjs/schedule";
 import { CurrencyModule } from "./currency/currency.module";
 import { PbxServersModule } from './pbx-servers/pbx-servers.module';
 import { PlaygroundModule } from "./playground/playground.module";
+import { OrganizationsModule } from "./organizations/organizations.module";
 
 @Module({
     imports: [
@@ -57,7 +58,8 @@ import { PlaygroundModule } from "./playground/playground.module";
         TelegramModule,
         CurrencyModule,
         PbxServersModule,
-        PlaygroundModule
+        PlaygroundModule,
+        OrganizationsModule
     ]
 })
 

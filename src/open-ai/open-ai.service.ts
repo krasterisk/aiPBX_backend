@@ -343,9 +343,6 @@ export class OpenAiService implements OnModuleInit {
                             this.logger.log('Завершаем вызов')
                             this.eventEmitter.emit(`HangupCall.${currentSession.channelId}`)
                         } else {
-
-                            console.log(item, item.name, item.arguments, assistant.name)
-
                             const result = await this.aiToolsHandlersService.functionHandler(item.name, item.arguments, assistant)
                             if (result) {
 

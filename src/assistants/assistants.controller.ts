@@ -90,7 +90,7 @@ export class AssistantsController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Post('generate-prompt')
-    generatePrompt(@Body() dto: { assistantId: string, prompt: string }) {
-        return this.assistantsService.generatePrompt(dto.assistantId, dto.prompt)
+    generatePrompt(@Body('prompt') prompt: string) {
+        return this.assistantsService.generatePrompt(prompt)
     }
 }

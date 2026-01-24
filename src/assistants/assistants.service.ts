@@ -229,12 +229,11 @@ export class AssistantsService {
         }
     }
 
-    async generatePrompt(assistantId: string, prompt: string) {
+    async generatePrompt(prompt: string) {
         try {
-            const assistant = await this.getById(Number(assistantId));
 
-            if (!assistant) {
-                throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND);
+            if (!prompt) {
+                throw new HttpException('Prompt is empty', HttpStatus.BAD_REQUEST);
             }
 
             // Initialize OpenAI client
@@ -243,13 +242,13 @@ export class AssistantsService {
                 apiKey: process.env.OPENAI_API_KEY
             });
 
-            const systemPrompt = `You are an AI assistant that helps generate system prompt for voice bots.
+            const systemPrompt = `You are Prompt Generator that helps generate system prompt for voice bots.
 Based on the user's request, generate system prompt for the bot's behavior
 Return your response in JSON format with one field: "instruction".
 The instruction should be detailed and comprehensive.`;
 
             const response = await openai.chat.completions.create({
-                model: 'gpt-5-mini',
+                model: 'gpt-4.1-mini-2025-04-14',
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: prompt }

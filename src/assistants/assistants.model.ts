@@ -19,7 +19,7 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @Column({ type: DataType.STRING, allowNull: false })
     uniqueId: string;
     @ApiProperty({ example: 'Hello, what can i do for you?', description: "Greeting phrase" })
-    @Column({ type: DataType.TEXT, allowNull: false })
+    @Column({ type: DataType.TEXT, allowNull: true })
     greeting: string
     @ApiProperty({ example: 'GPT-4o', description: "Model name" })
     @Column({ type: DataType.STRING, allowNull: false })

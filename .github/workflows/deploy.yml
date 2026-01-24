@@ -1,25 +1,25 @@
-# name: Deploy aiPBX backend
+name: Deploy aiPBX backend
 
-# on:
-#   push:
-#     branches:
-#       - master
+on:
+  push:
+    branches:
+      - master
 
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-#     steps:
-#       - name: Setup SSH
-#         uses: webfactory/ssh-agent@v0.9.1
-#         with:
-#           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+    steps:
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-#       - name: Deploy to Server
-#         run: |
-#           ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
-#             cd /var/www/aiPBX_backend
-#             git pull
-#             docker compose down
-#             docker compose up --build -d
-#           EOF
+      - name: Deploy to Server
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            cd /var/www/aiPBX_backend
+            git pull
+            # docker compose down
+            # docker compose up --build -d
+          EOF

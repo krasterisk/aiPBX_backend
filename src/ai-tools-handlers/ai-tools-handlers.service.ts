@@ -1,9 +1,9 @@
-import {HttpException, HttpStatus, Inject, Injectable, Logger} from '@nestjs/common';
-import {Assistant} from "../assistants/assistants.model";
-import {AiToolsService} from "../ai-tools/ai-tools.service";
-import {HttpService} from "@nestjs/axios";
-import {firstValueFrom} from "rxjs";
-import {AxiosError} from "axios";
+import { HttpException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { Assistant } from "../assistants/assistants.model";
+import { AiToolsService } from "../ai-tools/ai-tools.service";
+import { HttpService } from "@nestjs/axios";
+import { firstValueFrom } from "rxjs";
+import { AxiosError } from "axios";
 
 @Injectable()
 export class AiToolsHandlersService {
@@ -13,7 +13,7 @@ export class AiToolsHandlersService {
     constructor(
         @Inject(AiToolsService) private readonly aiToolsService: AiToolsService,
         private readonly httpService: HttpService
-    ) {}
+    ) { }
 
     async functionHandler(name: string, rawArguments: string, assistant: Assistant) {
         const tool = await this.aiToolsService.getToolByName(name, assistant.userId);
@@ -29,13 +29,20 @@ export class AiToolsHandlersService {
         } catch (err) {
             return 'Invalid function arguments format';
         }
-        this.logger.log(`Webhook detected: ${tool.webhook}`,JSON.stringify(parsedArgs));
+        this.logger.log(`Webhook detected: ${tool.webhook} [${tool.method || 'GET'}]`, JSON.stringify(parsedArgs));
         try {
+            const method = (tool.method || 'GET').toUpperCase();
+            const config = {
+                headers: {
+                    'Content-Type': 'application/json;charset=utf-8',
+                    ...(tool.headers || {})
+                },
+            };
+
             const response = await firstValueFrom(
-                this.httpService.get(tool.webhook, {
-                    headers: {'Content-Type': 'application/json;charset=utf-8'},
-                    params: parsedArgs,
-                })
+                method === 'POST'
+                    ? this.httpService.post(tool.webhook, parsedArgs, config)
+                    : this.httpService.get(tool.webhook, { ...config, params: parsedArgs })
             );
 
             // Вернём data как string или сериализованный объект

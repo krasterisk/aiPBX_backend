@@ -7,6 +7,7 @@ import { PaymentsController } from "./payments.controller";
 import { Payments } from "./payments.model";
 import { UsersModule } from "../users/users.module";
 import { TelegramModule } from "../telegram/telegram.module";
+import { CurrencyModule } from "../currency/currency.module";
 
 @Module({
     providers: [PaymentsService],
@@ -16,7 +17,8 @@ import { TelegramModule } from "../telegram/telegram.module";
         forwardRef(() => AuthModule),
         UsersModule,
         ConfigModule,
-        TelegramModule
+        TelegramModule,
+        CurrencyModule
     ],
     exports: [PaymentsService]
 })

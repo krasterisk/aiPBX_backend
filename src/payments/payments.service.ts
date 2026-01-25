@@ -7,6 +7,8 @@ import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { TelegramService } from "../telegram/telegram.service";
 
+import { CurrencyService } from "../currency/currency.service";
+
 @Injectable()
 export class PaymentsService {
     private stripe: Stripe;
@@ -15,7 +17,8 @@ export class PaymentsService {
         @InjectModel(Payments) private paymentsRepository: typeof Payments,
         private readonly usersService: UsersService,
         private configService: ConfigService,
-        private readonly telegramService: TelegramService
+        private readonly telegramService: TelegramService,
+        private readonly currencyService: CurrencyService
     ) {
         this.stripe = new Stripe(this.configService.get<string>('STRIPE_SECRET_KEY'), {
             apiVersion: '2025-12-15.clover',
@@ -125,11 +128,20 @@ export class PaymentsService {
         if (payment && payment.status !== 'succeeded') {
             payment.status = 'succeeded';
             await payment.save();
-            await this.usersService.updateUserBalance(payment.userId, payment.amount);
 
-            await this.telegramService.sendMessage(
-                `✅ Payment Successful!\nUser ID: ${payment.userId}\nAmount: ${payment.amount} ${payment.currency.toUpperCase()}\nStatus: ${payment.status}`
-            );
+            let amountToAdd = payment.amount;
+            if (payment.currency.toUpperCase() !== 'USD') {
+                amountToAdd = await this.currencyService.convertToUsd(payment.amount, payment.currency);
+            }
+
+            await this.usersService.updateUserBalance(payment.userId, amountToAdd);
+
+            let message = `✅ Payment Successful!\nUser ID: ${payment.userId}\nAmount: ${payment.amount} ${payment.currency.toUpperCase()}\nStatus: ${payment.status}`;
+            if (payment.currency.toUpperCase() !== 'USD') {
+                message += `\nConverted to: ${amountToAdd} USD`;
+            }
+
+            await this.telegramService.sendMessage(message);
         }
     }
 

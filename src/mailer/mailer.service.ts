@@ -1,4 +1,4 @@
-import {HttpException, HttpStatus, Injectable, Logger} from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
@@ -69,5 +69,60 @@ export class MailerService {
                 </div>
             `,
         });
+    }
+
+    async sendLowBalanceNotification(to: string[], balance: number, limit: number) {
+        if (!to || to.length === 0) return;
+
+        try {
+            await this.transporter.sendMail({
+                from: `"AI PBX" <${process.env.MAIL_USER}>`,
+                to: to.join(', '),
+                subject: 'AI PBX Balance Alert',
+                html: `
+                <body>
+                    <div>
+                        <h2>Balance Alert</h2>
+                        <p>Your balance has dropped below your set limit.</p>
+                        <p><strong>Current Balance: ${balance.toFixed(2)}</strong></p>
+                        <p><strong>Limit Threshold: ${limit.toFixed(2)}</strong></p>
+                        <p>Please top up your account to ensure uninterrupted service.</p>
+                        <br/>
+                        <h5>AI PBX Team</h5>
+                    </div>
+                </body>
+            `,
+            });
+            this.logger.log(`Sent low balance alert to ${to.join(', ')}`);
+        } catch (e) {
+            this.logger.error('Error sending low balance alert', e);
+            // Don't throw, just log. We don't want to break the billing flow if email fails.
+        }
+    }
+    async sendZeroBalanceNotification(to: string[], balance: number) {
+        if (!to || to.length === 0) return;
+
+        try {
+            await this.transporter.sendMail({
+                from: `"AI PBX" <${process.env.MAIL_USER}>`,
+                to: to.join(', '),
+                subject: 'AI PBX Service Suspended',
+                html: `
+                <body>
+                    <div>
+                        <h2>Service Suspended</h2>
+                        <p style="color: red;"><strong>Your balance has reached zero or less. Your service has been suspended.</strong></p>
+                        <p><strong>Current Balance: ${balance.toFixed(2)}</strong></p>
+                        <p>Please top up your account immediately to restore service.</p>
+                        <br/>
+                        <h5>AI PBX Team</h5>
+                    </div>
+                </body>
+            `,
+            });
+            this.logger.log(`Sent zero balance alert to ${to.join(', ')}`);
+        } catch (e) {
+            this.logger.error('Error sending zero balance alert', e);
+        }
     }
 }

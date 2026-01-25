@@ -10,6 +10,9 @@ import { FilesService } from "../files/files.service";
 import { Rates } from "../currency/rates.model";
 import { PricesService } from "../prices/prices.service";
 import { PricesDto } from "../prices/dto/pices.dto";
+import { UserLimits } from "./user-limits.model";
+import { CreateUserLimitDto } from "./dto/create-user-limit.dto";
+import { MailerService } from "../mailer/mailer.service";
 
 @Injectable()
 export class UsersService {
@@ -21,6 +24,8 @@ export class UsersService {
         private fileService: FilesService,
         private roleService: RolesService,
         private priceService: PricesService,
+        @InjectModel(UserLimits) private userLimitsRepository: typeof UserLimits,
+        private mailerService: MailerService
     ) {
     }
 
@@ -296,15 +301,36 @@ export class UsersService {
             this.logger.warn('id or amount not found');
             return false
         }
-        const [affectedRows] = await this.usersRepository.decrement('balance', {
+        const limit = await this.userLimitsRepository.findOne({ where: { userId: id } });
+
+        await this.usersRepository.decrement('balance', {
             by: amountToDec,
             where: { id }
         });
 
-        if (affectedRows.length === 0) {
+
+        const user = await this.usersRepository.findByPk(id, { attributes: ['balance'] });
+
+        if (!user) {
             this.logger.warn('User not found');
             return false
         }
+
+        if (limit && limit.emails && limit.emails.length > 0) {
+            const newBalance = user.balance;
+            const oldBalanceApprox = newBalance + amountToDec;
+
+            // Check if we crossed the threshold downwards
+            if (oldBalanceApprox >= limit.limitAmount && newBalance < limit.limitAmount) {
+                this.mailerService.sendLowBalanceNotification(limit.emails, newBalance, limit.limitAmount);
+            }
+
+            // Check if we crossed zero downwards
+            if (oldBalanceApprox > 0 && newBalance <= 0) {
+                this.mailerService.sendZeroBalanceNotification(limit.emails, newBalance);
+            }
+        }
+
         return true
     }
 
@@ -570,6 +596,46 @@ export class UsersService {
         } catch (e) {
             this.logger.warn("Error get user by TelegramId", e)
             throw new UnauthorizedException({ message: "Authorization Error" });
+        }
+    }
+
+    async setUsageLimit(dto: CreateUserLimitDto) {
+        try {
+            const userId = Number(dto.userId);
+            if (isNaN(userId)) {
+                throw new HttpException("Invalid User ID", HttpStatus.BAD_REQUEST);
+            }
+
+            const existingLimit = await this.userLimitsRepository.findOne({ where: { userId } });
+
+            if (existingLimit) {
+                await existingLimit.update({
+                    limitAmount: dto.limitAmount,
+                    emails: dto.emails
+                });
+                return existingLimit;
+            } else {
+                return await this.userLimitsRepository.create({
+                    userId: userId,
+                    limitAmount: dto.limitAmount,
+                    emails: dto.emails
+                });
+            }
+        } catch (e) {
+            this.logger.error("Error setting usage limit", e);
+            throw new HttpException("Error setting usage limit", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    async getUsageLimit(userId: number) {
+        try {
+            if (isNaN(userId)) {
+                throw new HttpException("Invalid User ID", HttpStatus.BAD_REQUEST);
+            }
+            return await this.userLimitsRepository.findOne({ where: { userId } });
+        } catch (e) {
+            this.logger.error("Error getting usage limit", e);
+            throw new HttpException("Error getting usage limit", HttpStatus.BAD_REQUEST);
         }
     }
 

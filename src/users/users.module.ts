@@ -1,23 +1,26 @@
-import {forwardRef, Module} from '@nestjs/common';
-import {UsersController} from './users.controller';
-import {UsersService} from './users.service';
-import {User} from "./users.model";
-import {SequelizeModule} from "@nestjs/sequelize";
-import {RolesModule} from "../roles/roles.module";
-import {AuthModule} from "../auth/auth.module";
-import {FilesModule} from "../files/files.module";
-import {Rates} from "../currency/rates.model";
-import {PricesModule} from "../prices/prices.module";
+import { forwardRef, Module } from '@nestjs/common';
+import { UsersController } from './users.controller';
+import { UsersService } from './users.service';
+import { User } from "./users.model";
+import { UserLimits } from "./user-limits.model";
+import { SequelizeModule } from "@nestjs/sequelize";
+import { RolesModule } from "../roles/roles.module";
+import { AuthModule } from "../auth/auth.module";
+import { FilesModule } from "../files/files.module";
+import { Rates } from "../currency/rates.model";
+import { PricesModule } from "../prices/prices.module";
+import { MailerModule } from "../mailer/mailer.module";
 
 @Module({
     controllers: [UsersController],
     providers: [UsersService],
     imports: [
-        SequelizeModule.forFeature([User, Rates]),
+        SequelizeModule.forFeature([User, Rates, UserLimits]),
         RolesModule,
         forwardRef(() => AuthModule),
         FilesModule,
-        PricesModule
+        PricesModule,
+        MailerModule
     ],
     exports: [
         UsersService

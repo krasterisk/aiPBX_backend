@@ -6,6 +6,7 @@ import { Assistant } from "../assistants/assistants.model";
 import { AiCdrService } from "../ai-cdr/ai-cdr.service";
 import { AiToolsHandlersService } from "../ai-tools-handlers/ai-tools-handlers.service";
 import { ConfigService } from "@nestjs/config";
+import { UsersService } from "../users/users.service";
 
 export interface sessionData {
     channelId?: string
@@ -36,7 +37,8 @@ export class OpenAiService implements OnModuleInit {
         @Inject(WsServerGateway) private readonly wsGateway: WsServerGateway,
         @Inject(AiCdrService) private readonly aiCdrService: AiCdrService,
         @Inject(AiToolsHandlersService) private readonly aiToolsHandlersService: AiToolsHandlersService,
-        private readonly configService: ConfigService
+        private readonly configService: ConfigService,
+        @Inject(UsersService) private readonly usersService: UsersService
     ) {
         this.API_KEY = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
     }
@@ -47,6 +49,12 @@ export class OpenAiService implements OnModuleInit {
 
         if (session && session.openAiConn) {
             return session.openAiConn
+        }
+
+        const balanceData = await this.usersService.getUserBalance(String(assistant.userId));
+        if (balanceData.balance <= 0) {
+            this.logger.warn(`User ${assistant.userId} has insufficient balance: ${balanceData.balance}. Connection rejected.`);
+            throw new Error(`Insufficient balance: ${balanceData.balance}`);
         }
 
         const connection = new OpenAiConnection(

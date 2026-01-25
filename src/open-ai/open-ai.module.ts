@@ -6,12 +6,14 @@ import { WsServerModule } from "../ws-server/ws-server.module";
 import { AiCdrModule } from "../ai-cdr/ai-cdr.module";
 import { AiToolsHandlersModule } from "../ai-tools-handlers/ai-tools-handlers.module";
 import { ConfigModule } from "@nestjs/config";
+import { UsersModule } from "../users/users.module";
 
 @Module({
   controllers: [OpenAiController],
   providers: [OpenAiService],
   imports: [
     WsServerModule,
+    UsersModule,
     forwardRef(() => AuthModule),
     AiCdrModule,
     AiToolsHandlersModule,

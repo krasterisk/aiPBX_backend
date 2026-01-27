@@ -309,26 +309,28 @@ export class UsersService {
         });
 
 
-        const user = await this.usersRepository.findByPk(id, { attributes: ['balance'] });
+        const user = await this.usersRepository.findByPk(id, { attributes: ['balance', 'email'] });
 
         if (!user) {
             this.logger.warn('User not found');
             return false
         }
 
-        if (limit && limit.emails && limit.emails.length > 0) {
-            const newBalance = user.balance;
-            const oldBalanceApprox = newBalance + amountToDec;
+        const newBalance = user.balance;
+        const oldBalanceApprox = newBalance + amountToDec;
 
+        if (limit && limit.emails && limit.emails.length > 0) {
             // Check if we crossed the threshold downwards
             if (oldBalanceApprox >= limit.limitAmount && newBalance < limit.limitAmount) {
                 this.mailerService.sendLowBalanceNotification(limit.emails, newBalance, limit.limitAmount);
             }
+        }
 
-            // Check if we crossed zero downwards
-            if (oldBalanceApprox > 0 && newBalance <= 0) {
-                this.mailerService.sendZeroBalanceNotification(limit.emails, newBalance);
-            }
+        // Check if we crossed zero downwards
+        if (oldBalanceApprox > 0 && newBalance <= 0) {
+            const limitEmails = limit?.emails || [];
+            const recipients = [...new Set([...limitEmails, user.email])].filter(Boolean);
+            this.mailerService.sendZeroBalanceNotification(recipients, newBalance);
         }
 
         return true

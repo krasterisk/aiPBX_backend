@@ -7,6 +7,7 @@ import { AiCdrService } from "../ai-cdr/ai-cdr.service";
 import { AiToolsHandlersService } from "../ai-tools-handlers/ai-tools-handlers.service";
 import { ConfigService } from "@nestjs/config";
 import { UsersService } from "../users/users.service";
+import { AudioService } from "../audio/audio.service";
 
 export interface sessionData {
     channelId?: string
@@ -38,7 +39,8 @@ export class OpenAiService implements OnModuleInit {
         @Inject(AiCdrService) private readonly aiCdrService: AiCdrService,
         @Inject(AiToolsHandlersService) private readonly aiToolsHandlersService: AiToolsHandlersService,
         private readonly configService: ConfigService,
-        @Inject(UsersService) private readonly usersService: UsersService
+        @Inject(UsersService) private readonly usersService: UsersService,
+        private readonly audioService: AudioService
     ) {
         this.API_KEY = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
     }
@@ -128,15 +130,14 @@ export class OpenAiService implements OnModuleInit {
         // }
     }
 
-    private updateSession(serverEvent: any) {
-        const channelId = serverEvent?.response?.metadata?.channelId;
+    private updateSession(serverEvent: any, channelId?: string) {
+        // const channelId = serverEvent?.response?.metadata?.channelId;
         const responseId = serverEvent?.response?.id || serverEvent?.response_id;
         const itemId = serverEvent?.item?.id
             || serverEvent?.item_id
             || serverEvent?.response?.output[0]?.id
             || serverEvent?.conversation?.item?.id
         const previousItemId = serverEvent?.previous_item_id || serverEvent?.conversation?.previous_item_id
-
 
         if (!channelId && !responseId && !itemId && !previousItemId) return; // Если нет ключевых идентификаторов, выходим
 
@@ -253,7 +254,6 @@ export class OpenAiService implements OnModuleInit {
             serverEvent.type !== "response.audio_transcript.delta"
         ) {
             await this.loggingEvents(channelId, callerId, e, assistant)
-            // console.log(JSON.stringify(Array.from(this.sessions.entries()), null, 2));
         }
 
         if (serverEvent.type === "input_audio_buffer.speech_started") {
@@ -267,12 +267,15 @@ export class OpenAiService implements OnModuleInit {
                 }
 
                 // console.log(currentSession.currentResponseId, cancelEvent)
-                currentSession.openAiConn.send(cancelEvent)
-                this.logger.log(`Canceled OpenAI response ${responseId} for ${channelId}`);
+                if (!assistant?.model?.startsWith('qwen')) {
+                    currentSession.openAiConn.send(cancelEvent)
+                    this.logger.log(`Canceled OpenAI response ${responseId} for ${channelId}`);
+                    this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession)
+                    currentSession.currentResponseId = ''
+                } else {
+                    this.logger.log(`[Qwen] Skipping manual cancel (handled by server VAD) for ${channelId}`);
+                }
 
-                this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession)
-
-                currentSession.currentResponseId = ''
 
                 // this.sessions.set(channelId, {
                 //     ...currentSession,
@@ -287,13 +290,20 @@ export class OpenAiService implements OnModuleInit {
             if (currentSession) {
                 const delta = serverEvent.delta
                 const deltaBuffer = Buffer.from(delta, 'base64')
+
                 const urlData = {
                     channelId: currentSession.channelId,
                     address: currentSession.address,
                     port: Number(currentSession.port)
                 }
 
-                this.eventEmitter.emit(`audioDelta.${currentSession.channelId}`, deltaBuffer, urlData)
+                if (assistant?.model?.startsWith('qwen') && !currentSession.channelId.startsWith('playground-')) {
+                    const pcm16_8k = this.audioService.resampleLinear(deltaBuffer, 24000, 8000);
+                    const outputBuffer = this.audioService.pcm16ToAlaw(pcm16_8k);
+                    this.eventEmitter.emit(`audioDelta.${currentSession.channelId}`, outputBuffer, urlData)
+                } else {
+                    this.eventEmitter.emit(`audioDelta.${currentSession.channelId}`, deltaBuffer, urlData)
+                }
             }
         }
 
@@ -307,7 +317,8 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "response.created") {
-            this.updateSession(serverEvent)
+            this.updateSession(serverEvent, channelId)
+            console.log(serverEvent)
         }
 
         if (serverEvent.type === "response.done") {
@@ -391,9 +402,9 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "input_audio_buffer.committed") {
-            this.updateSession(serverEvent)
+            this.updateSession(serverEvent, channelId)
             // const currentSession = this.getSessionByField('itemIds', serverEvent.previous_item_id)
-            if (currentSession) {
+            if (currentSession && !assistant?.model?.startsWith('qwen')) { // Skip for Qwen
                 const metadata: sessionData = {
                     channelId: currentSession.channelId,
                     address: currentSession.address,
@@ -405,11 +416,11 @@ export class OpenAiService implements OnModuleInit {
 
         if (serverEvent.type === "response.done") {
             // console.log(JSON.stringify(serverEvent))
-            this.updateSession(serverEvent)
+            this.updateSession(serverEvent, channelId)
         }
 
         if (serverEvent.type === "response.output_item.added") {
-            this.updateSession(serverEvent)
+            this.updateSession(serverEvent, channelId)
         }
     }
 
@@ -513,13 +524,14 @@ export class OpenAiService implements OnModuleInit {
                             language: assistant.input_audio_transcription_language
                         })
                     },
+
                     turn_detection: {
                         type: assistant.turn_detection_type,
                         threshold: Number(assistant.turn_detection_threshold),
                         prefix_padding_ms: Number(assistant.turn_detection_prefix_padding_ms),
                         silence_duration_ms: Number(assistant.turn_detection_silence_duration_ms),
-                        create_response: false,
-                        interrupt_response: false,
+                        create_response: assistant.model.startsWith('qwen'),
+                        interrupt_response: assistant.model.startsWith('qwen'),
                         idle_timeout_ms: Number(assistant.idle_timeout_ms) || 10000
                     },
                     temperature: Number(assistant.temperature),
@@ -555,7 +567,7 @@ export class OpenAiService implements OnModuleInit {
     async rtInputAudioAppend(chunk: Buffer, channelId: string) {
         const connection = this.getConnection(channelId);
         if (connection) {
-            // Конвертируем PCM16 в base64
+            // Конвертируем в base64
             const base64Audio = chunk.toString('base64');
             connection.send({
                 event_id: channelId,
@@ -600,9 +612,11 @@ export class OpenAiService implements OnModuleInit {
                     // conversation: "none",
                     modalities: ["text", "audio"],
                     // input,
-                    metadata
+                    instructions: "Please respond to the user audio",
+                    // metadata
                 }
             }
+            this.logger.log(`[rtAudioOutBandResponseCreate] Sending response.create for ${session.channelId}`);
             connection.send(event);
         } else {
             this.logger.error("error sending text. ws is closed")
@@ -664,13 +678,17 @@ export class OpenAiService implements OnModuleInit {
                 type: "response.create",
                 response: {
                     // conversation: 'none',
-                    // modalities: ["text","audio"],
+                    modalities: ["text", "audio"],
                     input: [],
                     // instructions: prompt,
-                    metadata: initOpenAiData,
                 }
 
             }
+
+            // Передаём metadata в openAi
+            // if (!metadata.assistant.model.startsWith('qwen')) {
+            //     event.response['metadata'] = initOpenAiData
+            // }
             this.logger.log(`[rtInitAudioResponse] Sending response.create event...`);
             metadata.openAiConn.send(event);
             this.logger.log(`[rtInitAudioResponse] Successfully sent response.create for ${metadata.channelId}`);

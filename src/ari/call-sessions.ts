@@ -128,6 +128,11 @@ export class CallSession {
 
             // 4. ПРЯМОЕ СОЗДАНИЕ EXTERNAL MEDIA КАНАЛА
             // Asterisk позволяет создать канал сразу с external media
+
+            // Определяем формат в зависимости от требований модели assistant
+            // const isPcm16 = assistant.input_audio_format === 'pcm16';
+            // const format = isPcm16 ? 'slin16' : 'alaw';
+
             this.externalChannel = await this.ariClient.externalMedia(
                 null,
                 this.ariConnection.getAppName(),

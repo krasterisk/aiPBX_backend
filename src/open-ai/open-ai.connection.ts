@@ -5,7 +5,7 @@ import { Logger } from "@nestjs/common";
 
 export class OpenAiConnection {
     private ws: WebSocket;
-    private readonly API_RT_URL = 'wss://api.openai.com/v1/realtime';
+
     private readonly logger = new Logger(OpenAiConnection.name);
 
     constructor(
@@ -18,6 +18,7 @@ export class OpenAiConnection {
     }
 
     private connect() {
+        this.isManualClose = false;
 
         if (!this.assistant) {
             this.logger.error('Error initializing OpenAi Connection. Assistant is not configured');
@@ -30,19 +31,34 @@ export class OpenAiConnection {
         }
 
         let model = this.assistant.model || 'gpt-realtime-mini'
+        let baseUrl = 'wss://api.openai.com/v1/realtime';
+        let apiKey = this.apiKey;
 
-        const api_url = this.API_RT_URL + '?model=' + model
+        if (model.startsWith('gpt')) {
+            baseUrl = process.env.OPENAI_API_URL || 'wss://api.openai.com/v1/realtime';
+            apiKey = process.env.OPENAI_API_KEY || this.apiKey;
+        } else if (model.startsWith('qwen')) {
+            baseUrl = process.env.QWEN_API_URL;
+            apiKey = process.env.QWEN_API_KEY;
+        }
 
-        this.logger.log(`Connecting to OpenAI Realtime API: URL=${api_url} Model=${model}`);
-        if (!this.apiKey) {
+        if (!baseUrl) {
+            this.logger.error(`Error initializing Connection. Base URL missing for model: ${model}`);
+            return;
+        }
+
+        const api_url = baseUrl + '?model=' + model
+
+        this.logger.log(`Connecting to API: URL=${api_url} Model=${model}`);
+        if (!apiKey) {
             this.logger.error('API Key is missing/empty!');
         } else {
-            this.logger.log(`API Key prefix: ${this.apiKey.substring(0, 7)}...`);
+            this.logger.log(`API Key prefix: ${apiKey.substring(0, 7)}...`);
         }
 
         this.ws = new WebSocket(api_url, {
             headers: {
-                Authorization: `Bearer ${this.apiKey}`,
+                Authorization: `Bearer ${apiKey}`,
                 "OpenAI-Beta": "realtime=v1",
             }
         });
@@ -75,21 +91,35 @@ export class OpenAiConnection {
         this.logger.error(`Assistant ${this.assistant.name} Connection Error (${this.channelId}):`, error);
     }
 
-    private handleClose() {
-        this.logger.log(`Assistant ${this.assistant.name} Connection Closed (${this.channelId})`);
-        this.eventEmitter.removeAllListeners(`openai.${this.channelId}`);
-    }
+    private isManualClose = false;
+
     send(data: any) {
-        if (this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify(data));
+        if (!this.ws || this.ws.readyState === WebSocket.CLOSED || this.ws.readyState === WebSocket.CLOSING) {
+            this.logger.warn(`[Connection] WebSocket closed/closing (state: ${this.ws?.readyState}). Reconnecting for ${this.channelId}...`);
+            this.connect();
+            this.ws.once('open', () => {
+                this.ws.send(JSON.stringify(data));
+            });
+        } else if (this.ws.readyState === WebSocket.CONNECTING) {
+            this.ws.once('open', () => {
+                this.ws.send(JSON.stringify(data));
+            });
         } else {
-            this.logger.warn(`[Connection] Cannot send data, WebSocket state is ${this.ws.readyState} (not OPEN) for ${this.channelId}`);
+            this.ws.send(JSON.stringify(data));
         }
     }
 
     close() {
+        this.isManualClose = true;
         if (this.ws) {
             this.ws.close();
+        }
+    }
+
+    private handleClose() {
+        this.logger.log(`Assistant ${this.assistant.name} Connection Closed (${this.channelId})`);
+        if (this.isManualClose) {
+            this.eventEmitter.removeAllListeners(`openai.${this.channelId}`);
         }
     }
 }

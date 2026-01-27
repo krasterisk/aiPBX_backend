@@ -1,4 +1,4 @@
-import {Injectable, Logger} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as wav from 'wav';
 import { alaw } from 'x-law';
 import * as fs from "fs";
@@ -19,128 +19,156 @@ export class AudioService {
 
     private logger = new Logger(AudioService.name);
 
-    public createWavWriteStream(filePath: string, options: WriteToWavOptions = {}): wav.FileWriter {
-        const { sampleRate = 8000, channels = 1, bitDepth = 16 } = options;
 
-        return new wav.FileWriter(filePath, {
-            sampleRate,
-            channels,
-            bitDepth,
-        });
-    }
+    /**
+     * Удаляет 12-байтовый RTP header
+     * swap16 = true ТОЛЬКО для PCM16 / PCM24 (RTP big-endian)
+     */
+    public removeRTPHeader(payload: Buffer, swap16: boolean = false): Buffer {
+        const audio = payload.subarray(12);
 
-    public writeChunkToStream(stream: wav.FileWriter, alawBuffer: Buffer): void {
-        try {
-            const pcmArray = alaw.decode(alawBuffer);
-            const pcmBuffer = Buffer.from(pcmArray.buffer);
-            stream.write(pcmBuffer);
-        } catch (err) {
-            this.logger.error('Failed to write audio chunk to stream:', err);
+        if (swap16) {
+            audio.swap16();
         }
+
+        return audio;
     }
 
-    //mix in\out wav files
-    public async mixWavFiles(inputPath1: string, inputPath2: string, outputPath: string): Promise<void> {
-        return new Promise((resolve, reject) => {
+    /**
+     * G.711 A-law (PCMA) → PCM16 (LE)
+     * 8kHz → 8kHz
+     */
+    public alawToPcm16(input: Buffer): Buffer {
+        const output = Buffer.alloc(input.length * 2);
 
-            this.logger.log(`Mixed files:  ${inputPath1} and ${inputPath2}`);
+        for (let i = 0; i < input.length; i++) {
+            output.writeInt16LE(this.decodeAlaw(input[i]), i * 2);
+        }
 
-            const reader1 = new wav.Reader();
-            const reader2 = new wav.Reader();
-
-            const fileStream1 = fs.createReadStream(inputPath1);
-            const fileStream2 = fs.createReadStream(inputPath2);
-
-            let headerInfo: wav.Format;
-            const buffer1: Buffer[] = [];
-            const buffer2: Buffer[] = [];
-
-            reader1.on('format', (format) => {
-                headerInfo = format;
-            });
-
-            reader1.on('data', (chunk) => buffer1.push(chunk));
-            reader2.on('data', (chunk) => buffer2.push(chunk));
-
-            let done = 0;
-            const finish = () => {
-                if (++done < 2) return;
-
-                const audio1 = Buffer.concat(buffer1);
-                const audio2 = Buffer.concat(buffer2);
-
-                if (!headerInfo) {
-                    return reject(new Error('No WAV format header info found'));
-                }
-
-                // === added silence to audio1 ===
-                // const silenceDurationSec = 1;
-                // const bytesPerSample = headerInfo.bitDepth / 8;
-                // const silenceSamples = headerInfo.sampleRate * silenceDurationSec * bytesPerSample;
-                // const silenceBuffer = Buffer.alloc(silenceSamples, 0); // zero = silence
-                // const paddedAudio1 = Buffer.concat([silenceBuffer, audio1]);
-
-                const minLength = Math.min(audio1.length, audio2.length);
-                const interleaved = Buffer.alloc(minLength * 2);
-
-                for (let i = 0; i < minLength; i += 2) {
-                    // Left channel (audio1)
-                    interleaved.writeInt16LE(audio1.readInt16LE(i), i * 2);
-                    // Right channel (audio2)
-                    interleaved.writeInt16LE(audio2.readInt16LE(i), i * 2 + 2);
-                }
-
-                const writer = new wav.FileWriter(outputPath, {
-                    channels: 2,
-                    sampleRate: headerInfo.sampleRate,
-                    bitDepth: 16
-                });
-
-                writer.write(interleaved);
-                writer.end(() => {
-                    this.logger.log(`Mixed file written to ${outputPath}`);
-                    resolve();
-                });
-            };
-
-            reader1.on('end', finish);
-            reader2.on('end', finish);
-
-            reader1.on('error', reject);
-            reader2.on('error', reject);
-
-            fileStream1.pipe(reader1);
-            fileStream2.pipe(reader2);
-        });
+        return output;
     }
 
+    private decodeAlaw(a: number): number {
+        a ^= 0x55;
+        let t = (a & 0x0f) << 4;
+        const seg = (a & 0x70) >> 4;
 
-    public resamplePCM(
-        inputBuffer: Buffer,
-        originalSampleRate: number,
-        targetSampleRate: number,
-        options: ResampleOptions = {},
+        if (seg === 0) {
+            t += 8;
+        } else if (seg === 1) {
+            t += 0x108;
+        } else {
+            t += 0x108;
+            t <<= seg - 1;
+        }
+
+        return (a & 0x80) ? t : -t;
+    }
+
+    /**
+     * PCM16 (LE) → G.711 A-law (PCMA)
+     * 8kHz ← 8kHz
+     */
+    public pcm16ToAlaw(input: Buffer): Buffer {
+        const output = Buffer.alloc(input.length / 2);
+
+        for (let i = 0; i < output.length; i++) {
+            const sample = input.readInt16LE(i * 2);
+            output[i] = this.encodeAlaw(sample);
+        }
+
+        return output;
+    }
+
+    private encodeAlaw(sample: number): number {
+        let sign = (sample >> 8) & 0x80;
+        if (sign) sample = -sample;
+        if (sample > 32635) sample = 32635;
+
+        let exponent = 7;
+        for (let expMask = 0x4000; (sample & expMask) === 0 && exponent > 0; expMask >>= 1) {
+            exponent--;
+        }
+
+        let mantissa = (sample >> ((exponent === 0) ? 4 : (exponent + 3))) & 0x0f;
+
+        return (sign | (exponent << 4) | mantissa) ^ 0x55;
+    }
+
+    /**
+     * PCM24 → PCM16
+     * endian: 'le' | 'be'
+     */
+    public pcm24ToPcm16(
+        input: Buffer,
+        endian: 'le' | 'be',
+        gain: number = 1.0
     ): Buffer {
-        const { bitDepth = 16, numChannels = 1 } = options;
+        const samples = Math.floor(input.length / 3);
+        const output = Buffer.alloc(samples * 2);
 
-        const samples = this.readSamples(inputBuffer, bitDepth);
-        const channels = this.separateChannels(samples, numChannels);
-        const ratio = targetSampleRate / originalSampleRate;
+        for (let i = 0; i < samples; i++) {
+            const o = i * 3;
 
-        const resampledChannels = channels.map(channel =>
-            this.resampleChannel(channel, ratio)
-        );
+            let s =
+                endian === 'le'
+                    ? (input[o] | (input[o + 1] << 8) | (input[o + 2] << 16))
+                    : (input[o + 2] | (input[o + 1] << 8) | (input[o] << 16));
 
-        const interleaved = this.interleaveChannels(resampledChannels);
-        return this.writeSamples(interleaved, bitDepth);
+            // sign extend
+            if (s & 0x800000) s |= 0xff000000;
+
+            // normalize to [-1..1]
+            let v = (s / 8388608) * gain;
+
+            // clamp
+            v = Math.max(-1, Math.min(1, v));
+
+            // float → pcm16
+            output.writeInt16LE(Math.round(v * 32767), i * 2);
+        }
+
+        return output;
+    }
+
+    /**
+     * Линейный ресемплинг PCM16 (LE)
+     * Работает для 8k ↔ 16k ↔ 24k
+     */
+    public resampleLinear(
+        input: Buffer,
+        inRate: number,
+        outRate: number
+    ): Buffer {
+        if (inRate === outRate) {
+            return input;
+        }
+
+        const samples = input.length / 2;
+        const outSamples = Math.floor(samples * outRate / inRate);
+        const output = Buffer.alloc(outSamples * 2);
+
+        for (let i = 0; i < outSamples; i++) {
+            const t = i * inRate / outRate;
+            const i0 = Math.floor(t);
+            const i1 = Math.min(i0 + 1, samples - 1);
+            const frac = t - i0;
+
+            const s0 = input.readInt16LE(i0 * 2);
+            const s1 = input.readInt16LE(i1 * 2);
+
+            const sample = s0 + frac * (s1 - s0);
+            output.writeInt16LE(sample | 0, i * 2);
+        }
+
+        return output;
     }
 
     public resampleLinearPcmData(inputBuffer, inputSampleRate, outputSampleRate, inputBitDepth = 16, outputBitDepth = 16) {
         // Ensure buffer length is a multiple of the byte size per sample
         if (inputBuffer.length % (inputBitDepth / 8) !== 0) {
             console.warn(
-                `Input buffer length (${inputBuffer.length}) is not a multiple of ${
-                    inputBitDepth / 8
+                `Input buffer length (${inputBuffer.length}) is not a multiple of ${inputBitDepth / 8
                 }. Padding with zero bytes.`
             );
             inputBuffer = Buffer.concat([inputBuffer, Buffer.alloc(1, 0)]);
@@ -189,142 +217,4 @@ export class AudioService {
 
         return outputBuffer;
     }
-
-    private readSamples(buffer: Buffer, bitDepth: number): number[] {
-        const bytesPerSample = bitDepth / 8;
-        const numSamples = buffer.length / bytesPerSample;
-        const samples = new Array(numSamples);
-
-        for (let i = 0; i < numSamples; i++) {
-            const offset = i * bytesPerSample;
-            switch (bitDepth) {
-                case 8:
-                    samples[i] = buffer.readUInt8(offset) - 128;
-                    break;
-                case 16:
-                    samples[i] = buffer.readInt16LE(offset);
-                    break;
-                case 32:
-                    samples[i] = buffer.readInt32LE(offset);
-                    break;
-                default:
-                    throw new Error(`Unsupported bit depth: ${bitDepth}`);
-            }
-        }
-        return samples;
-    }
-
-    private separateChannels(samples: number[], numChannels: number): number[][] {
-        const channels = Array.from({ length: numChannels }, () => []);
-        for (let i = 0; i < samples.length; i++) {
-            channels[i % numChannels].push(samples[i]);
-        }
-        return channels;
-    }
-
-    private resampleChannel(input: number[], ratio: number): number[] {
-        const outputLength = Math.round(input.length * ratio);
-        const output = new Array(outputLength);
-
-        for (let j = 0; j < outputLength; j++) {
-            const x = j / ratio;
-            const k = Math.floor(x);
-            const delta = x - k;
-
-            const idx0 = this.clamp(k - 1, input.length);
-            const idx1 = this.clamp(k, input.length);
-            const idx2 = this.clamp(k + 1, input.length);
-            const idx3 = this.clamp(k + 2, input.length);
-
-            output[j] = this.cubicInterpolate(
-                input[idx0],
-                input[idx1],
-                input[idx2],
-                input[idx3],
-                delta
-            );
-        }
-        return output;
-    }
-
-    private clamp(index: number, length: number): number {
-        return Math.max(0, Math.min(length - 1, index));
-    }
-
-    private cubicInterpolate(y0: number, y1: number, y2: number, y3: number, t: number): number {
-        const a = -y0 + 3*y1 - 3*y2 + y3;
-        const b = 2*y0 - 5*y1 + 4*y2 - y3;
-        const c = -y0 + y2;
-        const d = 2*y1;
-        return 0.5 * (a*t**3 + b*t**2 + c*t + d);
-    }
-
-    private interleaveChannels(channels: number[][]): number[] {
-        const numChannels = channels.length;
-        const length = channels[0].length;
-        const result = new Array(numChannels * length);
-
-        for (let i = 0; i < length; i++) {
-            for (let c = 0; c < numChannels; c++) {
-                result[i*numChannels + c] = channels[c][i];
-            }
-        }
-        return result;
-    }
-
-    private writeSamples(samples: number[], bitDepth: number): Buffer {
-        const bytesPerSample = bitDepth / 8;
-        const buffer = Buffer.alloc(samples.length * bytesPerSample);
-
-        for (let i = 0; i < samples.length; i++) {
-            let val = samples[i];
-            const offset = i * bytesPerSample;
-
-            switch (bitDepth) {
-                case 8:
-                    val = Math.max(-128, Math.min(127, Math.round(val))) + 128;
-                    buffer.writeUInt8(val, offset);
-                    break;
-                case 16:
-                    val = Math.max(-32768, Math.min(32767, Math.round(val)));
-                    buffer.writeInt16LE(val, offset);
-                    break;
-                case 32:
-                    val = Math.max(-2147483648, Math.min(2147483647, Math.round(val)));
-                    buffer.writeInt32LE(val, offset);
-                    break;
-            }
-        }
-        return buffer;
-    }
-
-    public buildRTPPacket(payload: Buffer,
-                   seq: number,
-                   timestamp: number,
-                   ssrc: number,
-                   payloadType: number
-    ) {
-        const header = Buffer.alloc(12);
-        header.writeUInt8(0x80, 0); // Version(2), Padding(0), Extension(0), CC(0)
-        header.writeUInt8(payloadType, 1);
-        header.writeUInt16BE(seq, 2); // Sequence Number
-        header.writeUInt32BE(timestamp, 4); // Timestamp
-        header.writeUInt32BE(ssrc, 8); // SSRC (идентификатор потока)
-        return Buffer.concat([header, payload]);
-    }
-
-    public removeRTPHeader(payload: Buffer, swap16: boolean = true) {
-
-        const buf: Buffer = payload.subarray(12); // Убираем 12-байтовый RTP-заголовок
-
-        //Меняет порядок байтов (swap16), если это необходимо.
-        if (swap16) {
-            buf.swap16()
-        }
-
-        return buf;
-    }
-
-
-
 }

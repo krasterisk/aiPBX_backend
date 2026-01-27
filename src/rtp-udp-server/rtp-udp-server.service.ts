@@ -6,7 +6,6 @@ import * as path from 'path';
 import { AudioService } from "../audio/audio.service";
 import { OpenAiConnection } from "../open-ai/open-ai.connection";
 import { Assistant } from "../assistants/assistants.model";
-import { FileWriter } from 'wav'
 
 interface requestData {
     channelId?: string,
@@ -65,8 +64,15 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             }
 
             try {
-                const audioChunk = this.audioService.removeRTPHeader(msg, false)
-                this.server.emit('data', audioChunk, currentSession.channelId);
+                const audioChunk = this.audioService.removeRTPHeader(msg, false);
+
+                if (currentSession?.assistant?.model?.startsWith('qwen') && !currentSession.channelId.startsWith('playground-')) {
+                    const pcm16_8k = this.audioService.alawToPcm16(audioChunk);
+                    const pcm16_16k = this.audioService.resampleLinear(pcm16_8k, 8000, 16000);
+                    this.server.emit('data', pcm16_16k, currentSession.channelId);
+                } else {
+                    this.server.emit('data', audioChunk, currentSession.channelId);
+                }
             } catch (error) {
                 this.logger.error(`Error processing RTP packet: ${error}`);
             }

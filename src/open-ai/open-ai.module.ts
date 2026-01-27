@@ -7,6 +7,7 @@ import { AiCdrModule } from "../ai-cdr/ai-cdr.module";
 import { AiToolsHandlersModule } from "../ai-tools-handlers/ai-tools-handlers.module";
 import { ConfigModule } from "@nestjs/config";
 import { UsersModule } from "../users/users.module";
+import { AudioModule } from "../audio/audio.module";
 
 @Module({
   controllers: [OpenAiController],
@@ -18,6 +19,7 @@ import { UsersModule } from "../users/users.module";
     AiCdrModule,
     AiToolsHandlersModule,
     ConfigModule,
+    AudioModule
   ],
   exports: [OpenAiService]
 })

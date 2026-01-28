@@ -199,7 +199,7 @@ export class OpenAiService implements OnModuleInit {
         });
     }
 
-    private async cdrCreateLog(channelId: string, callerId: string, assistant?: Assistant) {
+    public async cdrCreateLog(channelId: string, callerId: string, assistant?: Assistant) {
         try {
             if (channelId) {
                 await this.aiCdrService.cdrCreate({

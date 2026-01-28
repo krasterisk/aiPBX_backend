@@ -23,6 +23,8 @@ import { CurrencyModule } from "./currency/currency.module";
 import { PbxServersModule } from './pbx-servers/pbx-servers.module';
 import { PlaygroundModule } from "./playground/playground.module";
 import { OrganizationsModule } from "./organizations/organizations.module";
+import { WidgetKeysModule } from './widget-keys/widget-keys.module';
+import { WidgetModule } from './widget/widget.module';
 
 @Module({
     imports: [
@@ -59,7 +61,9 @@ import { OrganizationsModule } from "./organizations/organizations.module";
         CurrencyModule,
         PbxServersModule,
         PlaygroundModule,
-        OrganizationsModule
+        OrganizationsModule,
+        WidgetKeysModule,
+        WidgetModule
     ]
 })
 

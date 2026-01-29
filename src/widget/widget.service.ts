@@ -77,8 +77,11 @@ export class WidgetService {
                 {
                     association: 'widgetKey',
                     include: [
-                        { association: 'assistant' },
-                        { association: 'user' },
+                        {
+                            association: 'assistant',
+                            include: [{ association: 'user' }] // Load User inside Assistant
+                        },
+                        { association: 'user' }, // Load User for WidgetKey (owner)
                     ],
                 },
             ],

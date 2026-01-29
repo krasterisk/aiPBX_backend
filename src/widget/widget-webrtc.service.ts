@@ -110,11 +110,11 @@ export class WidgetWebRTCService {
         // Initialize OpenAI connection
         const channelId = `widget_${session.sessionId}`;
 
-        // Register event handlers BEFORE creating connection
-        this.registerOpenAiHandlers(peerSession, channelId, assistant);
-
-        await this.initializeOpenAI(session.sessionId, channelId, assistant);
+        const openAiConn = await this.initializeOpenAI(session.sessionId, channelId, assistant);
         peerSession.openAiChannelId = channelId;
+
+        // Register event handlers
+        this.registerOpenAiHandlers(peerSession, channelId, assistant, openAiConn);
 
         this.logger.log(`Created WebRTC answer for session ${session.sessionId}`);
 
@@ -124,7 +124,7 @@ export class WidgetWebRTCService {
         };
     }
 
-    private registerOpenAiHandlers(peerSession: WidgetPeerSession, channelId: string, assistant: Assistant) {
+    private registerOpenAiHandlers(peerSession: WidgetPeerSession, channelId: string, assistant: Assistant, openAiConn: any) {
         const sessionId = peerSession.sessionId;
 
         // Handler for all OpenAI events
@@ -147,7 +147,8 @@ export class WidgetWebRTCService {
                 address: 'webrtc',
                 port: '0',
                 init: 'true',
-                assistant
+                assistant,
+                openAiConn // Pass connection explicitly
             };
 
             try {
@@ -242,15 +243,16 @@ export class WidgetWebRTCService {
         });
     }
 
-    private async initializeOpenAI(sessionId: string, channelId: string, assistant: any): Promise<void> {
+    private async initializeOpenAI(sessionId: string, channelId: string, assistant: any): Promise<any> {
         try {
             // Create OpenAI connection
-            await this.openAiService.createConnection(channelId, assistant);
+            const connection = await this.openAiService.createConnection(channelId, assistant);
 
-            // Create CDR log
-            await this.openAiService.cdrCreateLog(channelId, 'widget', assistant);
+            // Manual CDR creation removed - handled by session.created event
+            // await this.openAiService.cdrCreateLog(channelId, 'widget', assistant);
 
             this.logger.log(`Initialized OpenAI for widget session ${sessionId}, channel ${channelId}`);
+            return connection;
         } catch (error) {
             this.logger.error(`Failed to initialize OpenAI for session ${sessionId}: ${error.message}`);
             throw error;

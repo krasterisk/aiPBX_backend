@@ -64,6 +64,17 @@ export class UpdateWidgetKeyDto {
     maxConcurrentSessions?: number;
 
     @ApiProperty({
+        example: 600,
+        description: 'Maximum session duration in seconds (60-3600)',
+        required: false
+    })
+    @IsOptional()
+    @IsNumber()
+    @Min(60)
+    @Max(3600)
+    maxSessionDuration?: number;
+
+    @ApiProperty({
         example: true,
         description: 'Is widget key active',
         required: false

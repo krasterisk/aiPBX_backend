@@ -10,6 +10,7 @@ interface WidgetKeyCreationAttrs {
     assistantId: number;
     allowedDomains: string;
     maxConcurrentSessions?: number;
+    maxSessionDuration?: number; // In seconds
     isActive?: boolean;
 }
 
@@ -43,6 +44,10 @@ export class WidgetKey extends Model<WidgetKey, WidgetKeyCreationAttrs> {
     @ApiProperty({ example: 10, description: "Maximum concurrent sessions" })
     @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 10 })
     maxConcurrentSessions: number;
+
+    @ApiProperty({ example: 600, description: "Maximum session duration in seconds" })
+    @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 600 })
+    maxSessionDuration: number;
 
     @ApiProperty({ example: true, description: "Is key active" })
     @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })

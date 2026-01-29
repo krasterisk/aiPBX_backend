@@ -64,9 +64,20 @@ export class CreateWidgetKeyDto {
         required: false,
         default: 10
     })
-    @IsOptional()
     @IsNumber()
     @Min(1)
     @Max(100)
     maxConcurrentSessions?: number;
+
+    @ApiProperty({
+        example: 600,
+        description: 'Maximum session duration in seconds (60-3600)',
+        required: false,
+        default: 600
+    })
+    @IsOptional()
+    @IsNumber()
+    @Min(60)
+    @Max(3600)
+    maxSessionDuration?: number;
 }

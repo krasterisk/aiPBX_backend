@@ -101,25 +101,34 @@ export class WidgetService {
     }
 
     async cleanupExpiredSessions(): Promise<void> {
-        // Find sessions active for more than 1 hour
-        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-
+        // Find active sessions that have exceeded their WidgetKey's maxSessionDuration
         const expiredSessions = await this.widgetSessionModel.findAll({
             where: {
                 isActive: true,
-                startedAt: { [Op.lt]: oneHourAgo },
             },
+            include: [{
+                association: 'widgetKey',
+            }],
         });
 
+        const now = new Date();
+        let cleanupCount = 0;
+
         for (const session of expiredSessions) {
-            await session.update({
-                endedAt: new Date(),
-                isActive: false,
-            });
+            const maxDuration = session.widgetKey?.maxSessionDuration || 600; // default 10 min
+            const expireTime = new Date(session.startedAt.getTime() + maxDuration * 1000);
+
+            if (now > expireTime) {
+                await session.update({
+                    endedAt: now,
+                    isActive: false,
+                });
+                cleanupCount++;
+            }
         }
 
-        if (expiredSessions.length > 0) {
-            this.logger.log(`Cleaned up ${expiredSessions.length} expired widget sessions`);
+        if (cleanupCount > 0) {
+            this.logger.log(`Cleaned up ${cleanupCount} expired widget sessions from database`);
         }
     }
 }

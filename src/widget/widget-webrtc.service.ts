@@ -1,4 +1,4 @@
-import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStream, RTCRtpReceiver, MediaStreamTrack } from 'werift';
+import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStream, RTCRtpReceiver, MediaStreamTrack, RtpPacket, RtpHeader } from 'werift';
 import { WidgetService } from './widget.service';
 import { OpenAiService, sessionData } from '../open-ai/open-ai.service';
 import { AiCdrService } from '../ai-cdr/ai-cdr.service';
@@ -18,6 +18,8 @@ interface WidgetPeerSession {
     outgoingTrack?: MediaStreamTrack;
     createdAt: number;
     maxDuration: number; // In seconds
+    sequenceNumber: number;
+    timestamp: number;
 }
 
 @Injectable()
@@ -78,6 +80,8 @@ export class WidgetWebRTCService {
             outgoingTrack,
             createdAt: Date.now(),
             maxDuration: widgetKey.maxSessionDuration || 600,
+            sequenceNumber: 0,
+            timestamp: 0,
         };
         this.peers.set(session.sessionId, peerSession);
 
@@ -141,13 +145,20 @@ export class WidgetWebRTCService {
         this.eventEmitter.once(`openai.connected.${channelId}`, async () => {
             this.logger.log(`OpenAI connection ready for widget session ${sessionId}, initializing session settings...`);
 
+            // Override to G.711 A-law for WebRTC compatibility (PCMA, Payload Type 8)
+            const webRtcAssistant = {
+                ...assistant,
+                input_audio_format: 'g711_alaw',
+                output_audio_format: 'g711_alaw'
+            };
+
             const sData: sessionData = {
                 channelId,
                 callerId: 'Widget-WebRTC',
                 address: 'webrtc',
                 port: '0',
                 init: 'true',
-                assistant,
+                assistant: webRtcAssistant as any,
                 openAiConn // Pass connection explicitly
             };
 
@@ -267,14 +278,39 @@ export class WidgetWebRTCService {
         }
 
         try {
-            // Forward audio to WebRTC track
-            // Note: This requires the audio to be encoded to RTP.
-            // Werift's MediaStreamTrack.writeRtp() or similar method should be used.
+            // OpenAI sends audio in large chunks (e.g. 3200 bytes = 400ms of G.711)
+            // We need to split this into smaller RTP packets (e.g. 20ms = 160 bytes for 8kHz G.711)
+            // Or 40ms = 320 bytes (some systems prefer > 20ms)
+            const PROPER_PACKET_SIZE = 320; // 40ms at 8000Hz (1 byte per sample for G.711)
 
-            this.logger.debug(`Sending ${audioData.length} bytes to WebRTC track for session ${sessionId}`);
+            for (let i = 0; i < audioData.length; i += PROPER_PACKET_SIZE) {
+                const chunk = audioData.subarray(i, i + PROPER_PACKET_SIZE);
 
-            // For now, we are just logging that we received the audio to send.
-            // Full RTP packetization/encoding should be implemented here.
+                // For G.711 we can send any size, but standardization is better.
+                if (chunk.length === 0) continue;
+
+                const rtpPacket = new RtpPacket(
+                    new RtpHeader({
+                        version: 2,
+                        padding: false,
+                        extension: false,
+                        marker: false,
+                        payloadType: 8, // PCMA (G.711 A-law)
+                        sequenceNumber: peerSession.sequenceNumber,
+                        timestamp: peerSession.timestamp,
+                        ssrc: peerSession.outgoingTrack.ssrc || 12345,
+                    }),
+                    chunk
+                );
+
+                peerSession.outgoingTrack.writeRtp(rtpPacket);
+
+                peerSession.sequenceNumber = (peerSession.sequenceNumber + 1) % 65536;
+                peerSession.timestamp = (peerSession.timestamp + chunk.length) % 4294967296;
+            }
+
+            // this.logger.debug(`Sent ${Math.ceil(audioData.length / PROPER_PACKET_SIZE)} RTP packets to session ${sessionId}`);
+
         } catch (error) {
             this.logger.error(`Error sending audio to widget ${sessionId}: ${error.message}`);
         }

@@ -22,15 +22,34 @@ export class UpdateWidgetKeyDto {
     @Transform(({ value }) => {
         if (typeof value === 'string') {
             try {
-                return JSON.parse(value);
+                // Try to parse as JSON first
+                const parsed = JSON.parse(value);
+                // If result is array, flatten any comma-separated values
+                if (Array.isArray(parsed)) {
+                    return parsed.flatMap(item =>
+                        typeof item === 'string'
+                            ? item.split(',').map(d => d.trim()).filter(d => d.length > 0)
+                            : item
+                    );
+                }
+                return parsed;
             } catch {
-                return value;
+                // If not JSON, treat as comma-separated string
+                return value.split(',').map(d => d.trim()).filter(d => d.length > 0);
             }
+        }
+        // If already array, flatten any comma-separated values
+        if (Array.isArray(value)) {
+            return value.flatMap(item =>
+                typeof item === 'string'
+                    ? item.split(',').map(d => d.trim()).filter(d => d.length > 0)
+                    : item
+            );
         }
         return value;
     })
     @IsArray()
-    @IsFQDN({}, { each: true })
+    @IsFQDN({ require_tld: false }, { each: true })
     allowedDomains?: string[];
 
     @ApiProperty({

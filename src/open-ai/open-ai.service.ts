@@ -250,6 +250,10 @@ export class OpenAiService implements OnModuleInit {
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
         const currentSession = this.sessions.get(channelId)
 
+        if (serverEvent.type === "session.created") {
+            this.logger.log(`Session created`)
+            this.logger.log(serverEvent)
+        }
         if (serverEvent.type !== "response.audio.delta" &&
             serverEvent.type !== "response.audio_transcript.delta"
         ) {

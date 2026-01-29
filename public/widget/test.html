@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Voice Widget - Test Page</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      padding: 40px;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      max-width: 600px;
+      width: 100%;
+    }
+
+    h1 {
+      color: #2d3748;
+      margin-bottom: 16px;
+    }
+
+    p {
+      color: #4a5568;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+
+    .test-controls {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.2s;
+      flex: 1;
+      min-width: 120px;
+    }
+
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #5568d3;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: #e2e8f0;
+      color: #2d3748;
+    }
+
+    .btn-secondary:hover {
+      background: #cbd5e0;
+    }
+
+    .info-box {
+      background: #f7fafc;
+      padding: 16px;
+      border-radius: 8px;
+      margin-top: 24px;
+      border-left: 4px solid #667eea;
+    }
+
+    .info-box h3 {
+      color: #2d3748;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+
+    .info-box code {
+      background: #e2e8f0;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #2d3748;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎤 AI Voice Widget Test</h1>
+    <p>
+      Эта страница для тестирования голосового виджета. 
+      Нажмите на фиолетовую кнопку в правом нижнем углу чтобы начать разговор с AI.
+    </p>
+
+    <div class="test-controls">
+      <button class="btn-primary" onclick="window.AIWidget.show()">
+        Показать виджет
+      </button>
+      <button class="btn-secondary" onclick="window.AIWidget.hide()">
+        Скрыть виджет
+      </button>
+      <button class="btn-primary" onclick="window.AIWidget.start()">
+        Начать сессию
+      </button>
+      <button class="btn-secondary" onclick="window.AIWidget.stop()">
+        Остановить сессию
+      </button>
+    </div>
+
+    <div class="info-box">
+      <h3>Настройка:</h3>
+      <p style="margin: 8px 0;">
+        1. Создайте widget key в админке backend<br>
+        2. Замените <code>data-key</code> в script теге ниже<br>
+        3. Убедитесь что backend запущен на <code>http://localhost:3000</code>
+      </p>
+    </div>
+
+    <div class="info-box" style="margin-top: 16px;">
+      <h3>Консоль:</h3>
+      <p style="margin: 8px 0; font-size: 13px;">
+        Откройте DevTools (F12) чтобы видеть логи виджета
+      </p>
+    </div>
+  </div>
+
+  <!-- AI Voice Widget -->
+  <!-- ВАЖНО: Замените data-key на реальный ключ из вашей базы данных -->
+  <script 
+    src="./dist/widget.js"
+    data-key="wk_QFIYyFoSiwpe2puso5VtY"
+    data-api="http://localhost:5005/api"
+  ></script>
+
+  <script>
+    console.log('%c🎤 AI Widget Test Page', 'color: #667eea; font-size: 20px; font-weight: bold;');
+    console.log('Виджет должен инициализироваться автоматически');
+    console.log('Глобальный API доступен через window.AIWidget');
+    
+    // Проверить через 2 секунды
+    setTimeout(() => {
+      if (window.AIWidget) {
+        console.log('%c✅ Widget инициализирован', 'color: green; font-weight: bold;');
+        console.log('API:', Object.keys(window.AIWidget));
+      } else {
+        console.error('%c❌ Widget не инициализирован', 'color: red; font-weight: bold;');
+        console.error('Проверьте data-key и убедитесь что backend запущен');
+      }
+    }, 2000);
+  </script>
+</body>
+</html>

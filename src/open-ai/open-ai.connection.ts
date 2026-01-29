@@ -40,6 +40,10 @@ export class OpenAiConnection {
         } else if (model.startsWith('qwen')) {
             baseUrl = process.env.QWEN_API_URL;
             apiKey = process.env.QWEN_API_KEY;
+        } else if (model.startsWith('yandex')) {
+            baseUrl = process.env.YANDEX_API_URL;
+            apiKey = process.env.YANDEX_API_KEY;
+            model = process.env.YANDEX_MODEL;
         }
 
         if (!baseUrl) {
@@ -56,10 +60,13 @@ export class OpenAiConnection {
             this.logger.log(`API Key prefix: ${apiKey.substring(0, 7)}...`);
         }
 
+        const authPrefix = this.assistant.model?.startsWith('yandex') ? 'Api-Key' : 'Bearer';
+
         this.ws = new WebSocket(api_url, {
             headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "OpenAI-Beta": "realtime=v1",
+                Authorization: `${authPrefix} ${apiKey}`,
+                "OpenAI-Beta": "realtime=v1"
+
             }
         });
         this.logger.log(`Assistant ${this.assistant.name}_${this.assistant.uniqueId} Started (${this.channelId})`);

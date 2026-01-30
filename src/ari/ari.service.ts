@@ -5,6 +5,7 @@ import { StreamAudioService } from '../audio/streamAudio.service';
 import { AssistantsService } from '../assistants/assistants.service';
 import { AriConnection } from './ari-connection';
 import { PbxServersService } from "../pbx-servers/pbx-servers.service";
+import { WidgetKeysService } from "../widget-keys/widget-keys.service";
 
 @Injectable()
 export class AriService implements OnModuleInit, OnModuleDestroy {
@@ -16,7 +17,8 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
         private readonly rtpUdpServer: RtpUdpServerService,
         private readonly openAiService: OpenAiService,
         private readonly streamAudioService: StreamAudioService,
-        private readonly assistantsService: AssistantsService
+        private readonly assistantsService: AssistantsService,
+        private readonly widgetKeysService: WidgetKeysService,
     ) {
     }
 
@@ -41,6 +43,7 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
                     this.openAiService,
                     this.streamAudioService,
                     this.assistantsService,
+                    this.widgetKeysService,
                 );
 
                 await connection.connect();

@@ -105,11 +105,26 @@ export class WidgetController {
         }
 
         const assistant = widgetKey.assistant;
+        const pbxServer = widgetKey.pbxServer;
+
+        // Determine WSS URL:
+        // 1. Use explicit WSS URL if set in PbxServers
+        // 2. Fallback to constructing from SIP host if possible (assuming standard port 8089 and WSS)
+        // 3. Null (client will use default or fail)
+        let wsUrl = pbxServer?.wss_url;
+
+        if (!wsUrl && pbxServer?.sip_host) {
+            // Basic fallback heuristic: replace port 5060/5061 with 8089 and prepend wss://
+            const hostPart = pbxServer.sip_host.split(':')[0];
+            wsUrl = `wss://${hostPart}:8089/ws`;
+        }
 
         return {
             assistantName: assistant.name,
             greeting: assistant.greeting || 'Hello! How can I assist you today?',
             voice: assistant.voice,
+            wsUrl: wsUrl,
+            sipDomain: pbxServer?.sip_host ? pbxServer.sip_host.split(':')[0] : undefined
         };
     }
 }

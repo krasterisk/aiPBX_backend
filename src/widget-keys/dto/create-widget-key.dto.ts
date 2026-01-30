@@ -20,6 +20,15 @@ export class CreateWidgetKeyDto {
     assistantId: number;
 
     @ApiProperty({
+        example: 1,
+        description: 'PBX Server ID for this widget',
+        required: false
+    })
+    @IsOptional()
+    @IsNumber()
+    pbxServerId?: number;
+
+    @ApiProperty({
         example: ['example.com', 'www.example.com'],
         description: 'Array of allowed domains (without protocol)',
         required: true,

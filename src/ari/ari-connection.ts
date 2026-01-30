@@ -5,6 +5,7 @@ import { StreamAudioService } from '../audio/streamAudio.service';
 import { AssistantsService } from '../assistants/assistants.service';
 import { CallSession } from './call-sessions';
 import { PbxServers } from '../pbx-servers/pbx-servers.model';
+import { WidgetKeysService } from "../widget-keys/widget-keys.service";
 import { AriHttpClient } from './ari-http-client';
 import { WebSocket } from 'ws';
 
@@ -31,6 +32,7 @@ export class AriConnection {
         private readonly openAiService: OpenAiService,
         private readonly streamAudioService: StreamAudioService,
         private readonly assistantsService: AssistantsService,
+        private readonly widgetKeysService: WidgetKeysService,
     ) {
         this.logger.log(`Creating AriConnection for server: ${pbxServer.id} - ${pbxServer.ari_url}`);
         this.logger.log(`ARI User: ${pbxServer.ari_user}`);
@@ -200,9 +202,26 @@ export class AriConnection {
                 return;
             }
 
-            const assistant = await this.assistantsService.getByUniqueId(uniqueId);
+            let assistant;
+
+            // 1. Try to resolve by Widget Key (if argument looks like a key, e.g. starts with 'wk_')
+            if (uniqueId.startsWith('wk_')) {
+                this.logger.log(`Resolving assistant by Widget Key: ${uniqueId}`);
+                const widgetKey = await this.widgetKeysService.findByPublicKey(uniqueId);
+
+                if (widgetKey && widgetKey.isActive) {
+                    assistant = widgetKey.assistant;
+                    this.logger.log(`Resolved assistant ${assistant.name} (ID: ${assistant.id}) via Widget Key`);
+                } else {
+                    this.logger.warn(`Invalid or inactive Widget Key: ${uniqueId}`);
+                }
+            } else {
+                // 2. Fallback to direct UniqueId resolution
+                assistant = await this.assistantsService.getByUniqueId(uniqueId);
+            }
+
             if (!assistant) {
-                this.logger.warn(`Assistant not found for uniqueId: ${uniqueId}`);
+                this.logger.warn(`Assistant not found for identifier: ${uniqueId}`);
                 await this.ariClient.hangupChannel(channelId);
                 return;
             }

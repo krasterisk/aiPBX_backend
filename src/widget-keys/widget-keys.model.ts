@@ -2,12 +2,14 @@ import { BelongsTo, Column, DataType, ForeignKey, Model, Table } from "sequelize
 import { ApiProperty } from "@nestjs/swagger";
 import { User } from "../users/users.model";
 import { Assistant } from "../assistants/assistants.model";
+import { PbxServers } from "../pbx-servers/pbx-servers.model";
 
 interface WidgetKeyCreationAttrs {
     publicKey: string;
     name: string;
     userId: number;
     assistantId: number;
+    pbxServerId?: number;
     allowedDomains: string;
     maxConcurrentSessions?: number;
     maxSessionDuration?: number; // In seconds
@@ -34,6 +36,11 @@ export class WidgetKey extends Model<WidgetKey, WidgetKeyCreationAttrs> {
     @Column({ type: DataType.INTEGER, allowNull: false })
     assistantId: number;
 
+    @ApiProperty({ example: 1, description: "PBX Server ID (asterisk)" })
+    @ForeignKey(() => PbxServers)
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    pbxServerId: number;
+
     @ApiProperty({
         example: '["example.com", "www.example.com"]',
         description: "JSON array of allowed domains"
@@ -58,4 +65,7 @@ export class WidgetKey extends Model<WidgetKey, WidgetKeyCreationAttrs> {
 
     @BelongsTo(() => Assistant)
     assistant: Assistant;
+
+    @BelongsTo(() => PbxServers)
+    pbxServer: PbxServers;
 }

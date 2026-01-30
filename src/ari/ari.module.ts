@@ -11,6 +11,7 @@ import { AiToolsHandlersModule } from "../ai-tools-handlers/ai-tools-handlers.mo
 import { PbxServersModule } from "../pbx-servers/pbx-servers.module";
 import { ConfigModule } from "@nestjs/config";
 import { OpenAiModule } from "../open-ai/open-ai.module";
+import { WidgetKeysModule } from "../widget-keys/widget-keys.module";
 
 
 @Module({
@@ -27,7 +28,8 @@ import { OpenAiModule } from "../open-ai/open-ai.module";
         AssistantsModule,
         AiCdrModule,
         AiToolsHandlersModule,
-        PbxServersModule
+        PbxServersModule,
+        WidgetKeysModule
     ]
 })
 export class AriModule {

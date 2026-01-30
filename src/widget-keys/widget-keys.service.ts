@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { PbxServersService } from '../pbx-servers/pbx-servers.service';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { WidgetKey } from './widget-keys.model';
 import { CreateWidgetKeyDto } from './dto/create-widget-key.dto';
@@ -14,6 +15,7 @@ export class WidgetKeysService {
         @InjectModel(WidgetKey)
         private widgetKeyModel: typeof WidgetKey,
         private assistantsService: AssistantsService,
+        private pbxServersService: PbxServersService,
     ) { }
 
     async create(userId: number, createWidgetKeyDto: CreateWidgetKeyDto): Promise<WidgetKey> {
@@ -28,6 +30,16 @@ export class WidgetKeysService {
             throw new ForbiddenException('You can only create widget keys for your own assistants');
         }
 
+        if (createWidgetKeyDto.pbxServerId) {
+            const pbxServer = await this.pbxServersService.getById(createWidgetKeyDto.pbxServerId);
+            if (!pbxServer) {
+                throw new NotFoundException('PbxServer not found');
+            }
+            if (!pbxServer.wss_url) {
+                throw new BadRequestException(`PbxServer ${pbxServer.name} does not have a WSS URL configured. Please configure it or choose another server.`);
+            }
+        }
+
         // Generate unique public key
         const publicKey = `wk_${nanoid(21)}`;
 
@@ -39,6 +51,7 @@ export class WidgetKeysService {
             name: createWidgetKeyDto.name,
             userId,
             assistantId: createWidgetKeyDto.assistantId,
+            pbxServerId: createWidgetKeyDto.pbxServerId,
             allowedDomains: allowedDomainsJson,
             maxConcurrentSessions: createWidgetKeyDto.maxConcurrentSessions || 10,
             isActive: true,
@@ -56,6 +69,10 @@ export class WidgetKeysService {
                     association: 'assistant',
                     attributes: ['id', 'name', 'uniqueId'],
                 },
+                {
+                    association: 'pbxServer',
+                    attributes: ['id', 'name', 'location'],
+                }
             ],
             order: [['createdAt', 'DESC']],
         });
@@ -69,6 +86,9 @@ export class WidgetKeysService {
                     association: 'assistant',
                     attributes: ['id', 'name', 'uniqueId', 'greeting', 'voice'],
                 },
+                {
+                    association: 'pbxServer',
+                }
             ],
         });
 
@@ -90,6 +110,10 @@ export class WidgetKeysService {
                     association: 'user',
                     attributes: ['id', 'balance', 'currency'],
                 },
+                {
+                    association: 'pbxServer',
+                    attributes: ['id', 'sip_host', 'wss_url'],
+                }
             ],
         });
     }

@@ -146,8 +146,11 @@ export class WidgetWebRTCService {
             this.logger.log(`OpenAI connection ready for widget session ${sessionId}, initializing session settings...`);
 
             // Override to G.711 A-law for WebRTC compatibility (PCMA, Payload Type 8)
+            // Handle Sequelize model instance or plain object
+            const assistantData = typeof assistant.get === 'function' ? assistant.get({ plain: true }) : assistant;
+
             const webRtcAssistant = {
-                ...assistant,
+                ...assistantData,
                 input_audio_format: 'g711_alaw',
                 output_audio_format: 'g711_alaw'
             };

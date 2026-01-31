@@ -72,6 +72,7 @@ export class WidgetController {
     @ApiResponse({ status: 200, description: 'Session terminated' })
     @ApiResponse({ status: 404, description: 'Session not found' })
     async handleHangup(@Body() dto: WidgetHangupDto): Promise<{ success: boolean }> {
+        console.log('handleHangup', dto);
         await this.widgetWebRTCService.handleHangup(dto.sessionId, dto.publicKey);
         return { success: true };
     }

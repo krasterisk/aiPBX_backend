@@ -114,7 +114,7 @@ export class CallSession {
                 const snoop = await this.ariClient.snoopChannel(
                     this.channel.id,
                     this.ariConnection.getAppName(),
-                    'moh-whisper',
+                    assistant.moh,
                     'none',     // spy
                     'out'       // whisper
                 );
@@ -138,7 +138,7 @@ export class CallSession {
                 this.ariConnection.getAppName(),
                 this.externalHost,
                 'alaw',
-                assistant.uniqueId
+                this.channel.id
             );
 
             // 5. Добавляем external media канал в bridge
@@ -163,10 +163,16 @@ export class CallSession {
                 assistant
             };
 
-            await this.ariClient.playMedia(this.channel.id, 'silence/1', 'en');
+            // await this.ariClient.playMedia(this.channel.id, 'silence/1', 'en');
 
             // 8. Запускаем потоковую передачу
             await this.startStreaming(sessionUrl, sessionData);
+
+            // 9. Проактивная инициализация OpenAI, если порт уже известен
+            if (rtpPort) {
+                await this.triggerOpenAiInit(sessionData);
+            }
+
             this.logger.log(`Call session initialized successfully for channel ${this.channel.id}`);
         } catch (err) {
             this.logger.error('Error in initialize:', err.response?.data || err.message);
@@ -294,6 +300,63 @@ export class CallSession {
         }
 
         this.rtpUdpServer.sessions.set(sessionUrl, udpSession);
+    }
 
+    async updateRtpParams(variable: string, value: string) {
+        if (!this.externalChannel) return;
+
+        if (!this.externalChannel.channelvars) {
+            this.externalChannel.channelvars = {};
+        }
+        this.externalChannel.channelvars[variable] = value;
+
+        if (variable === 'UNICASTRTP_LOCAL_PORT' || variable === 'UNICASTRTP_LOCAL_ADDRESS') {
+            const vars = this.externalChannel.channelvars;
+            const rtpAddress = vars.UNICASTRTP_LOCAL_ADDRESS || this.externalHost;
+            const rtpPort = vars.UNICASTRTP_LOCAL_PORT;
+
+            if (rtpAddress && rtpPort) {
+                const sessionUrl = `${rtpAddress}:${rtpPort}`;
+                const sessionData: SessionData = {
+                    channelId: this.channel.id,
+                    callerId: this.channel.callerId || '',
+                    address: rtpAddress,
+                    port: String(rtpPort),
+                    init: 'false',
+                    openAiConn: this.openAiConnection,
+                    assistant: this.assistant
+                };
+
+                // Refresh mapping in UDP server
+                await this.startStreaming(sessionUrl, sessionData);
+
+                // Proactively initialize OpenAI if not already done
+                await this.triggerOpenAiInit(sessionData);
+
+                this.logger.log(`Updated RTP params for channel ${this.channel.id}: ${rtpAddress}:${rtpPort}`);
+            }
+        }
+    }
+
+    private async triggerOpenAiInit(sessionData: any) {
+        if (sessionData.init === 'true') return;
+
+        // Ensure OpenAI connection is available
+        if (!this.openAiConnection) {
+            this.logger.warn(`Cannot trigger OpenAI init for ${this.channel.id}: no connection`);
+            return;
+        }
+
+        this.logger.log(`Proactively initializing OpenAI session for ${this.channel.id}`);
+        // Mark as initialized to prevent double init from UDP server
+        sessionData.init = 'true';
+
+        try {
+            await this.openAiService.updateRtAudioSession(sessionData);
+            await this.openAiService.rtInitAudioResponse(sessionData);
+        } catch (err) {
+            this.logger.error(`Error during proactive OpenAI init for ${this.channel.id}:`, err);
+            sessionData.init = 'false'; // Reset if failed
+        }
     }
 }

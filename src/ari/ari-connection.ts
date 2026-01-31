@@ -25,6 +25,7 @@ export class AriConnection {
     private ariClient: AriHttpClient;
     private webSocket: WebSocket | null = null;
     private stasisBotName: string;
+    private externalChannelToParentChannel = new Map<string, string>(); // externalChannelId -> primaryChannelId
 
     constructor(
         private readonly pbxServer: PbxServers,
@@ -169,7 +170,13 @@ export class AriConnection {
 
         // Checking on exist channelId (second leg)
         if (event.channel?.name.startsWith('UnicastRTP/')) {
-            this.logger.warn(`Second leg already exists for channel ${channelId}`);
+            const primaryChannelId = event.args[0];
+            if (primaryChannelId && this.sessions.has(primaryChannelId)) {
+                this.externalChannelToParentChannel.set(channelId, primaryChannelId);
+                this.logger.log(`Linked second leg ${channelId} to primary session ${primaryChannelId}`);
+            } else {
+                this.logger.warn(`Second leg already exists for channel ${channelId}, but no primary session found with ID ${primaryChannelId}`);
+            }
             return;
         }
 
@@ -283,20 +290,26 @@ export class AriConnection {
     }
 
     private handleChannelVarset(event: any): void {
-        // Можно добавить обработку установки переменных канала
-        // Например, для получения RTP параметров
         const channelId = event.channel?.id;
         const variable = event.variable;
         const value = event.value;
 
         if (variable === 'UNICASTRTP_LOCAL_ADDRESS' || variable === 'UNICASTRTP_LOCAL_PORT') {
-            this.logger.debug(`Установка переменных канала: ${event}`);
+            this.logger.debug(`Channel variable set: ${channelId} - ${variable}=${value}`);
 
-            // Обновляем параметры RTP в соответствующей сессии
-            const session = this.sessions.get(channelId);
+            // 1. Try direct session lookup (unlikely for these variables)
+            let session = this.sessions.get(channelId);
+
+            // 2. Try lookup via external channel mapping
+            if (!session) {
+                const parentId = this.externalChannelToParentChannel.get(channelId);
+                if (parentId) {
+                    session = this.sessions.get(parentId);
+                }
+            }
+
             if (session) {
-                // Здесь можно вызвать метод обновления RTP параметров в сессии
-                // session.updateRtpParams(variable, value);
+                session.updateRtpParams(variable, value);
             }
         }
     }
@@ -309,6 +322,12 @@ export class AriConnection {
 
         try {
             this.logger.log(`Cleaning up session for channel ${channelId}`);
+
+            // Remove external channel mappings
+            if (session.externalChannel?.id) {
+                this.externalChannelToParentChannel.delete(session.externalChannel.id);
+            }
+
             await session.cleanup();
         } catch (err) {
             this.logger.error(`Error cleaning up session for ${channelId}`, err);

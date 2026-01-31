@@ -9,6 +9,7 @@ import { Injectable, Logger } from '@nestjs/common';
 interface WidgetPeerSession {
     sessionId: string;
     peerConnection: RTCPeerConnection;
+    publicKey: string;
     assistantId: number;
     userId: number;
     openAiChannelId?: string;
@@ -74,6 +75,7 @@ export class WidgetWebRTCService {
         const peerSession: WidgetPeerSession = {
             sessionId: session.sessionId,
             peerConnection,
+            publicKey,
             assistantId: assistant.id,
             userId,
             assistant,
@@ -226,9 +228,23 @@ export class WidgetWebRTCService {
         }
     }
 
-    async handleHangup(sessionId: string): Promise<void> {
-        this.logger.log(`Handling hangup for session ${sessionId}`);
-        await this.handleDisconnect(sessionId);
+    async handleHangup(sessionId?: string, publicKey?: string): Promise<void> {
+        if (sessionId) {
+            this.logger.log(`Handling hangup for session ${sessionId}`);
+            await this.handleDisconnect(sessionId);
+        } else if (publicKey) {
+            this.logger.log(`Handling hangup for all sessions with key ${publicKey}`);
+            const sessionsToClose = [];
+            for (const [id, session] of this.peers.entries()) {
+                if (session.publicKey === publicKey) {
+                    sessionsToClose.push(id);
+                }
+            }
+
+            for (const id of sessionsToClose) {
+                await this.handleDisconnect(id);
+            }
+        }
     }
 
     private async handleIncomingAudioTrack(sessionId: string, track: any): Promise<void> {

@@ -250,10 +250,6 @@ export class OpenAiService implements OnModuleInit {
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
         const currentSession = this.sessions.get(channelId)
 
-        if (serverEvent.type === "session.created") {
-            this.logger.log(`Session created`)
-            this.logger.log(serverEvent)
-        }
         if (serverEvent.type !== "response.audio.delta" &&
             serverEvent.type !== "response.audio_transcript.delta"
         ) {
@@ -322,6 +318,7 @@ export class OpenAiService implements OnModuleInit {
 
         if (serverEvent.type === "response.created") {
             this.updateSession(serverEvent, channelId)
+            await this.cdrCreateLog(channelId, callerId, assistant)
             console.log(serverEvent)
         }
 
@@ -401,10 +398,6 @@ export class OpenAiService implements OnModuleInit {
             await this.aiCdrService.cdrHangup(channelId, assistant.id)
         }
 
-        if (serverEvent.type === "session.created") {
-            await this.cdrCreateLog(channelId, callerId, assistant)
-        }
-
         if (serverEvent.type === "input_audio_buffer.committed") {
             this.updateSession(serverEvent, channelId)
             // const currentSession = this.getSessionByField('itemIds', serverEvent.previous_item_id)
@@ -427,42 +420,6 @@ export class OpenAiService implements OnModuleInit {
             this.updateSession(serverEvent, channelId)
         }
     }
-
-    // public RTConnect() {
-    //     this.ws = new WebSocket(this.API_RT_URL, {
-    //         headers: {
-    //             Authorization: `Bearer ${this.API_KEY}`,
-    //             "OpenAI-Beta": "realtime=v1",
-    //         }
-    //     });
-    //
-    //     this.ws.on('open', () => {
-    //         console.log('WebSocket OpenAI connection established');
-    //         if (this.inAudio) {
-    //             this.updateRtAudioSession()
-    //         } else {
-    //             this.updateRtTextSession()
-    //         }
-    //     });
-    //
-    //     this.ws.on('message', (data) => {
-    //         this.dataDecode(data);
-    //     });
-    //
-    //     this.ws.on('error', (error) => {
-    //         console.error('WebSocket Error:', error);
-    //     });
-    //
-    //     this.ws.on('close', () => {
-    //         console.log('WebSocket connection closed, reconnecting...');
-    //         if (this.isRealtime) {
-    //             setTimeout(() => this.RTConnect(), 5000);
-    //         } else {
-    //             setTimeout(() => this.connect(), 5000);
-    //         }
-    //     });
-    // }
-
 
     public updateRtAudioSession(session: sessionData) {
         if (session && session.openAiConn) {
@@ -616,7 +573,7 @@ export class OpenAiService implements OnModuleInit {
                     // conversation: "none",
                     modalities: ["text", "audio"],
                     // input,
-                    instructions: "Please respond to the user audio",
+                    // instructions: "Please respond to the user audio",
                     // metadata
                 }
             }

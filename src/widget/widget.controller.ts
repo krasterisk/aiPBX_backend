@@ -85,7 +85,7 @@ export class WidgetController {
         schema: {
             type: 'object',
             properties: {
-                assistantId: { type: 'number', example: 1 },
+                assistantId: { type: 'string', example: 'uuid-1234-5678' },
                 assistantName: { type: 'string', example: 'Customer Support Bot' },
                 greeting: { type: 'string', example: 'Hello! How can I help you?' },
                 voice: { type: 'string', example: 'alloy' },
@@ -124,7 +124,7 @@ export class WidgetController {
         }
 
         return {
-            assistantId: assistant.id,
+            assistantId: assistant.uniqueId,
             assistantName: assistant.name,
             greeting: assistant.greeting || 'Hello! How can I assist you today?',
             voice: assistant.voice,

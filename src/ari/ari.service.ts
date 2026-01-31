@@ -6,6 +6,7 @@ import { AssistantsService } from '../assistants/assistants.service';
 import { AriConnection } from './ari-connection';
 import { PbxServersService } from "../pbx-servers/pbx-servers.service";
 import { WidgetKeysService } from "../widget-keys/widget-keys.service";
+import { PbxServers } from '../pbx-servers/pbx-servers.model';
 
 @Injectable()
 export class AriService implements OnModuleInit, OnModuleDestroy {
@@ -34,32 +35,47 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`Found ${servers.length} PBX servers`);
 
         for (const server of servers) {
-            try {
-                this.logger.log(`Connecting to PBX server: ${server.name} (${server.ari_url})`);
-
-                const connection = new AriConnection(
-                    server,
-                    this.rtpUdpServer,
-                    this.openAiService,
-                    this.streamAudioService,
-                    this.assistantsService,
-                    this.widgetKeysService,
-                );
-
-                await connection.connect();
-                this.connections.push(connection);
-                this.logger.log(`Successfully connected to ARI server: ${server.name}  ${server.uniqueId}`);
-
-                this.logger.log(`Connected to ARI server ${server.name}`);
-            } catch (err) {
-                this.logger.error(
-                    `Failed to connect to ARI server ${server.name}:`,
-                    err instanceof Error ? err.message : String(err)
-                );
-            }
+            await this.connectToPbx(server);
         }
 
         this.logger.log(`ARI service initialized with ${this.connections.length} connections`);
+    }
+
+    async connectToPbx(server: PbxServers) {
+        // Disconnect if already connected
+        await this.disconnectFromPbx(server.uniqueId);
+
+        try {
+            this.logger.log(`Connecting to PBX server: ${server.name} (${server.ari_url})`);
+
+            const connection = new AriConnection(
+                server,
+                this.rtpUdpServer,
+                this.openAiService,
+                this.streamAudioService,
+                this.assistantsService,
+                this.widgetKeysService,
+            );
+
+            await connection.connect();
+            this.connections.push(connection);
+            this.logger.log(`Successfully connected to ARI server: ${server.name}  ${server.uniqueId}`);
+        } catch (err) {
+            this.logger.error(
+                `Failed to connect to ARI server ${server.name}:`,
+                err instanceof Error ? err.message : String(err)
+            );
+        }
+    }
+
+    async disconnectFromPbx(uniqueId: string) {
+        const index = this.connections.findIndex(conn => conn.getServerId() === uniqueId);
+        if (index !== -1) {
+            const connection = this.connections[index];
+            await connection.disconnect();
+            this.connections.splice(index, 1);
+            this.logger.log(`Disconnected from ARI server with uniqueId: ${uniqueId}`);
+        }
     }
 
     async onModuleDestroy() {
@@ -83,6 +99,13 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
 
     getConnectionByServerId(serverId: string): AriConnection | undefined {
         return this.connections.find(conn => conn.getServerId() === serverId);
+    }
+
+    getServerStatus(uniqueId: string): { online: boolean } {
+        const connection = this.getConnectionByServerId(uniqueId);
+        return {
+            online: connection ? connection.isOnline() : false
+        };
     }
 
     getActiveSessionsCount(): number {

@@ -29,7 +29,10 @@ import { WidgetKeysModule } from "../widget-keys/widget-keys.module";
         AiCdrModule,
         AiToolsHandlersModule,
         PbxServersModule,
-        WidgetKeysModule
+        WidgetKeysModule,
+    ],
+    exports: [
+        AriService
     ]
 })
 export class AriModule {

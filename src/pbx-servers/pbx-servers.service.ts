@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectModel } from "@nestjs/sequelize";
 import sequelize from "sequelize";
 import { PbxServers } from "./pbx-servers.model";
@@ -11,6 +11,7 @@ import { HttpService } from "@nestjs/axios";
 import * as crypto from 'crypto';
 import { Assistant } from '../assistants/assistants.model';
 import { nanoid } from 'nanoid';
+import { AriService } from '../ari/ari.service';
 
 
 @Injectable()
@@ -21,13 +22,18 @@ export class PbxServersService {
         @InjectModel(PbxServers) private pbxServersRepository: typeof PbxServers,
         @InjectModel(SipAccounts) private SipAccountsRepository: typeof SipAccounts,
         @InjectModel(Assistant) private AssistantRepository: typeof Assistant,
-        private readonly httpService: HttpService
+        private readonly httpService: HttpService,
+        @Inject(forwardRef(() => AriService))
+        private readonly ariService: AriService,
     ) { }
 
     async create(dto: PbxDto) {
         try {
             const uniqueId = `${nanoid(10)}`;
             const pbx = await this.pbxServersRepository.create({ ...dto as any, uniqueId })
+
+            // Connect to ARI
+            await this.ariService.connectToPbx(pbx);
 
             return pbx
         } catch (e) {
@@ -48,6 +54,10 @@ export class PbxServersService {
                 throw new HttpException('Pbx not found', HttpStatus.NOT_FOUND)
             }
             await pbx.update(updates)
+
+            // Reconnect to ARI
+            await this.ariService.connectToPbx(pbx);
+
             return pbx
         } catch (e) {
             this.logger.error('Update pbx error', e)
@@ -57,6 +67,10 @@ export class PbxServersService {
 
     async delete(id: string) {
         try {
+            const pbx = await this.pbxServersRepository.findByPk(id);
+            if (pbx) {
+                await this.ariService.disconnectFromPbx(pbx.uniqueId);
+            }
             await this.pbxServersRepository.destroy({ where: { id: id } })
             return { message: 'Pbx server deleted successfully', statusCode: HttpStatus.OK }
         } catch (e) {
@@ -144,6 +158,10 @@ export class PbxServersService {
         } else {
             return pbx
         }
+    }
+
+    getServerStatus(uniqueId: string) {
+        return this.ariService.getServerStatus(uniqueId);
     }
 
     async createSipUri(dto: SipAccountDto, userId: string) {

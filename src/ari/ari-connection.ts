@@ -348,6 +348,10 @@ export class AriConnection {
         return this.pbxServer.uniqueId;
     }
 
+    isOnline(): boolean {
+        return !!this.webSocket && this.webSocket.readyState === WebSocket.OPEN;
+    }
+
     async disconnect(): Promise<void> {
         // Закрываем все активные сессии
         for (const [channelId, session] of this.sessions) {

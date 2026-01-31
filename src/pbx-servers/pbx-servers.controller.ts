@@ -97,6 +97,15 @@ export class PbxServersController {
         return this.pbxServersService.deleteSipUri(dto, userId)
     }
 
+    @ApiOperation({ summary: "Get pbx status" })
+    @ApiResponse({ status: 200, schema: { properties: { online: { type: 'boolean' } } } })
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
+    @Get('/:uniqueId/status')
+    getStatus(@Param('uniqueId') uniqueId: string) {
+        return this.pbxServersService.getServerStatus(uniqueId);
+    }
+
     @ApiOperation({ summary: "Delete pbx" })
     @ApiResponse({ status: 200 })
     @Roles('ADMIN')

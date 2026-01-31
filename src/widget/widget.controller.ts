@@ -85,9 +85,12 @@ export class WidgetController {
         schema: {
             type: 'object',
             properties: {
+                assistantId: { type: 'number', example: 1 },
                 assistantName: { type: 'string', example: 'Customer Support Bot' },
                 greeting: { type: 'string', example: 'Hello! How can I help you?' },
-                voice: { type: 'string', example: 'alloy' }
+                voice: { type: 'string', example: 'alloy' },
+                wsUrl: { type: 'string', example: 'wss://pbx.example.com:8089/ws' },
+                sipDomain: { type: 'string', example: 'pbx.example.com' }
             }
         }
     })
@@ -121,6 +124,7 @@ export class WidgetController {
         }
 
         return {
+            assistantId: assistant.id,
             assistantName: assistant.name,
             greeting: assistant.greeting || 'Hello! How can I assist you today?',
             voice: assistant.voice,

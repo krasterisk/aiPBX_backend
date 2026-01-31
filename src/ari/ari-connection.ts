@@ -41,7 +41,7 @@ export class AriConnection {
 
     async connect() {
         try {
-            this.stasisBotName = `${process.env.AIPBX_BOTNAME}_${this.pbxServer.id}`;
+            this.stasisBotName = `${process.env.AIPBX_BOTNAME}`;
 
             if (!this.stasisBotName) {
                 throw new Error(`AI botName is empty!`);
@@ -345,7 +345,7 @@ export class AriConnection {
     }
 
     getServerId(): string {
-        return this.pbxServer.id;
+        return this.pbxServer.uniqueId;
     }
 
     async disconnect(): Promise<void> {

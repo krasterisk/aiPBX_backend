@@ -10,6 +10,7 @@ import { SipAccounts } from "./sip-accounts.model";
 import { HttpService } from "@nestjs/axios";
 import * as crypto from 'crypto';
 import { Assistant } from '../assistants/assistants.model';
+import { nanoid } from 'nanoid';
 
 
 @Injectable()
@@ -25,7 +26,8 @@ export class PbxServersService {
 
     async create(dto: PbxDto) {
         try {
-            const pbx = await this.pbxServersRepository.create(dto)
+            const uniqueId = `${nanoid(10)}`;
+            const pbx = await this.pbxServersRepository.create({ ...dto as any, uniqueId })
 
             return pbx
         } catch (e) {

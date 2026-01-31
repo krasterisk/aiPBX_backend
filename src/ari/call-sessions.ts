@@ -45,7 +45,7 @@ export class CallSession {
         private readonly ariClient: AriHttpClient,
         private readonly pbxServer: PbxServers
     ) {
-        this.connectionId = `${this.pbxServer.id}-${Date.now()}`;
+        this.connectionId = `${this.pbxServer.uniqueId}-${Date.now()}`;
         this.logger.log(`[${this.connectionId}] Creating connection for channel: ${channel.id}`);
     }
 

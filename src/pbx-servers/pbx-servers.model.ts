@@ -20,6 +20,10 @@ export class PbxServers extends Model<PbxServers, CreatePbxServer> {
     @Column({ type: DataType.STRING, allowNull: false, unique: true })
     sip_host: string;
 
+    @ApiProperty({ example: 'srv_1a2b3c4d5e', description: "Unique server identifier" })
+    @Column({ type: DataType.STRING, allowNull: false, unique: true })
+    uniqueId: string;
+
     @ApiProperty({ example: 'wss://sip.aipbx.net:8089/ws', description: "Public WSS URL for WebRTC widgets" })
     @Column({ type: DataType.STRING, allowNull: true })
     wss_url: string;

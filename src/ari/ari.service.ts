@@ -48,7 +48,7 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
 
                 await connection.connect();
                 this.connections.push(connection);
-                this.logger.log(`Successfully connected to ARI server: ${server.name}  ${server.id}`);
+                this.logger.log(`Successfully connected to ARI server: ${server.name}  ${server.uniqueId}`);
 
                 this.logger.log(`Connected to ARI server ${server.name}`);
             } catch (err) {

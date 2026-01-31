@@ -20,7 +20,7 @@ export const getMysqlConfig = async (): Promise<SequelizeModuleOptions> => {
         logging: false,
         // logging: (...msg) => console.log(msg),
         autoLoadModels: true,
-        sync: { alter: true }
+        // sync: {alter: true}
 
     }
 }

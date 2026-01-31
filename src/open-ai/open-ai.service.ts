@@ -256,11 +256,6 @@ export class OpenAiService implements OnModuleInit {
             await this.loggingEvents(channelId, callerId, e, assistant)
         }
 
-        if (serverEvent.type === "session.created") {
-            await this.cdrCreateLog(channelId, callerId, assistant)
-            console.log(serverEvent)
-        }
-
         if (serverEvent.type === "input_audio_buffer.speech_started") {
             const responseId = currentSession?.currentResponseId
             this.logger.log(`Speech started`)

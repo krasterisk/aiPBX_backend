@@ -102,4 +102,13 @@ export class CreateWidgetKeyDto {
     @IsOptional()
     @IsString()
     logo?: string;
+
+    @ApiProperty({
+        example: '{"buttonColor":"#667eea","theme":"light"}',
+        description: 'Widget appearance settings (JSON string)',
+        required: false
+    })
+    @IsOptional()
+    @IsString()
+    appearance?: string;
 }

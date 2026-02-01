@@ -79,6 +79,24 @@ export class UpdateWidgetKeyDto {
     isActive?: boolean;
 
     @ApiProperty({
+        example: 1,
+        description: 'Assistant ID to connect to this widget',
+        required: false
+    })
+    @IsOptional()
+    @IsNumber()
+    assistantId?: number;
+
+    @ApiProperty({
+        example: 1,
+        description: 'PBX Server ID for this widget',
+        required: false
+    })
+    @IsOptional()
+    @IsNumber()
+    pbxServerId?: number;
+
+    @ApiProperty({
         example: 'en',
         description: 'Default language for the widget',
         required: false
@@ -95,4 +113,13 @@ export class UpdateWidgetKeyDto {
     @IsOptional()
     @IsString()
     logo?: string;
+
+    @ApiProperty({
+        example: '{"buttonColor":"#667eea","theme":"light"}',
+        description: 'Widget appearance settings (JSON string)',
+        required: false
+    })
+    @IsOptional()
+    @IsString()
+    appearance?: string;
 }

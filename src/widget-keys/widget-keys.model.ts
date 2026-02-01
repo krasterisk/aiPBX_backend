@@ -16,6 +16,7 @@ interface WidgetKeyCreationAttrs {
     isActive?: boolean;
     language?: string;
     logo?: string;
+    appearance?: string;
 }
 
 @Table({ tableName: "widget_keys" })
@@ -69,6 +70,13 @@ export class WidgetKey extends Model<WidgetKey, WidgetKeyCreationAttrs> {
     @ApiProperty({ example: 'logo.png', description: "Widget logo filename" })
     @Column({ type: DataType.STRING, allowNull: true })
     logo: string;
+
+    @ApiProperty({
+        example: '{"buttonColor":"#667eea","theme":"light"}',
+        description: "Widget appearance settings (JSON string)"
+    })
+    @Column({ type: DataType.TEXT, allowNull: true })
+    appearance: string;
 
     @BelongsTo(() => User)
     user: User;

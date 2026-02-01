@@ -59,6 +59,7 @@ export class WidgetKeysService {
             maxSessionDuration: createWidgetKeyDto.maxSessionDuration || 600,
             language: createWidgetKeyDto.language || 'en',
             logo: createWidgetKeyDto.logo,
+            appearance: createWidgetKeyDto.appearance,
             isActive: true,
         });
 
@@ -129,6 +130,26 @@ export class WidgetKeysService {
         const updateData: any = { ...updateWidgetKeyDto };
         if (updateData.allowedDomains) {
             updateData.allowedDomains = JSON.stringify(updateData.allowedDomains);
+        }
+
+        if (updateData.assistantId) {
+            const assistant = await this.assistantsService.getAssistantById(updateData.assistantId);
+            if (!assistant) {
+                throw new NotFoundException('Assistant not found');
+            }
+            if (assistant.userId !== userId) {
+                throw new ForbiddenException('You can only use your own assistants');
+            }
+        }
+
+        if (updateData.pbxServerId) {
+            const pbxServer = await this.pbxServersService.getById(updateData.pbxServerId);
+            if (!pbxServer) {
+                throw new NotFoundException('PbxServer not found');
+            }
+            if (!pbxServer.wss_url) {
+                throw new BadRequestException(`PbxServer ${pbxServer.name} does not have a WSS URL configured.`);
+            }
         }
 
         await widgetKey.update(updateData);

@@ -87,12 +87,17 @@ export class WidgetController {
             properties: {
                 assistantId: { type: 'string', example: 'uuid-1234-5678' },
                 assistantName: { type: 'string', example: 'Customer Support Bot' },
-                greeting: { type: 'string', example: 'Hello! How can I help you?' },
                 voice: { type: 'string', example: 'alloy' },
                 language: { type: 'string', example: 'en' },
                 wsUrl: { type: 'string', example: 'wss://pbx.example.com:8089/ws' },
                 sipDomain: { type: 'string', example: 'pbx.example.com' },
-                logo: { type: 'string', example: '/static/uuid.jpg' }
+                logo: { type: 'string', example: '/static/uuid.jpg' },
+                appearance: {
+                    type: 'object',
+                    example: { buttonColor: '#667eea', theme: 'light' }
+                },
+                maxConcurrentSessions: { type: 'number', example: 10 },
+                maxSessionDuration: { type: 'number', example: 600 }
             }
         }
     })
@@ -128,12 +133,14 @@ export class WidgetController {
         return {
             assistantId: assistant.uniqueId,
             assistantName: widgetKey.name || assistant.name,
-            greeting: assistant.greeting || 'Hello! How can I assist you today?',
             voice: assistant.voice,
             language: widgetKey.language || 'en',
             wsUrl: wsUrl,
             sipDomain: pbxServer?.sip_host ? pbxServer.sip_host.split(':')[0] : undefined,
             logo: widgetKey.logo ? `/static/${widgetKey.logo}` : undefined,
+            appearance: widgetKey.appearance ? JSON.parse(widgetKey.appearance) : undefined,
+            maxConcurrentSessions: widgetKey.maxConcurrentSessions,
+            maxSessionDuration: widgetKey.maxSessionDuration,
         };
     }
 }

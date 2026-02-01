@@ -44,13 +44,15 @@ export class WidgetKeysController {
         },
     })
     @ApiResponse({ status: 201, description: 'Logo uploaded successfully' })
-    async uploadLogo(@UploadedFile(
-        new ParseFilePipe({
-            validators: [
-                new FileTypeValidator({ fileType: '.(png|jpeg|jpg)' }),
-            ],
-        }),
-    ) file: any) {
+    async uploadLogo(
+        @UploadedFile(
+            new ParseFilePipe({
+                validators: [
+                    new FileTypeValidator({ fileType: '.(png|jpeg|jpg)' }),
+                ],
+            }),
+        ) file: any,
+    ) {
         const filename = await this.widgetKeysService.uploadLogo(file);
         return { logo: filename };
     }

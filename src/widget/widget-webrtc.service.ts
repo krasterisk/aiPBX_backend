@@ -5,6 +5,7 @@ import { AiCdrService } from '../ai-cdr/ai-cdr.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Assistant } from '../assistants/assistants.model';
 import { Injectable, Logger } from '@nestjs/common';
+import { TelegramService } from '../telegram/telegram.service';
 
 interface WidgetPeerSession {
     sessionId: string;
@@ -33,6 +34,7 @@ export class WidgetWebRTCService {
         private openAiService: OpenAiService,
         private aiCdrService: AiCdrService,
         private eventEmitter: EventEmitter2,
+        private telegramService: TelegramService,
     ) { }
 
     async handleOffer(
@@ -86,6 +88,16 @@ export class WidgetWebRTCService {
             timestamp: 0,
         };
         this.peers.set(session.sessionId, peerSession);
+
+        // Notify via Telegram
+        const tgMessage = `<b>📞 New Widget Call Started</b>\n\n` +
+            `<b>Domain:</b> ${domain}\n` +
+            `<b>Assistant:</b> ${assistant.name}\n` +
+            `<b>IP Address:</b> ${metadata.ipAddress || 'unknown'}\n` +
+            `<b>Session ID:</b> <code>${session.sessionId}</code>`;
+
+        this.telegramService.sendMessage(tgMessage, { parse_mode: 'HTML' })
+            .catch(err => this.logger.warn(`Failed to send Telegram notification: ${err.message}`));
 
         // Handle incoming audio track from browser
         peerConnection.onTrack.subscribe((track) => {

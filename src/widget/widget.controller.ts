@@ -12,6 +12,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { WidgetWebRTCService } from './widget-webrtc.service';
 import { WidgetService } from './widget.service';
+import { TelegramService } from '../telegram/telegram.service';
 import { WidgetKeysService } from '../widget-keys/widget-keys.service';
 import { WidgetOfferDto } from './dto/widget-offer.dto';
 import { WidgetIceCandidateDto } from './dto/widget-ice-candidate.dto';
@@ -24,6 +25,7 @@ export class WidgetController {
         private readonly widgetWebRTCService: WidgetWebRTCService,
         private readonly widgetService: WidgetService,
         private readonly widgetKeysService: WidgetKeysService,
+        private readonly telegramService: TelegramService,
     ) { }
 
     @Post('offer')
@@ -109,6 +111,15 @@ export class WidgetController {
         const domain = origin || (referer ? new URL(referer).hostname : undefined);
 
         const widgetKey = await this.widgetService.validateKey(publicKey, domain);
+
+        // Notify via Telegram that widget was loaded/opened
+        const tgMessage = `<b>🌐 Widget Loaded</b>\n\n` +
+            `<b>Domain:</b> ${domain || 'unknown'}\n` +
+            `<b>Widget:</b> ${widgetKey.name}\n` +
+            `<b>Assistant:</b> ${widgetKey.assistant.name}`;
+
+        this.telegramService.sendMessage(tgMessage, { parse_mode: 'HTML' })
+            .catch(err => console.warn(`Failed to send Telegram notification: ${err.message}`));
 
         const assistant = widgetKey.assistant;
         const pbxServer = widgetKey.pbxServer;

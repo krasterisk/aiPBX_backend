@@ -33,7 +33,7 @@ import { WidgetModule } from './widget/widget.module';
             envFilePath: `.${process.env.NODE_ENV}.env`
         }),
         ServeStaticModule.forRoot({
-            rootPath: path.resolve(__dirname, 'static'),
+            rootPath: path.resolve(process.cwd(), 'static'),
             serveRoot: '/static',
         }),
         SequelizeModule.forRootAsync({

@@ -1,4 +1,4 @@
-import {HttpException, HttpStatus, Injectable} from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as uuid from 'uuid';
@@ -14,9 +14,9 @@ export class FilesService {
             // const fileExt =
             const fileName = uuid.v4() + '.jpg'
 
-            const filePath = path.resolve(__dirname, '..', 'static')
+            const filePath = path.resolve(process.cwd(), 'static')
             if (!fs.existsSync(filePath)) {
-                fs.mkdirSync(filePath, {recursive: true})
+                fs.mkdirSync(filePath, { recursive: true })
             }
 
             const compressedBuffer = await sharp(file.buffer)
@@ -27,7 +27,7 @@ export class FilesService {
 
             return fileName
         } catch (e) {
-            throw new HttpException('Write file error'+e, HttpStatus.INTERNAL_SERVER_ERROR)
+            throw new HttpException('Write file error' + e, HttpStatus.INTERNAL_SERVER_ERROR)
         }
 
     }

@@ -89,24 +89,26 @@ export class WidgetController {
                 assistantName: { type: 'string', example: 'Customer Support Bot' },
                 greeting: { type: 'string', example: 'Hello! How can I help you?' },
                 voice: { type: 'string', example: 'alloy' },
+                language: { type: 'string', example: 'en' },
                 wsUrl: { type: 'string', example: 'wss://pbx.example.com:8089/ws' },
-                sipDomain: { type: 'string', example: 'pbx.example.com' }
+                sipDomain: { type: 'string', example: 'pbx.example.com' },
+                logo: { type: 'string', example: '/static/uuid.jpg' }
             }
         }
     })
 
     @ApiResponse({ status: 404, description: 'Widget key not found' })
-    @ApiResponse({ status: 403, description: 'Widget key is not active' })
-    async getConfig(@Param('publicKey') publicKey: string): Promise<any> {
-        const widgetKey = await this.widgetKeysService.findByPublicKey(publicKey);
+    @ApiResponse({ status: 403, description: 'Widget key is not active or domain not allowed' })
+    @ApiResponse({ status: 400, description: 'Max concurrent sessions reached' })
+    async getConfig(
+        @Param('publicKey') publicKey: string,
+        @Headers('origin') origin?: string,
+        @Headers('referer') referer?: string,
+    ): Promise<any> {
+        // Determine domain from Origin or Referer header
+        const domain = origin || (referer ? new URL(referer).hostname : undefined);
 
-        if (!widgetKey) {
-            throw new Error('Widget key not found');
-        }
-
-        if (!widgetKey.isActive) {
-            throw new Error('Widget key is not active');
-        }
+        const widgetKey = await this.widgetService.validateKey(publicKey, domain);
 
         const assistant = widgetKey.assistant;
         const pbxServer = widgetKey.pbxServer;
@@ -125,11 +127,13 @@ export class WidgetController {
 
         return {
             assistantId: assistant.uniqueId,
-            assistantName: assistant.name,
+            assistantName: widgetKey.name || assistant.name,
             greeting: assistant.greeting || 'Hello! How can I assist you today?',
             voice: assistant.voice,
+            language: widgetKey.language || 'en',
             wsUrl: wsUrl,
-            sipDomain: pbxServer?.sip_host ? pbxServer.sip_host.split(':')[0] : undefined
+            sipDomain: pbxServer?.sip_host ? pbxServer.sip_host.split(':')[0] : undefined,
+            logo: widgetKey.logo ? `/static/${widgetKey.logo}` : undefined,
         };
     }
 }

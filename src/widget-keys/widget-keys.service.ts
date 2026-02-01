@@ -1,4 +1,5 @@
 import { PbxServersService } from '../pbx-servers/pbx-servers.service';
+import { FilesService } from '../files/files.service';
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { WidgetKey } from './widget-keys.model';
@@ -16,6 +17,7 @@ export class WidgetKeysService {
         private widgetKeyModel: typeof WidgetKey,
         private assistantsService: AssistantsService,
         private pbxServersService: PbxServersService,
+        private filesService: FilesService,
     ) { }
 
     async create(userId: number, createWidgetKeyDto: CreateWidgetKeyDto): Promise<WidgetKey> {
@@ -54,6 +56,9 @@ export class WidgetKeysService {
             pbxServerId: createWidgetKeyDto.pbxServerId,
             allowedDomains: allowedDomainsJson,
             maxConcurrentSessions: createWidgetKeyDto.maxConcurrentSessions || 10,
+            maxSessionDuration: createWidgetKeyDto.maxSessionDuration || 600,
+            language: createWidgetKeyDto.language || 'en',
+            logo: createWidgetKeyDto.logo,
             isActive: true,
         });
 
@@ -155,5 +160,9 @@ export class WidgetKeysService {
             this.logger.error(`Failed to parse allowedDomains for key ${widgetKey.publicKey}: ${error.message}`);
             return false;
         }
+    }
+
+    async uploadLogo(image: any): Promise<string> {
+        return this.filesService.createFile(image);
     }
 }

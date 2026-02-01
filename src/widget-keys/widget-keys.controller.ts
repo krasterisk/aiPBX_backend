@@ -8,8 +8,13 @@ import {
     Param,
     UseGuards,
     Request,
+    UseInterceptors,
+    UploadedFile,
+    ParseFilePipe,
+    FileTypeValidator,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { WidgetKeysService } from './widget-keys.service';
 import { CreateWidgetKeyDto } from './dto/create-widget-key.dto';
 import { UpdateWidgetKeyDto } from './dto/update-widget-key.dto';
@@ -22,6 +27,33 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 @Controller('widget-keys')
 export class WidgetKeysController {
     constructor(private readonly widgetKeysService: WidgetKeysService) { }
+
+    @Post('logo')
+    @UseInterceptors(FileInterceptor('image'))
+    @ApiOperation({ summary: 'Upload widget logo' })
+    @ApiConsumes('multipart/form-data')
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: {
+                image: {
+                    type: 'string',
+                    format: 'binary',
+                },
+            },
+        },
+    })
+    @ApiResponse({ status: 201, description: 'Logo uploaded successfully' })
+    async uploadLogo(@UploadedFile(
+        new ParseFilePipe({
+            validators: [
+                new FileTypeValidator({ fileType: '.(png|jpeg|jpg)' }),
+            ],
+        }),
+    ) file: any) {
+        const filename = await this.widgetKeysService.uploadLogo(file);
+        return { logo: filename };
+    }
 
     @Post()
     @ApiOperation({ summary: 'Create a new widget key' })

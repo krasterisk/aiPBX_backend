@@ -78,15 +78,28 @@ export class CreateWidgetKeyDto {
     @Max(100)
     maxConcurrentSessions?: number;
 
-    @ApiProperty({
-        example: 600,
-        description: 'Maximum session duration in seconds (60-3600)',
-        required: false,
-        default: 600
-    })
     @IsOptional()
     @IsNumber()
     @Min(60)
     @Max(3600)
     maxSessionDuration?: number;
+
+    @ApiProperty({
+        example: 'en',
+        description: 'Default language for the widget',
+        required: false,
+        default: 'en'
+    })
+    @IsOptional()
+    @IsString()
+    language?: string;
+
+    @ApiProperty({
+        example: 'logo.png',
+        description: 'Widget logo filename',
+        required: false
+    })
+    @IsOptional()
+    @IsString()
+    logo?: string;
 }

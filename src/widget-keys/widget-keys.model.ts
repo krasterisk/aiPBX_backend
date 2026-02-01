@@ -14,6 +14,8 @@ interface WidgetKeyCreationAttrs {
     maxConcurrentSessions?: number;
     maxSessionDuration?: number; // In seconds
     isActive?: boolean;
+    language?: string;
+    logo?: string;
 }
 
 @Table({ tableName: "widget_keys" })
@@ -56,9 +58,17 @@ export class WidgetKey extends Model<WidgetKey, WidgetKeyCreationAttrs> {
     @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 600 })
     maxSessionDuration: number;
 
+    @ApiProperty({ example: 'en', description: "Default language for the widget", default: 'en' })
+    @Column({ type: DataType.STRING, allowNull: false, defaultValue: 'en' })
+    language: string;
+
     @ApiProperty({ example: true, description: "Is key active" })
     @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
     isActive: boolean;
+
+    @ApiProperty({ example: 'logo.png', description: "Widget logo filename" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    logo: string;
 
     @BelongsTo(() => User)
     user: User;

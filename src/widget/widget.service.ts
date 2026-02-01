@@ -21,36 +21,8 @@ export class WidgetService {
         peerId: string,
         metadata: { userAgent?: string; ipAddress?: string }
     ): Promise<WidgetSession> {
-        // 1. Validate public key
-        const widgetKey = await this.widgetKeysService.findByPublicKey(publicKey);
-
-        if (!widgetKey) {
-            throw new NotFoundException('Widget key not found');
-        }
-
-        if (!widgetKey.isActive) {
-            throw new ForbiddenException('Widget key is not active');
-        }
-
-        // 2. Validate domain
-        const isDomainValid = await this.widgetKeysService.validateDomain(widgetKey, domain);
-
-        if (!isDomainValid) {
-            this.logger.warn(`Blocked widget connection attempt from unauthorized domain: ${domain} for key ${publicKey}`);
-            throw new ForbiddenException('Domain not allowed for this widget key');
-        }
-
-        // 3. Check concurrent session limits
-        const activeSessionsCount = await this.widgetSessionModel.count({
-            where: {
-                widgetKeyId: widgetKey.id,
-                isActive: true,
-            },
-        });
-
-        if (activeSessionsCount >= widgetKey.maxConcurrentSessions) {
-            throw new BadRequestException(`Maximum concurrent sessions limit reached (${widgetKey.maxConcurrentSessions})`);
-        }
+        // 1-3. Validate key, domain, and session limits using shared logic
+        const widgetKey = await this.validateKey(publicKey, domain);
 
         // 4. Create session
         const sessionId = `sess_${nanoid(21)}`;
@@ -133,5 +105,39 @@ export class WidgetService {
         if (cleanupCount > 0) {
             this.logger.log(`Cleaned up ${cleanupCount} expired widget sessions from database`);
         }
+    }
+
+    async validateKey(publicKey: string, domain?: string): Promise<any> {
+        const widgetKey = await this.widgetKeysService.findByPublicKey(publicKey);
+
+        if (!widgetKey) {
+            throw new NotFoundException('Widget key not found');
+        }
+
+        if (!widgetKey.isActive) {
+            throw new ForbiddenException('Widget key is not active');
+        }
+
+        if (domain) {
+            const isDomainValid = await this.widgetKeysService.validateDomain(widgetKey, domain);
+            if (!isDomainValid) {
+                this.logger.warn(`Blocked widget config/connection attempt from unauthorized domain: ${domain} for key ${publicKey}`);
+                throw new ForbiddenException('Domain not allowed for this widget key');
+            }
+        }
+
+        // Check concurrent session limits
+        const activeSessionsCount = await this.widgetSessionModel.count({
+            where: {
+                widgetKeyId: widgetKey.id,
+                isActive: true,
+            },
+        });
+
+        if (activeSessionsCount >= widgetKey.maxConcurrentSessions) {
+            throw new BadRequestException(`Maximum concurrent sessions limit reached (${widgetKey.maxConcurrentSessions})`);
+        }
+
+        return widgetKey;
     }
 }

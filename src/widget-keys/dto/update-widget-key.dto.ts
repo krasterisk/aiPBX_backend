@@ -74,12 +74,25 @@ export class UpdateWidgetKeyDto {
     @Max(3600)
     maxSessionDuration?: number;
 
-    @ApiProperty({
-        example: true,
-        description: 'Is widget key active',
-        required: false
-    })
     @IsOptional()
     @IsBoolean()
     isActive?: boolean;
+
+    @ApiProperty({
+        example: 'en',
+        description: 'Default language for the widget',
+        required: false
+    })
+    @IsOptional()
+    @IsString()
+    language?: string;
+
+    @ApiProperty({
+        example: 'logo.png',
+        description: 'Widget logo filename',
+        required: false
+    })
+    @IsOptional()
+    @IsString()
+    logo?: string;
 }

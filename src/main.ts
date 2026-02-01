@@ -7,7 +7,7 @@ async function start() {
     console.log(`${process.env.NODE_ENV}`)
     const PORT = process.env.PORT
     const app = await NestFactory.create(AppModule, { rawBody: true })
-    app.setGlobalPrefix('api')
+    app.setGlobalPrefix('api', { exclude: ['static/(.*)'] })
 
 
     const config = new DocumentBuilder()

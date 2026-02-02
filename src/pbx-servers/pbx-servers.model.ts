@@ -6,6 +6,8 @@ import { Assistant } from "../assistants/assistants.model";
 interface CreatePbxServer {
     userId: string
     host: number
+    cloudPbx?: boolean
+    context?: string
 }
 
 @Table({ tableName: "PbxServers" })
@@ -36,6 +38,15 @@ export class PbxServers extends Model<PbxServers, CreatePbxServer> {
     @ApiProperty({ example: '123', description: "ari password" })
     @Column({ type: DataType.STRING, allowNull: false })
     password: string;
+
+    @ApiProperty({ example: true, description: "Is cloud PBX available to all users" })
+    @Column({ type: DataType.BOOLEAN, defaultValue: false })
+    cloudPbx: boolean;
+
+    @ApiProperty({ example: 'from-internal', description: "dialplan context for transfers" })
+    @Column({ type: DataType.STRING })
+    context: string;
+
     @ApiProperty({ example: 'any comment', description: "comment" })
     @Column({ type: DataType.STRING, allowNull: true })
     comment: string;

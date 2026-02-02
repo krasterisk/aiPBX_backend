@@ -79,7 +79,7 @@ export class PbxServersService {
         }
     }
 
-    async get(query: GetPbxDto) {
+    async get(query: GetPbxDto, userId?: string, isAdmin?: boolean) {
         try {
             const page = Number(query.page);
             const limit = Number(query.limit);
@@ -97,12 +97,23 @@ export class PbxServersService {
                 ]
             };
 
+            if (!isAdmin && userId) {
+                whereClause = {
+                    [sequelize.Op.and]: [
+                        whereClause,
+                        { userId: Number(userId) }
+                    ]
+                };
+            }
 
             const pbxServers = await this.pbxServersRepository.findAndCountAll({
                 offset,
                 limit,
                 distinct: true,
-                where: whereClause
+                where: whereClause,
+                attributes: {
+                    exclude: isAdmin ? [] : ['cloudPbx']
+                }
             });
             return pbxServers;
         } catch (e) {
@@ -111,9 +122,15 @@ export class PbxServersService {
         }
     }
 
-    async getAll() {
+    async getAll(userId?: string, isAdmin?: boolean) {
         try {
-            const pbxServers = await this.pbxServersRepository.findAll()
+            const whereClause = (!isAdmin && userId) ? { userId: Number(userId) } : {};
+            const pbxServers = await this.pbxServersRepository.findAll({
+                where: whereClause,
+                attributes: {
+                    exclude: isAdmin ? [] : ['cloudPbx']
+                }
+            })
             if (pbxServers) {
                 return pbxServers
             }
@@ -123,21 +140,20 @@ export class PbxServersService {
         }
     }
 
-    async getForAll() {
+    async getForAll(userId?: string, isAdmin?: boolean) {
         try {
+            const whereClause = (!isAdmin && userId) ? { userId: Number(userId) } : {};
             const pbxServers = await this.pbxServersRepository.findAll({
-                include: [
-                    {
-                        attributes: {
-                            exclude: [
-                                "password",
-                                "ari_url",
-                                "ari_user",
-                                "password"
-                            ]
-                        }
-                    }
-                ]
+                where: whereClause,
+                attributes: {
+                    exclude: [
+                        "password",
+                        "ari_url",
+                        "ari_user",
+                        "password",
+                        ...(isAdmin ? [] : ['cloudPbx'])
+                    ]
+                }
             })
             if (pbxServers) {
                 return pbxServers
@@ -145,6 +161,39 @@ export class PbxServersService {
         } catch (e) {
             this.logger.error("Get pbx servers error: ", e.name, e.message)
             new HttpException({ message: 'Get pbx servers error' }, HttpStatus.BAD_REQUEST)
+        }
+    }
+
+    async getCloudPbx(isAdmin?: boolean) {
+        try {
+            return await this.pbxServersRepository.findAll({
+                where: { cloudPbx: true },
+                attributes: {
+                    exclude: isAdmin ? [] : ['cloudPbx']
+                }
+            });
+        } catch (e) {
+            this.logger.error("Get cloud pbx error", e);
+            throw new HttpException('Get cloud pbx error', HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    async getCloudAndUserPbx(userId: string, isAdmin?: boolean) {
+        try {
+            return await this.pbxServersRepository.findAll({
+                where: {
+                    [sequelize.Op.or]: [
+                        { cloudPbx: true },
+                        { userId: Number(userId) }
+                    ]
+                },
+                attributes: {
+                    exclude: isAdmin ? [] : ['cloudPbx']
+                }
+            });
+        } catch (e) {
+            this.logger.error("Get cloud and user pbx error", e);
+            throw new HttpException('Get cloud and user pbx error', HttpStatus.BAD_REQUEST);
         }
     }
 
@@ -167,7 +216,7 @@ export class PbxServersService {
     async createSipUri(dto: SipAccountDto, userId: string) {
         try {
 
-            const { assistantId, serverId, ipAddress } = dto;
+            const { assistantId, serverId, ipAddress, records, tls } = dto;
 
             if (!serverId) {
                 this.logger.error("Pbx server is empty")
@@ -190,7 +239,7 @@ export class PbxServersService {
             // }
 
             const pbx = await this.pbxServersRepository.findOne({
-                where: { id: serverId },
+                where: { id: Number(serverId) },
             })
 
             if (!pbx) {
@@ -217,9 +266,11 @@ export class PbxServersService {
                 defaults: {
                     sipUri,
                     ipAddress,
-                    pbxId: serverId,
+                    pbxId: Number(serverId),
                     userId: Number(userVal) || assistant.userId,
-                    assistantId: assistant.id
+                    assistantId: assistant.id,
+                    records: records || false,
+                    tls: tls || false
                 }
             });
 
@@ -227,8 +278,10 @@ export class PbxServersService {
                 await sipAccount.update({
                     sipUri,
                     ipAddress,
-                    pbxId: serverId,
-                    userId: Number(userVal) || assistant.userId
+                    pbxId: Number(serverId),
+                    userId: Number(userVal) || assistant.userId,
+                    records: records ?? sipAccount.records,
+                    tls: tls ?? sipAccount.tls
                 });
             }
 
@@ -243,7 +296,15 @@ export class PbxServersService {
                 Authorization: `Bearer ${token}`
             };
 
-            const body = { assistantId: assistant.uniqueId, ipAddress, serverId, userId: userVal };
+            const body = {
+                assistantId: assistant.uniqueId,
+                ipAddress,
+                serverId,
+                userId: userVal,
+                records: records || false,
+                tls: tls || false,
+                context: pbx.context || ''
+            };
 
             const response = await firstValueFrom(
                 this.httpService.post(apiUrl, body, { headers })
@@ -257,8 +318,12 @@ export class PbxServersService {
                 this.logger.error("SIP URI already exists")
                 throw new HttpException('SIP URI already exists', HttpStatus.BAD_REQUEST)
             }
-            this.logger.error("SIP URI create error", e.response.data)
-            throw new HttpException(e.response.data || e.message, Number(e.response.data.statusCode) || HttpStatus.BAD_REQUEST)
+            const errorData = e.response?.data;
+            this.logger.error("SIP URI create error", errorData || e.message)
+            throw new HttpException(
+                errorData?.message || errorData || e.message,
+                Number(errorData?.statusCode) || HttpStatus.BAD_REQUEST
+            )
         }
     }
 
@@ -283,7 +348,7 @@ export class PbxServersService {
             }
 
             const pbx = await this.pbxServersRepository.findOne({
-                where: { id: sipAccount.pbxId },
+                where: { id: Number(sipAccount.pbxId) },
             });
 
             if (!pbx) {
@@ -320,8 +385,12 @@ export class PbxServersService {
             return { success: true, message: 'SIP URI deleted successfully' };
 
         } catch (e) {
-            this.logger.error("SIP URI delete error", e.response?.data || e.message);
-            throw new HttpException(e.response?.data || e.message, Number(e.response?.data?.statusCode) || HttpStatus.BAD_REQUEST);
+            const errorData = e.response?.data;
+            this.logger.error("SIP URI delete error", errorData || e.message);
+            throw new HttpException(
+                errorData?.message || errorData || e.message,
+                Number(errorData?.statusCode) || HttpStatus.BAD_REQUEST
+            );
         }
     }
 }

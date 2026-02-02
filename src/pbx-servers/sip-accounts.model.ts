@@ -10,6 +10,8 @@ interface CreateSipAccount {
     pbxId?: number
     assistantId?: number
     userId?: number
+    records?: boolean
+    tls?: boolean
 }
 
 @Table({ tableName: "SipAccounts" })
@@ -20,6 +22,14 @@ export class SipAccounts extends Model<SipAccounts, CreateSipAccount> {
     @ApiProperty({ example: '1.1.1.1', description: "ip address" })
     @Column({ type: DataType.STRING, allowNull: false })
     ipAddress: string;
+
+    @ApiProperty({ example: true, description: "enable call recording" })
+    @Column({ type: DataType.BOOLEAN, defaultValue: false })
+    records: boolean;
+
+    @ApiProperty({ example: true, description: "use tls" })
+    @Column({ type: DataType.BOOLEAN, defaultValue: false })
+    tls: boolean;
 
     @ForeignKey(() => PbxServers)
     @Column({ type: DataType.INTEGER })

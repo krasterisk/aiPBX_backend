@@ -75,10 +75,17 @@ export class AriConnection {
         return new Promise((resolve, reject) => {
             // Формируем правильный URL с параметрами авторизации
             const url = new URL(this.pbxServer.ari_url);
-            const wsUrl = `ws://${url.hostname}:${url.port || 8088}/ari/events`;
+            const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+
+            // Используем host (включает порт, если он есть) и путь из настроек
+            // Если порт не указан (443/80), он не будет добавлен, что корректно для прокси
+            // Удаляем слеш в конце пути, если есть, и добавляем /events
+            const cleanPath = url.pathname.replace(/\/+$/, '');
+            const wsUrl = `${protocol}//${url.host}${cleanPath}/events`;
 
             // Добавляем параметры аутентификации в query string
             const wsUrlWithAuth = `${wsUrl}?api_key=${this.pbxServer.ari_user}:${this.pbxServer.password}&app=${this.stasisBotName}`;
+
             this.webSocket = new WebSocket(wsUrlWithAuth);
 
             this.webSocket.on('open', () => {

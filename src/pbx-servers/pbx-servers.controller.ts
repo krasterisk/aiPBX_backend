@@ -24,29 +24,45 @@ export class PbxServersController {
     @ApiResponse({ status: 200, type: PbxServers })
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
-    //    @UsePipes(ValidationPipe)
     @Get()
-    getAll() {
-        return this.pbxServersService.getAll()
+    getAll(@Req() request: RequestWithUser) {
+        return this.pbxServersService.getAll(request.tokenUserId, request.isAdmin)
     }
 
     @ApiOperation({ summary: "pbxServers list page" })
     @ApiResponse({ status: 200, type: PbxServers })
-    @Roles('ADMIN')
+    @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
-    //    @UsePipes(ValidationPipe)
     @Get('page')
-    get(@Query() query: GetPbxDto) {
-        return this.pbxServersService.get(query)
+    get(@Query() query: GetPbxDto, @Req() request: RequestWithUser) {
+        return this.pbxServersService.get(query, request.tokenUserId, request.isAdmin)
     }
 
+    @ApiOperation({ summary: "Get only cloud pbx servers" })
+    @ApiResponse({ status: 200, type: [PbxServers] })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get('cloud')
+    getCloud(@Req() request: RequestWithUser) {
+        return this.pbxServersService.getCloudPbx(request.isAdmin);
+    }
+
+    @ApiOperation({ summary: "Get cloud and user servers" })
+    @ApiResponse({ status: 200, type: [PbxServers] })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get('cloud-and-user')
+    getCloudAndUser(@Req() request: RequestWithUser) {
+        return this.pbxServersService.getCloudAndUserPbx(request.tokenUserId, request.isAdmin);
+    }
 
     @ApiOperation({ summary: "Get pbx by id" })
     @ApiResponse({ status: 200, type: [PbxServers] })
-    @Roles('ADMIN')
+    @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Get('/:id')
-    getOne(@Param('id') id: number) {
+    getOne(@Param('id') id: number, @Req() request: RequestWithUser) {
+        // We might want to add check in service to ensure user can access this ID
         return this.pbxServersService.getById(id)
     }
 
@@ -54,7 +70,6 @@ export class PbxServersController {
     @ApiResponse({ status: 200, type: PbxServers })
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
-    //    @UsePipes(ValidationPipe)
     @Post()
     create(@Body() dto: PbxDto) {
         return this.pbxServersService.create(dto)
@@ -73,7 +88,6 @@ export class PbxServersController {
     @ApiResponse({ status: 200, type: SipAccounts })
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
-    // @UsePipes(ValidationPipe)
     @Post('/create-sip-uri')
     createSipUri(
         @Body() dto: SipAccountDto,
@@ -87,7 +101,6 @@ export class PbxServersController {
     @ApiResponse({ status: 200 })
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
-    //    @UsePipes(ValidationPipe)
     @Delete('/delete-sip-uri')
     deleteSipUri(
         @Body() dto: SipAccountDto,
@@ -99,7 +112,7 @@ export class PbxServersController {
 
     @ApiOperation({ summary: "Get pbx status" })
     @ApiResponse({ status: 200, schema: { properties: { online: { type: 'boolean' } } } })
-    @Roles('ADMIN')
+    @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Get('/:uniqueId/status')
     getStatus(@Param('uniqueId') uniqueId: string) {

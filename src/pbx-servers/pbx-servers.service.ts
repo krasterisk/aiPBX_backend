@@ -215,87 +215,38 @@ export class PbxServersService {
 
     async createSipUri(dto: SipAccountDto, userId: string) {
         try {
+            const { assistantId, serverId, ipAddress, records, tls, active } = dto;
 
-            const { assistantId, serverId, ipAddress, records, tls } = dto;
+            if (!serverId) throw new HttpException('Pbx server not found', HttpStatus.NOT_FOUND);
+            if (!assistantId) throw new HttpException('Assistant ID is empty', HttpStatus.NOT_FOUND);
+            if (!ipAddress) throw new HttpException('IP address is empty', HttpStatus.NOT_FOUND);
 
-            if (!serverId) {
-                this.logger.error("Pbx server is empty")
-                throw new HttpException('Pbx server not found', HttpStatus.NOT_FOUND)
-            }
+            const pbx = await this.pbxServersRepository.findOne({ where: { id: Number(serverId) } });
+            if (!pbx) throw new HttpException('Pbx server not found', HttpStatus.NOT_FOUND);
 
-            if (!assistantId) {
-                this.logger.error("Assistant ID is empty")
-                throw new HttpException('Assistant ID is empty', HttpStatus.NOT_FOUND)
-            }
+            const assistant = await this.AssistantRepository.findOne({ where: { id: Number(assistantId) } });
+            if (!assistant) throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND);
 
-            if (!ipAddress) {
-                this.logger.error("IP address is empty")
-                throw new HttpException('Assistant ID is empty', HttpStatus.NOT_FOUND)
-            }
-
-            // if(!userId) {
-            //     this.logger.error("UserId is empty")
-            //     throw new HttpException('Account creation error', HttpStatus.NOT_FOUND)
-            // }
-
-            const pbx = await this.pbxServersRepository.findOne({
-                where: { id: Number(serverId) },
-            })
-
-            if (!pbx) {
-                this.logger.error("Pbx server not found")
-                throw new HttpException('Pbx server not found', HttpStatus.NOT_FOUND)
-            }
-
-            const assistant = await this.AssistantRepository.findOne({
-                where: { id: Number(assistantId) },
-            })
-
-            if (!assistant) {
-                this.logger.error("Assistant not found")
-                throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
-            }
+            const existingSip = await this.SipAccountsRepository.findOne({ where: { assistantId: assistant.id } });
+            if (existingSip) throw new HttpException('SIP URI already exists for this assistant', HttpStatus.BAD_REQUEST);
 
             const sipUri = `${assistant.uniqueId}@${pbx.sip_host}`;
+            const userVal = userId || 1;
 
-            const userVal = userId || 1
-
-            // Upsert SipAccount record
-            const [sipAccount, created] = await this.SipAccountsRepository.findOrCreate({
-                where: { assistantId: assistant.id },
-                defaults: {
-                    sipUri,
-                    ipAddress,
-                    pbxId: Number(serverId),
-                    userId: Number(userVal) || assistant.userId,
-                    assistantId: assistant.id,
-                    records: records || false,
-                    tls: tls || false
-                }
+            await this.SipAccountsRepository.create({
+                sipUri,
+                ipAddress,
+                pbxId: Number(serverId),
+                userId: Number(userVal) || assistant.userId,
+                assistantId: assistant.id,
+                records: records || false,
+                tls: tls || false,
+                active: active !== undefined ? active : true
             });
 
-            if (!created) {
-                await sipAccount.update({
-                    sipUri,
-                    ipAddress,
-                    pbxId: Number(serverId),
-                    userId: Number(userVal) || assistant.userId,
-                    records: records ?? sipAccount.records,
-                    tls: tls ?? sipAccount.tls
-                });
-            }
-
             const apiUrl = `https://${pbx.sip_host}/api/?action=createSipUri`;
-
-            const token = crypto
-                .createHash('sha256')
-                .update(`${assistant.uniqueId}:${ipAddress}:${serverId}:${userVal}`)
-                .digest('hex');
-            const headers = {
-                'Content-Type': 'application/json;charset=utf-8',
-                Authorization: `Bearer ${token}`
-            };
-
+            const token = crypto.createHash('sha256').update(`${assistant.uniqueId}:${ipAddress}:${serverId}:${userVal}`).digest('hex');
+            const headers = { 'Content-Type': 'application/json;charset=utf-8', Authorization: `Bearer ${token}` };
             const body = {
                 assistantId: assistant.uniqueId,
                 ipAddress,
@@ -303,28 +254,84 @@ export class PbxServersService {
                 userId: userVal,
                 records: records || false,
                 tls: tls || false,
-                context: pbx.context || ''
+                active: active !== undefined ? active : true,
+                context: pbx.context || '',
+                moh: pbx.moh || 'default',
+                recordFormat: pbx.recordFormat || 'wav'
             };
 
-            const response = await firstValueFrom(
-                this.httpService.post(apiUrl, body, { headers })
-            );
-
-            // return response.data
-            return { success: true, sipUri }
+            await firstValueFrom(this.httpService.post(apiUrl, body, { headers }));
+            return { success: true, sipUri };
 
         } catch (e) {
-            if (e.name === 'SequelizeUniqueConstraintError') {
-                this.logger.error("SIP URI already exists")
-                throw new HttpException('SIP URI already exists', HttpStatus.BAD_REQUEST)
-            }
-            const errorData = e.response?.data;
-            this.logger.error("SIP URI create error", errorData || e.message)
-            throw new HttpException(
-                errorData?.message || errorData || e.message,
-                Number(errorData?.statusCode) || HttpStatus.BAD_REQUEST
-            )
+            this.handleSipUriError(e, "create");
         }
+    }
+
+    async updateSipUri(dto: SipAccountDto, userId: string) {
+        try {
+            const { assistantId, serverId, ipAddress, records, tls, active } = dto;
+
+            const sipAccount = await this.SipAccountsRepository.findOne({ where: { assistantId: Number(assistantId) } });
+            if (!sipAccount) throw new HttpException('SIP URI not found', HttpStatus.NOT_FOUND);
+
+            const pbxId = serverId ? Number(serverId) : sipAccount.pbxId;
+            const pbx = await this.pbxServersRepository.findOne({ where: { id: pbxId } });
+            if (!pbx) throw new HttpException('Pbx server not found', HttpStatus.NOT_FOUND);
+
+            const assistant = await this.AssistantRepository.findOne({ where: { id: sipAccount.assistantId } });
+            if (!assistant) throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND);
+
+            const sipUri = `${assistant.uniqueId}@${pbx.sip_host}`;
+            const userVal = userId || 1;
+
+            await sipAccount.update({
+                sipUri,
+                ipAddress: ipAddress ?? sipAccount.ipAddress,
+                pbxId: pbxId,
+                userId: Number(userVal),
+                records: records ?? sipAccount.records,
+                tls: tls ?? sipAccount.tls,
+                active: active ?? sipAccount.active
+            });
+
+            // Even for update, we call the same external API to sync settings
+            const apiUrl = `https://${pbx.sip_host}/api/?action=createSipUri`;
+            const token = crypto.createHash('sha256').update(`${assistant.uniqueId}:${ipAddress ?? sipAccount.ipAddress}:${pbxId}:${userVal}`).digest('hex');
+            const headers = { 'Content-Type': 'application/json;charset=utf-8', Authorization: `Bearer ${token}` };
+            const body = {
+                assistantId: assistant.uniqueId,
+                ipAddress: ipAddress ?? sipAccount.ipAddress,
+                serverId: pbxId,
+                userId: userVal,
+                records: records ?? sipAccount.records,
+                tls: tls ?? sipAccount.tls,
+                active: active ?? sipAccount.active,
+                context: pbx.context || '',
+                moh: pbx.moh || 'default',
+                recordFormat: pbx.recordFormat || 'wav'
+            };
+
+            await firstValueFrom(this.httpService.post(apiUrl, body, { headers }));
+            return { success: true, sipUri };
+
+        } catch (e) {
+            this.handleSipUriError(e, "update");
+        }
+    }
+
+    private handleSipUriError(e: any, action: string) {
+        if (e instanceof HttpException) throw e;
+        if (e.name === 'SequelizeUniqueConstraintError') {
+            this.logger.error(`SIP URI ${action} error: already exists`);
+            throw new HttpException('SIP URI already exists', HttpStatus.BAD_REQUEST);
+        }
+        const errorData = e.response?.data;
+        this.logger.error(`SIP URI ${action} error`, errorData || e.message);
+        throw new HttpException(
+            errorData?.message || errorData || e.message,
+            Number(errorData?.statusCode) || HttpStatus.BAD_REQUEST
+        );
     }
 
     async deleteSipUri(dto: SipAccountDto, userId: string) {

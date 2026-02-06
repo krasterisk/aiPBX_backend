@@ -341,7 +341,7 @@ export class OpenAiService implements OnModuleInit {
                         item.type === "function_call"
                     ) {
                         if (item.name === 'transfer_call') {
-                            this.logger.log('Переводим вызов на сотрудника')
+                            this.logger.log('transfering call')
 
                             let args: any = {};
                             try {
@@ -349,7 +349,7 @@ export class OpenAiService implements OnModuleInit {
                                     ? JSON.parse(item.arguments)
                                     : item.arguments;
                             } catch (e) {
-                                this.logger.error('Ошибка парсинга arguments:', e);
+                                this.logger.error('Error parsing arguments:', e);
                             }
 
                             const hasExtension = args?.exten && args.exten.trim() !== '';
@@ -364,7 +364,7 @@ export class OpenAiService implements OnModuleInit {
                                 this.eventEmitter.emit(`transferToDialplan.${currentSession.channelId}`, params)
                             }
                         } else if (item.name === 'hangup_call') {
-                            this.logger.log('Завершаем вызов')
+                            this.logger.log('hangup call')
                             this.eventEmitter.emit(`HangupCall.${currentSession.channelId}`)
                         } else {
                             const result = await this.aiToolsHandlersService.functionHandler(item.name, item.arguments, assistant)
@@ -454,7 +454,7 @@ export class OpenAiService implements OnModuleInit {
                 this.logger.warn(`[updateRtAudioSession] Full assistant object keys: ${Object.keys(assistant).join(', ')}`);
             }
 
-            const instructions = (assistant.greeting || '') + (assistant.instruction || '') + customer_phone
+            const instructions = (assistant.instruction || '') + customer_phone
 
             this.logger.log(`[updateRtAudioSession] Final instructions length: ${instructions.length} characters`);
 

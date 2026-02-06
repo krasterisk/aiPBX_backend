@@ -97,6 +97,19 @@ export class PbxServersController {
         return this.pbxServersService.createSipUri(dto, userId)
     }
 
+    @ApiOperation({ summary: "Update SIP URI" })
+    @ApiResponse({ status: 200, type: SipAccounts })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Patch('/update-sip-uri')
+    updateSipUri(
+        @Body() dto: SipAccountDto,
+        @Req() request: RequestWithUser
+    ) {
+        const userId = request.tokenUserId
+        return this.pbxServersService.updateSipUri(dto, userId)
+    }
+
     @ApiOperation({ summary: "Delete SIP URI" })
     @ApiResponse({ status: 200 })
     @Roles('ADMIN', 'USER')

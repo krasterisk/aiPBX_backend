@@ -12,6 +12,7 @@ interface CreateSipAccount {
     userId?: number
     records?: boolean
     tls?: boolean
+    active?: boolean
 }
 
 @Table({ tableName: "SipAccounts" })
@@ -22,6 +23,10 @@ export class SipAccounts extends Model<SipAccounts, CreateSipAccount> {
     @ApiProperty({ example: '1.1.1.1', description: "ip address" })
     @Column({ type: DataType.STRING, allowNull: false })
     ipAddress: string;
+
+    @ApiProperty({ example: true, description: "is sip uri active" })
+    @Column({ type: DataType.BOOLEAN, defaultValue: true })
+    active: boolean;
 
     @ApiProperty({ example: true, description: "enable call recording" })
     @Column({ type: DataType.BOOLEAN, defaultValue: false })

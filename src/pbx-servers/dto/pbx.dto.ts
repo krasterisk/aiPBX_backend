@@ -23,4 +23,12 @@ export class PbxDto {
     @IsOptional()
     @IsString()
     readonly context?: string;
+
+    @IsOptional()
+    @IsString()
+    readonly moh?: string;
+
+    @IsOptional()
+    @IsString()
+    readonly recordFormat?: string;
 }

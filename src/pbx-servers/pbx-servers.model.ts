@@ -8,6 +8,8 @@ interface CreatePbxServer {
     host: number
     cloudPbx?: boolean
     context?: string
+    moh?: string
+    recordFormat?: string
 }
 
 @Table({ tableName: "PbxServers" })
@@ -46,6 +48,14 @@ export class PbxServers extends Model<PbxServers, CreatePbxServer> {
     @ApiProperty({ example: 'from-internal', description: "dialplan context for transfers" })
     @Column({ type: DataType.STRING })
     context: string;
+
+    @ApiProperty({ example: 'default', description: "music on hold class" })
+    @Column({ type: DataType.STRING, defaultValue: 'default' })
+    moh: string;
+
+    @ApiProperty({ example: 'wav', description: "recording format" })
+    @Column({ type: DataType.STRING, defaultValue: 'wav' })
+    recordFormat: string;
 
     @ApiProperty({ example: 'any comment', description: "comment" })
     @Column({ type: DataType.STRING, allowNull: true })

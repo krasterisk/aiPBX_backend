@@ -22,4 +22,9 @@ export class SipAccountDto {
     @IsBoolean()
     @Transform(({ value }) => value === 'true' || value === true)
     readonly tls?: boolean;
+
+    @IsOptional()
+    @IsBoolean()
+    @Transform(({ value }) => value === 'true' || value === true)
+    readonly active?: boolean;
 }

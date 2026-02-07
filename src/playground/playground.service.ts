@@ -134,10 +134,9 @@ export class PlaygroundService implements OnModuleInit {
             // Listen for connected event
             this.eventEmitter.once(`openai.connected.${channelId}`, onConnected);
 
-            // Fallback/Timeout safety (if connection is already open or event missed)
-            // But since we just created it, it should trigger. 
-            // We can check if it's already open by sending a ping or check internal state if we had access.
-            // For now, let's rely on the event.
+            // ✅ Manual CDR Creation to ensure record exists
+            this.logger.log(`[Init] Creating CDR record manually for ${channelId}`);
+            await this.openAiService.cdrCreateLog(channelId, 'Playground', playgroundAssistant);
 
         } catch (e) {
             this.logger.error(`Error initializing playground: ${e.message}`, e.stack);
@@ -235,9 +234,14 @@ export class PlaygroundService implements OnModuleInit {
             this.openAiService.eventEmitter.off(`audioInterrupt.${session.channelId}`, session.audioInterruptHandler);
         }
 
-        // ✅ Calculate tokens and update balance (CDR Hangup)
+        // ✅ Calculate tokens and update balance (CDR Hangup via dataDecode)
         try {
-            await this.aiCdrService.cdrHangup(session.channelId, session.assistant.id);
+            await this.openAiService.dataDecode(
+                { type: 'call.hangup' },
+                session.channelId,
+                'Playground',
+                session.assistant
+            );
             this.logger.log(`CDR Hangup processed for ${session.channelId}`);
         } catch (e) {
             this.logger.error(`Error processing CDR Hangup for ${session.channelId}: ${e.message}`);

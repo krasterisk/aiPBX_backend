@@ -9,7 +9,7 @@ import { GetUsersDto } from "./dto/getUsers.dto";
 import { FilesService } from "../files/files.service";
 import { Rates } from "../currency/rates.model";
 import { PricesService } from "../prices/prices.service";
-import { PricesDto } from "../prices/dto/pices.dto";
+import { CreatePriceDto } from "../prices/dto/create-price.dto";
 import { UserLimits } from "./user-limits.model";
 import { CreateUserLimitDto } from "./dto/create-user-limit.dto";
 import { MailerService } from "../mailer/mailer.service";
@@ -52,12 +52,11 @@ export class UsersService {
 
             await user.$set("roles", validRoles.map(r => r.id));
 
-            const price: PricesDto[] = [
-                {
-                    userId: String(user.id),
-                    price: 35
-                }
-            ]
+            const price: CreatePriceDto = {
+                userId: user.id,
+                realtime: 35,
+                analytic: 0
+            }
             await this.priceService.create(price)
 
             // подгружаем юзера заново с ролями

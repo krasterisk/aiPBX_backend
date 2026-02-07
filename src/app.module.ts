@@ -25,6 +25,7 @@ import { PlaygroundModule } from "./playground/playground.module";
 import { OrganizationsModule } from "./organizations/organizations.module";
 import { WidgetKeysModule } from './widget-keys/widget-keys.module';
 import { WidgetModule } from './widget/widget.module';
+import { AiAnalyticsModule } from "./ai-analytics/ai-analytics.module";
 
 @Module({
     imports: [
@@ -63,7 +64,9 @@ import { WidgetModule } from './widget/widget.module';
         PlaygroundModule,
         OrganizationsModule,
         WidgetKeysModule,
-        WidgetModule
+        WidgetKeysModule,
+        WidgetModule,
+        AiAnalyticsModule
     ]
 })
 

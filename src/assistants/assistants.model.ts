@@ -75,6 +75,9 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: 'default', description: "moh class" })
     @Column({ type: DataType.STRING, allowNull: true })
     moh: string
+    @ApiProperty({ example: true, description: "Enable post-call analytics" })
+    @Column({ type: DataType.BOOLEAN, defaultValue: false, allowNull: true })
+    analytic: boolean;
     @ApiProperty({ example: 'comment', description: "Any comments" })
     @Column({ type: DataType.STRING, allowNull: true })
     comment: string

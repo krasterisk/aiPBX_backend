@@ -16,7 +16,7 @@ import { AudioModule } from "../audio/audio.module";
     WsServerModule,
     UsersModule,
     forwardRef(() => AuthModule),
-    AiCdrModule,
+    forwardRef(() => AiCdrModule),
     AiToolsHandlersModule,
     ConfigModule,
     AudioModule

@@ -9,6 +9,7 @@ import { Prices } from "../prices/prices.model";
 import { UsersModule } from "../users/users.module";
 import { Assistant } from '../assistants/assistants.model';
 import { SipAccounts } from '../pbx-servers/sip-accounts.model';
+import { AiAnalyticsModule } from "../ai-analytics/ai-analytics.module";
 
 @Module({
   controllers: [AiCdrController],
@@ -16,6 +17,7 @@ import { SipAccounts } from '../pbx-servers/sip-accounts.model';
   imports: [
     SequelizeModule.forFeature([AiCdr, AiEvents, Prices, Assistant, SipAccounts]),
     forwardRef(() => AuthModule),
+    forwardRef(() => AiAnalyticsModule),
     UsersModule
   ],
   exports: [AiCdrService],

@@ -11,6 +11,8 @@ import { Prices } from "../prices/prices.model";
 import { UsersService } from "../users/users.service";
 import { Assistant } from '../assistants/assistants.model';
 import { SipAccounts } from '../pbx-servers/sip-accounts.model';
+import { AiAnalyticsService } from "../ai-analytics/ai-analytics.service";
+import { forwardRef } from "@nestjs/common";
 
 interface AudioTranscriptionEvent {
     type: 'conversation.item.input_audio_transcription.completed';
@@ -37,7 +39,8 @@ export class AiCdrService {
         @InjectModel(AiEvents) private aiEventsRepository: typeof AiEvents,
         @InjectModel(Prices) private readonly pricesRepository: typeof Prices,
         @InjectModel(Assistant) private readonly assistantRepository: typeof Assistant,
-        private readonly usersService: UsersService
+        private readonly usersService: UsersService,
+        @Inject(forwardRef(() => AiAnalyticsService)) private readonly aiAnalyticsService: AiAnalyticsService
     ) { }
 
     async cdrCreate(dto: AiCdrDto) {
@@ -89,7 +92,7 @@ export class AiCdrService {
                 const price = await this.pricesRepository.findOne({
                     where: { userId }
                 })
-                cost = tokens * (price.price / 1000000)
+                cost = tokens * (price.realtime / 1000000)
                 if (cost > 0) {
                     await this.usersService.decrementUserBalance(userId, cost)
                 }
@@ -113,6 +116,14 @@ export class AiCdrService {
                 }
             }
             await aiCdr.update({ duration, cost, recordUrl })
+
+            if (assistantId) {
+                const assistant = await this.assistantRepository.findByPk(assistantId);
+                if (assistant && assistant.analytic) {
+                    // Fire and forget analysis
+                    this.aiAnalyticsService.analyzeCall(channelId);
+                }
+            }
             return aiCdr
         } catch (e) {
             this.logger.error('[AiCdr]: Update error ' + e.message)

@@ -11,6 +11,7 @@ import { Prices } from "../prices/prices.model";
 import { UsersService } from "../users/users.service";
 import { Assistant } from '../assistants/assistants.model';
 import { SipAccounts } from '../pbx-servers/sip-accounts.model';
+import { AiAnalytics } from "../ai-analytics/ai-analytics.model";
 import { AiAnalyticsService } from "../ai-analytics/ai-analytics.service";
 import { forwardRef } from "@nestjs/common";
 
@@ -309,7 +310,14 @@ export class AiCdrService {
                 limit,
                 distinct: true,
                 where: whereClause,
-                order: [['createdAt', 'DESC']]
+                order: [['createdAt', 'DESC']],
+                include: [
+                    {
+                        model: AiAnalytics,
+                        as: 'analytics',
+                        required: false
+                    }
+                ]
             });
 
             const totalCostRaw = await this.aiCdrRepository.sum('cost', {

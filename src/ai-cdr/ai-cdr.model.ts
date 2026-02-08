@@ -1,4 +1,5 @@
-import { Column, DataType, Model, Table } from "sequelize-typescript";
+import { Column, DataType, HasOne, Model, Table } from "sequelize-typescript";
+import { AiAnalytics } from "../ai-analytics/ai-analytics.model";
 import { ApiProperty } from "@nestjs/swagger";
 
 interface CreateAiCdr {
@@ -39,4 +40,7 @@ export class AiCdr extends Model<AiCdr, CreateAiCdr> {
     @ApiProperty({ example: 'https://server.com/records/assistantId/channelId.mp3', description: "Record URL" })
     @Column({ type: DataType.STRING, allowNull: true })
     recordUrl: string
+
+    @HasOne(() => AiAnalytics, { foreignKey: 'channelId', sourceKey: 'channelId' })
+    analytics: AiAnalytics
 }

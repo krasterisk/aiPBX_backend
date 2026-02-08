@@ -1,4 +1,5 @@
-import { Column, DataType, Model, Table } from "sequelize-typescript";
+import { Column, DataType, Model, Table, BelongsTo, ForeignKey } from "sequelize-typescript";
+import { AiCdr } from "../ai-cdr/ai-cdr.model";
 import { ApiProperty } from "@nestjs/swagger";
 
 interface AiAnalyticsCreationAttrs {
@@ -14,8 +15,12 @@ interface AiAnalyticsCreationAttrs {
 @Table({ tableName: "aiAnalytics" })
 export class AiAnalytics extends Model<AiAnalytics, AiAnalyticsCreationAttrs> {
     @ApiProperty({ example: '123', description: "Channel uniqueId" })
+    @ForeignKey(() => AiCdr)
     @Column({ type: DataType.STRING, allowNull: false, unique: true })
     channelId: string;
+
+    @BelongsTo(() => AiCdr, { foreignKey: 'channelId', targetKey: 'channelId' })
+    cdr: AiCdr;
 
     @ApiProperty({ example: '{"accuracy": 90}', description: "Full analytics metrics JSON" })
     @Column({ type: DataType.JSON, allowNull: false })

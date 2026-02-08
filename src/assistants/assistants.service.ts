@@ -16,14 +16,17 @@ export class AssistantsService {
         try {
             const assistants = [];
             for (const assistant of dto) {
-                if (!assistant.userId) {
-                    assistant.userId = Number(userId)
+                const uniqueId = nanoid(15)
+
+                const creationAttrs = {
+                    ...assistant,
+                    uniqueId,
+                    userId: assistant.userId !== undefined && assistant.userId !== null
+                        ? Number(assistant.userId)
+                        : Number(userId)
                 }
 
-                const uniqueId = nanoid(15)
-                assistant.uniqueId = uniqueId
-
-                const result = await this.assistantsRepository.create(assistant)
+                const result = await this.assistantsRepository.create(creationAttrs as any)
 
                 if (result && assistant.tools.length) {
                     const toolsIds = assistant.tools.map((tool) => tool.id)
@@ -43,13 +46,17 @@ export class AssistantsService {
         }
     }
 
-    async update(updates: Partial<Assistant>) {
+    async update(updates: Partial<Assistant> | AssistantDto) {
         try {
-            const assistant = await this.assistantsRepository.findByPk(updates.id)
+            if (updates.userId) {
+                // @ts-ignore
+                updates.userId = Number(updates.userId)
+            }
+            const assistant = await this.assistantsRepository.findByPk((updates as any).id)
             if (!assistant) {
                 throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
             }
-            await assistant.update(updates)
+            await assistant.update(updates as any)
 
             if (updates.tools && updates.tools.length) {
                 const toolIds = updates.tools.map(tool => tool.id);

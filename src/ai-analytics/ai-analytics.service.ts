@@ -69,6 +69,8 @@ Analyze the dialogue according to the following criteria and return a JSON objec
     - success (boolean): Overall conversation success.
     - summary (string): A brief summary of the conversation.
 
+All text fields (summary, sentiment, escalation_reason, etc.) MUST be in the same language as the conversation.
+
 Return ONLY valid JSON without markdown formatting.
             `;
 
@@ -108,13 +110,14 @@ Return ONLY valid JSON without markdown formatting.
                             await this.usersService.decrementUserBalance(userId, cost);
                         }
                     }
+                    await aiCdr.increment({ tokens: totalTokens, cost: cost });
                 }
             } catch (e) {
                 this.logger.error(`Error calculating cost for ${channelId}: ` + e.message);
             }
 
 
-            await this.aiAnalyticsRepository.create({
+            const analytics = await this.aiAnalyticsRepository.create({
                 channelId,
                 metrics,
                 summary: metrics.summary,
@@ -125,6 +128,7 @@ Return ONLY valid JSON without markdown formatting.
             });
 
             this.logger.log(`Analysis saved for ${channelId}. Cost: ${cost}, Tokens: ${totalTokens}`);
+            return analytics;
 
         } catch (e) {
             this.logger.error(`Error analyzing call ${channelId}: ` + e.message);

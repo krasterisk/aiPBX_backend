@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable, Logger, Inject, forwardRef } fro
 import { InjectModel } from "@nestjs/sequelize";
 import sequelize from "sequelize";
 import { PbxServers } from "./pbx-servers.model";
+import { User } from "../users/users.model";
 import { PbxDto } from "./dto/pbx.dto";
 import { GetPbxDto } from "./dto/getPbx.dto";
 import { SipAccountDto } from "./dto/sip-account.dto";
@@ -113,7 +114,11 @@ export class PbxServersService {
                 where: whereClause,
                 attributes: {
                     exclude: isAdmin ? [] : ['cloudPbx']
-                }
+                },
+                include: [{
+                    model: User,
+                    attributes: { exclude: ['password', 'resetPasswordLink', 'activationCode', 'activationExpires', 'googleId', 'telegramId'] }
+                }]
             });
             return pbxServers;
         } catch (e) {
@@ -129,7 +134,11 @@ export class PbxServersService {
                 where: whereClause,
                 attributes: {
                     exclude: isAdmin ? [] : ['cloudPbx']
-                }
+                },
+                include: [{
+                    model: User,
+                    attributes: { exclude: ['password', 'resetPasswordLink', 'activationCode', 'activationExpires', 'googleId', 'telegramId'] }
+                }]
             })
             if (pbxServers) {
                 return pbxServers

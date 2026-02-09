@@ -78,6 +78,10 @@ export class WidgetKeysService {
                 {
                     association: 'pbxServer',
                     attributes: ['id', 'name', 'location'],
+                },
+                {
+                    association: 'user',
+                    attributes: { exclude: ['password', 'resetPasswordLink', 'activationCode', 'activationExpires', 'googleId', 'telegramId'] },
                 }
             ],
             order: [['createdAt', 'DESC']],

@@ -1,4 +1,4 @@
-import { Column, DataType, ForeignKey, Model, Table } from "sequelize-typescript";
+import { BelongsTo, Column, DataType, ForeignKey, Model, Table } from "sequelize-typescript";
 import { ApiProperty } from "@nestjs/swagger";
 import { User } from "../users/users.model";
 import { Assistant } from "../assistants/assistants.model";
@@ -64,4 +64,8 @@ export class PbxServers extends Model<PbxServers, CreatePbxServer> {
     @ForeignKey(() => User)
     @Column({ type: DataType.INTEGER })
     userId: number
+
+    @BelongsTo(() => User, { foreignKey: 'userId' })
+    user: User;
 }
+

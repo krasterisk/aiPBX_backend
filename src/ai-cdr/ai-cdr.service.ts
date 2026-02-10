@@ -112,7 +112,7 @@ export class AiCdrService {
                     const sipUri = assistant.sipAccount.sipUri;
                     const serverUrl = sipUri.split('@')[1];
                     if (serverUrl) {
-                        recordUrl = `https://${serverUrl}/records/assistants/${assistant.uniqueId}/${channelId}.mp3`;
+                        recordUrl = `https://${serverUrl}/records/${assistant.uniqueId}/${channelId}.mp3`;
                     }
                 }
             }

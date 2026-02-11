@@ -18,6 +18,7 @@ interface WidgetPeerSession {
     audioDeltaHandler?: (outAudio: Buffer, serverData: sessionData) => Promise<void>;
     audioInterruptHandler?: (serverData: sessionData) => Promise<void>;
     outgoingTrack?: MediaStreamTrack;
+    hangupHandler?: () => void;
     createdAt: number;
     maxDuration: number; // In seconds
     sequenceNumber: number;
@@ -203,14 +204,15 @@ export class WidgetWebRTCService {
             // Usually this requires sending a message to the browser via Datachannel or just stopping the stream
         };
 
+        peerSession.hangupHandler = () => {
+            this.logger.log(`Received HangupCall from OpenAI for widget ${sessionId}`);
+            this.handleHangup(sessionId);
+        };
+
         this.eventEmitter.on(`openai.${channelId}`, eventHandler);
         this.eventEmitter.on(`audioDelta.${channelId}`, peerSession.audioDeltaHandler);
         this.eventEmitter.on(`audioInterrupt.${channelId}`, peerSession.audioInterruptHandler);
-
-        this.eventEmitter.on(`HangupCall.${channelId}`, () => {
-            this.logger.log(`Received HangupCall from OpenAI for widget ${sessionId}`);
-            this.handleHangup(sessionId);
-        });
+        this.eventEmitter.on(`HangupCall.${channelId}`, peerSession.hangupHandler);
     }
 
     async handleIceCandidate(sessionId: string, candidate: RTCIceCandidateInit): Promise<void> {
@@ -363,6 +365,9 @@ export class WidgetWebRTCService {
                 }
                 if (peerSession.audioInterruptHandler) {
                     this.eventEmitter.off(`audioInterrupt.${peerSession.openAiChannelId}`, peerSession.audioInterruptHandler);
+                }
+                if (peerSession.hangupHandler) {
+                    this.eventEmitter.off(`HangupCall.${peerSession.openAiChannelId}`, peerSession.hangupHandler);
                 }
 
                 await this.openAiService.closeConnection(peerSession.openAiChannelId);

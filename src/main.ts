@@ -2,6 +2,7 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { ValidationPipe } from "@nestjs/common";
+import helmet from 'helmet';
 
 async function start() {
     console.log(`${process.env.NODE_ENV}`)
@@ -17,11 +18,18 @@ async function start() {
         .addTag('AI PBX API')
         .build()
     const document = SwaggerModule.createDocument(app, config)
-    SwaggerModule.setup('/api/docs', app, document)
+
+    if (process.env.NODE_ENV !== 'production') {
+        SwaggerModule.setup('/api/docs', app, document)
+    }
 
     app.useGlobalPipes(new ValidationPipe({
+        transform: true,
         skipMissingProperties: true
     }))
+
+    // Security headers
+    app.use(helmet())
 
     // Enable Cors
     app.enableCors()

@@ -86,7 +86,7 @@ export class WidgetKeysController {
     @ApiResponse({ status: 401, description: 'Unauthorized' })
     @ApiResponse({ status: 404, description: 'Widget key not found' })
     findOne(@Request() req, @Param('id') id: string): Promise<WidgetKey> {
-        return this.widgetKeysService.findOne(+id, req.tokenUserId);
+        return this.widgetKeysService.findOne(+id, req.tokenUserId, req.isAdmin);
     }
 
     @Put(':id')

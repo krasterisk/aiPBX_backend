@@ -1,6 +1,6 @@
 {
   "name": "aiPbxBackend",
-  "version": "1.4.8",
+  "version": "1.4.9",
   "description": "aiPBX",
   "author": "Krasterisk LTD",
   "private": true,
@@ -34,6 +34,7 @@
     "@nestjs/sequelize": "^11.0.0",
     "@nestjs/serve-static": "^5.0.2",
     "@nestjs/swagger": "^11.0.3",
+    "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^11.0.10",
     "alawmulaw": "^6.0.0",
     "ari-client": "^2.2.0",
@@ -51,6 +52,7 @@
     "express": "^5.0.1",
     "fs": "^0.0.1-security",
     "google-auth-library": "^10.3.0",
+    "helmet": "^8.1.0",
     "mysql2": "^3.12.0",
     "nanoid": "^5.1.6",
     "node-telegram-bot-api": "^0.66.0",

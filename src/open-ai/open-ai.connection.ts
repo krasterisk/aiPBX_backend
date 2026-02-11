@@ -126,8 +126,6 @@ export class OpenAiConnection {
 
     private handleClose() {
         this.logger.log(`Assistant ${this.assistant.name} Connection Closed (${this.channelId})`);
-        if (this.isManualClose) {
-            this.eventEmitter.removeAllListeners(`openai.${this.channelId}`);
-        }
+        this.eventEmitter.removeAllListeners(`openai.${this.channelId}`);
     }
 }

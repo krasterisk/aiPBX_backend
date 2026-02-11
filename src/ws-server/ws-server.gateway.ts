@@ -92,8 +92,8 @@ export class WsServerGateway {
     };
 
     if (!userId) {
-      // если userId нет, можно отправить всем (или проигнорировать)
-      this.server.emit('openai.event', fullEvent);
+      // Не отправляем данные всем клиентам — логируем warning
+      this.logger.warn(`sendToClient called without userId for channel ${channelId}, event not sent`);
       return;
     }
 

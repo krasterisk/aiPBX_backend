@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import { SequelizeModule } from "@nestjs/sequelize";
 import { UsersModule } from './users/users.module';
 import { ConfigModule } from "@nestjs/config";
@@ -26,6 +27,7 @@ import { OrganizationsModule } from "./organizations/organizations.module";
 import { WidgetKeysModule } from './widget-keys/widget-keys.module';
 import { WidgetModule } from './widget/widget.module';
 import { AiAnalyticsModule } from "./ai-analytics/ai-analytics.module";
+import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 
 @Module({
     imports: [
@@ -66,8 +68,18 @@ import { AiAnalyticsModule } from "./ai-analytics/ai-analytics.module";
         WidgetKeysModule,
         WidgetKeysModule,
         WidgetModule,
-        AiAnalyticsModule
-    ]
+        AiAnalyticsModule,
+        ThrottlerModule.forRoot([{
+            ttl: 60000,
+            limit: 30,
+        }]),
+    ],
+    providers: [
+        {
+            provide: APP_GUARD,
+            useClass: ThrottlerGuard,
+        },
+    ],
 })
 
 export class AppModule { }

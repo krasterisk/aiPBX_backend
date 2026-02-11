@@ -92,9 +92,14 @@ export class WidgetKeysService {
         });
     }
 
-    async findOne(id: number, userId: number): Promise<WidgetKey> {
+    async findOne(id: number, userId: number, isAdmin?: boolean): Promise<WidgetKey> {
+        const where: any = { id };
+        if (!isAdmin) {
+            where.userId = userId;
+        }
+
         const widgetKey = await this.widgetKeyModel.findOne({
-            where: { id, userId },
+            where,
             include: [
                 {
                     association: 'assistant',

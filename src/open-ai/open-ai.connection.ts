@@ -69,6 +69,7 @@ export class OpenAiConnection {
 
             }
         });
+        this.ws.setMaxListeners(20);
         this.logger.log(`Assistant ${this.assistant.name}_${this.assistant.uniqueId} Started (${this.channelId})`);
 
         this.ws.on('open', () => {

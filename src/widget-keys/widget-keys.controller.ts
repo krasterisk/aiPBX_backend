@@ -19,11 +19,13 @@ import { WidgetKeysService } from './widget-keys.service';
 import { CreateWidgetKeyDto } from './dto/create-widget-key.dto';
 import { UpdateWidgetKeyDto } from './dto/update-widget-key.dto';
 import { WidgetKey } from './widget-keys.model';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles-auth.decorator';
 
 @ApiTags('Widget Keys')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(RolesGuard)
+@Roles('ADMIN', 'USER')
 @Controller('widget-keys')
 export class WidgetKeysController {
     constructor(private readonly widgetKeysService: WidgetKeysService) { }
@@ -64,15 +66,18 @@ export class WidgetKeysController {
     @ApiResponse({ status: 403, description: 'Forbidden - Assistant does not belong to user' })
     @ApiResponse({ status: 404, description: 'Assistant not found' })
     create(@Request() req, @Body() createWidgetKeyDto: CreateWidgetKeyDto): Promise<WidgetKey> {
-        return this.widgetKeysService.create(req.user.id, createWidgetKeyDto);
+        return this.widgetKeysService.create(req.tokenUserId, createWidgetKeyDto);
     }
 
     @Get()
-    @ApiOperation({ summary: 'Get all widget keys for authenticated user' })
+    @ApiOperation({ summary: 'Get all widget keys (admin: all, user: own)' })
     @ApiResponse({ status: 200, description: 'List of widget keys', type: [WidgetKey] })
     @ApiResponse({ status: 401, description: 'Unauthorized' })
     findAll(@Request() req): Promise<WidgetKey[]> {
-        return this.widgetKeysService.findAll(req.user.id);
+        if (req.isAdmin) {
+            return this.widgetKeysService.findAll();
+        }
+        return this.widgetKeysService.findAll(req.tokenUserId);
     }
 
     @Get(':id')
@@ -81,7 +86,7 @@ export class WidgetKeysController {
     @ApiResponse({ status: 401, description: 'Unauthorized' })
     @ApiResponse({ status: 404, description: 'Widget key not found' })
     findOne(@Request() req, @Param('id') id: string): Promise<WidgetKey> {
-        return this.widgetKeysService.findOne(+id, req.user.id);
+        return this.widgetKeysService.findOne(+id, req.tokenUserId);
     }
 
     @Put(':id')
@@ -94,7 +99,7 @@ export class WidgetKeysController {
         @Param('id') id: string,
         @Body() updateWidgetKeyDto: UpdateWidgetKeyDto,
     ): Promise<WidgetKey> {
-        return this.widgetKeysService.update(+id, req.user.id, updateWidgetKeyDto);
+        return this.widgetKeysService.update(+id, req.tokenUserId, updateWidgetKeyDto);
     }
 
     @Delete(':id')
@@ -103,6 +108,6 @@ export class WidgetKeysController {
     @ApiResponse({ status: 401, description: 'Unauthorized' })
     @ApiResponse({ status: 404, description: 'Widget key not found' })
     remove(@Request() req, @Param('id') id: string): Promise<void> {
-        return this.widgetKeysService.remove(+id, req.user.id);
+        return this.widgetKeysService.remove(+id, req.tokenUserId);
     }
 }

@@ -67,9 +67,13 @@ export class WidgetKeysService {
         return widgetKey;
     }
 
-    async findAll(userId: number): Promise<WidgetKey[]> {
+    async findAll(userId?: number): Promise<WidgetKey[]> {
+        const where: any = {};
+        if (userId) {
+            where.userId = userId;
+        }
         return this.widgetKeyModel.findAll({
-            where: { userId },
+            where,
             include: [
                 {
                     association: 'assistant',

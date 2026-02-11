@@ -31,6 +31,9 @@ export class CallSession {
     private openAiConnection: OpenAiConnection;
     private audioDeltaHandler: (outAudio: Buffer, serverData: sessionData) => Promise<void>;
     private audioInterruptHandler: (serverData: sessionData) => Promise<void>;
+    private openAiEventHandler: (event: any) => void;
+    private transferHandler: (params: any) => void;
+    private hangupHandler: () => void;
     private cleanedUp = false;
     private readonly connectionId: string;
 
@@ -75,28 +78,22 @@ export class CallSession {
             await this.streamAudioService.interruptStream(sessionId);
         };
 
-        this.openAiService.eventEmitter.on(
-            `openai.${this.channel.id}`,
-            (event) => this.openAiService.dataDecode(
-                event,
-                this.channel.id,
-                this.channel.callerId || '',
-                this.assistant
-            )
+        this.openAiEventHandler = (event) => this.openAiService.dataDecode(
+            event,
+            this.channel.id,
+            this.channel.callerId || '',
+            this.assistant
         );
+        this.openAiService.eventEmitter.on(`openai.${this.channel.id}`, this.openAiEventHandler);
 
         this.openAiService.eventEmitter.on(`audioDelta.${this.channel.id}`, this.audioDeltaHandler);
         this.openAiService.eventEmitter.on(`audioInterrupt.${this.channel.id}`, this.audioInterruptHandler);
 
-        this.openAiService.eventEmitter.on(
-            `transferToDialplan.${this.channel.id}`,
-            (params) => this.redirectToDialplan(params)
-        );
+        this.transferHandler = (params) => this.redirectToDialplan(params);
+        this.openAiService.eventEmitter.on(`transferToDialplan.${this.channel.id}`, this.transferHandler);
 
-        this.openAiService.eventEmitter.on(
-            `HangupCall.${this.channel.id}`,
-            () => this.hangupCall()
-        );
+        this.hangupHandler = () => this.hangupCall();
+        this.openAiService.eventEmitter.on(`HangupCall.${this.channel.id}`, this.hangupHandler);
     }
 
     async initializeAri(assistant: Assistant) {
@@ -238,6 +235,21 @@ export class CallSession {
                 this.openAiService.eventEmitter.off(
                     `audioInterrupt.${safeChannelId}`,
                     this.audioInterruptHandler
+                );
+
+                this.openAiService.eventEmitter.off(
+                    `openai.${safeChannelId}`,
+                    this.openAiEventHandler
+                );
+
+                this.openAiService.eventEmitter.off(
+                    `transferToDialplan.${safeChannelId}`,
+                    this.transferHandler
+                );
+
+                this.openAiService.eventEmitter.off(
+                    `HangupCall.${safeChannelId}`,
+                    this.hangupHandler
                 );
 
                 await this.openAiService.closeConnection(safeChannelId)

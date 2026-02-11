@@ -150,9 +150,6 @@ export class AiCdrService {
             const aiEvents = await this.aiEventsRepository.findAll({
                 where: { channelId }
             })
-            if (!aiEvents) {
-                throw new HttpException('aiEvents not found', HttpStatus.NOT_FOUND)
-            }
             return aiEvents
         } catch (e) {
             throw new HttpException('[AiEvents]: Get events error' + e, HttpStatus.BAD_REQUEST)
@@ -167,7 +164,7 @@ export class AiCdrService {
             });
 
             if (!aiEvents || aiEvents.length === 0) {
-                throw new HttpException('aiEvents not found', HttpStatus.NOT_FOUND);
+                return [];
             }
 
             const dialog = aiEvents.flatMap(entry => {

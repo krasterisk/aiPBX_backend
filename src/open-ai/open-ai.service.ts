@@ -240,7 +240,7 @@ export class OpenAiService implements OnModuleInit {
                     callerId,
                     events: event,
                     userId: assistant?.userId,
-                    vPbxUserId: assistant?.user.vpbx_user_id
+                    vPbxUserId: assistant?.user?.vpbx_user_id
                 })
             }
         } catch (e) {

@@ -5,6 +5,8 @@ import { Logger } from "@nestjs/common";
 
 export class OpenAiConnection {
     private ws: WebSocket;
+    private sendQueue: any[] = [];
+    private isManualClose = false;
 
     private readonly logger = new Logger(OpenAiConnection.name);
 
@@ -29,6 +31,15 @@ export class OpenAiConnection {
             this.logger.error('Error initializing OpenAi Connection. Model name is empty');
             return
         }
+
+        // Clean up old WebSocket before creating a new one
+        if (this.ws) {
+            this.ws.removeAllListeners();
+            if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+                this.ws.close();
+            }
+        }
+        this.sendQueue = [];
 
         let model = this.assistant.model || 'gpt-realtime-mini'
         let baseUrl = 'wss://api.openai.com/v1/realtime';
@@ -69,17 +80,26 @@ export class OpenAiConnection {
 
             }
         });
-        this.ws.setMaxListeners(20);
         this.logger.log(`Assistant ${this.assistant.name}_${this.assistant.uniqueId} Started (${this.channelId})`);
 
         this.ws.on('open', () => {
             this.logger.log(`WebSocket connection established for ${this.channelId}`);
             this.eventEmitter.emit(`openai.connected.${this.channelId}`);
+            this.flushQueue();
         });
 
         this.ws.on('message', (data) => this.handleMessage(data));
         this.ws.on('error', (error) => this.handleError(error));
         this.ws.on('close', () => this.handleClose());
+    }
+
+    private flushQueue() {
+        while (this.sendQueue.length > 0) {
+            const data = this.sendQueue.shift();
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify(data));
+            }
+        }
     }
 
     private handleMessage(data) {
@@ -99,19 +119,13 @@ export class OpenAiConnection {
         this.logger.error(`Assistant ${this.assistant.name} Connection Error (${this.channelId}):`, error);
     }
 
-    private isManualClose = false;
-
     send(data: any) {
         if (!this.ws || this.ws.readyState === WebSocket.CLOSED || this.ws.readyState === WebSocket.CLOSING) {
             this.logger.warn(`[Connection] WebSocket closed/closing (state: ${this.ws?.readyState}). Reconnecting for ${this.channelId}...`);
             this.connect();
-            this.ws.once('open', () => {
-                this.ws.send(JSON.stringify(data));
-            });
+            this.sendQueue.push(data);
         } else if (this.ws.readyState === WebSocket.CONNECTING) {
-            this.ws.once('open', () => {
-                this.ws.send(JSON.stringify(data));
-            });
+            this.sendQueue.push(data);
         } else {
             this.ws.send(JSON.stringify(data));
         }
@@ -119,13 +133,17 @@ export class OpenAiConnection {
 
     close() {
         this.isManualClose = true;
+        this.sendQueue = [];
         if (this.ws) {
+            this.ws.removeAllListeners();
             this.ws.close();
+            this.ws = null;
         }
     }
 
     private handleClose() {
         this.logger.log(`Assistant ${this.assistant.name} Connection Closed (${this.channelId})`);
-        this.eventEmitter.removeAllListeners(`openai.${this.channelId}`);
+        // Don't removeAllListeners on the global eventEmitter here —
+        // session owners (CallSession, PlaygroundService, etc.) manage their own listeners
     }
 }

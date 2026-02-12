@@ -1,6 +1,5 @@
 import { Injectable, Logger, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
-import { Op } from 'sequelize';
 import { WidgetSession } from './widget-sessions.model';
 import { WidgetKeysService } from '../widget-keys/widget-keys.service';
 import { nanoid } from 'nanoid';

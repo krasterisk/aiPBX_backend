@@ -25,8 +25,6 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
     //     ) + Number(process.env.UDP_SERVER_PORT);
 
     public server: dgram.Socket;
-    private external_local_Address: string
-    private external_local_Port: number
     public sessions = new Map<string, requestData>();
     private logger = new Logger(RtpUdpServerService.name);
     private activeChannels = new Set<string>();
@@ -56,8 +54,6 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             if (currentSession && currentSession.init === 'false') {
                 this.logger.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port}`);
                 currentSession.init = 'true';
-                this.external_local_Address = rinfo.address
-                this.external_local_Port = Number(rinfo.port)
 
                 await this.openAi.updateRtAudioSession(currentSession)
                 await this.openAi.rtInitAudioResponse(currentSession)
@@ -134,15 +130,27 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
     }
 
     public async handleSessionEnd(sessionId: string) {
-        const session = this.sessions.get(sessionId) ||
-            this.getSessionByField('channelId', sessionId);
+        let mapKey = sessionId;
+        let session = this.sessions.get(sessionId);
+
+        // sessionId is usually channelId, but Map keys are 'address:port'
+        // Find the correct map key by searching for channelId
+        if (!session) {
+            for (const [key, s] of this.sessions.entries()) {
+                if (s.channelId === sessionId) {
+                    session = s;
+                    mapKey = key;
+                    break;
+                }
+            }
+        }
 
         if (session) {
             session.openAiConn?.close();
             this.logger.log(`Closing ${sessionId}...`);
         }
 
-        this.sessions.delete(sessionId);
+        this.sessions.delete(mapKey);
     }
 
     onModuleDestroy() {

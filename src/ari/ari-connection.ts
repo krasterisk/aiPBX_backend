@@ -117,9 +117,14 @@ export class AriConnection {
             this.webSocket.on('close', () => {
                 this.logger.log(`WebSocket disconnected for ${this.pbxServer.name}`);
 
+                // Clean up old listeners before reconnect
+                if (this.webSocket) {
+                    this.webSocket.removeAllListeners();
+                }
+
                 // Reconnect logic after 5 seconds
                 setTimeout(() => {
-                    if (this.webSocket) { // Only reconnect if it wasn't intentionally cleared
+                    if (this.webSocket !== null) { // Only reconnect if it wasn't intentionally cleared
                         this.logger.log(`Attempting to reconnect WebSocket for ${this.pbxServer.name}...`);
                         this.connectWebSocket().catch(err => {
                             this.logger.error(`Failed to reconnect WebSocket for ${this.pbxServer.name}:`, err);

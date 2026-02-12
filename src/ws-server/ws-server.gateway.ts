@@ -41,6 +41,9 @@ export class WsServerGateway {
         this.userSockets.delete(userId);
       }
     }
+
+    // Notify PlaygroundService to clean up abandoned sessions
+    this.eventEmitter.emit('playground.stop', client.id);
   }
 
   @SubscribeMessage('auth')

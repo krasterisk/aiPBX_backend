@@ -92,7 +92,7 @@ export class OpenAiService implements OnModuleInit {
 
     getConnection(channelId: string): OpenAiConnection | undefined {
         const session = this.sessions.get(channelId);
-        if (session.openAiConn) {
+        if (session?.openAiConn) {
             return session.openAiConn
         }
     }
@@ -115,10 +115,11 @@ export class OpenAiService implements OnModuleInit {
                 session.openAiConn.close()
             } catch (e) {
                 this.logger.error(`Error closing OpenAI connection for ${channelId}:`, e);
-
             }
-            this.sessions.delete(channelId);
         }
+
+        // Always remove session from Map, even if openAiConn was null
+        this.sessions.delete(channelId);
     }
 
     onModuleInit() {
@@ -185,7 +186,11 @@ export class OpenAiService implements OnModuleInit {
                 : [itemId];
         }
 
+        // Cap events array to prevent unbounded memory growth on long calls
         existingSession.events.push(serverEvent);
+        if (existingSession.events.length > 100) {
+            existingSession.events = existingSession.events.slice(-50);
+        }
 
         // Записываем обновлённую сессию обратно в Map
         this.sessions.set(existingSession.channelId, existingSession);

@@ -14,6 +14,7 @@ interface PlaygroundSession {
     openAiConn?: any;
     audioDeltaHandler?: (outAudio: Buffer, serverData: sessionData) => Promise<void>;
     audioInterruptHandler?: (serverData: sessionData) => Promise<void>;
+    hangupHandler?: () => void;
 }
 
 @Injectable()
@@ -211,9 +212,9 @@ export class PlaygroundService implements OnModuleInit {
         this.openAiService.eventEmitter.on(`audioDelta.${session.channelId}`, session.audioDeltaHandler);
         this.openAiService.eventEmitter.on(`audioInterrupt.${session.channelId}`, session.audioInterruptHandler);
 
-        this.openAiService.eventEmitter.on(`HangupCall.${session.channelId}`, () => {
-            this.handleStop(session.socketId);
-        });
+        session.hangupHandler = () => this.handleStop(session.socketId);
+
+        this.openAiService.eventEmitter.on(`HangupCall.${session.channelId}`, session.hangupHandler);
 
         this.logger.log(`Event handlers registered for ${session.channelId}`);
     }
@@ -226,12 +227,16 @@ export class PlaygroundService implements OnModuleInit {
 
         // Remove all event listeners
         this.openAiService.eventEmitter.removeAllListeners(`openai.${session.channelId}`);
+        this.openAiService.eventEmitter.removeAllListeners(`openai.connected.${session.channelId}`);
 
         if (session.audioDeltaHandler) {
             this.openAiService.eventEmitter.off(`audioDelta.${session.channelId}`, session.audioDeltaHandler);
         }
         if (session.audioInterruptHandler) {
             this.openAiService.eventEmitter.off(`audioInterrupt.${session.channelId}`, session.audioInterruptHandler);
+        }
+        if (session.hangupHandler) {
+            this.openAiService.eventEmitter.off(`HangupCall.${session.channelId}`, session.hangupHandler);
         }
 
         // ✅ Calculate tokens and update balance (CDR Hangup via dataDecode)

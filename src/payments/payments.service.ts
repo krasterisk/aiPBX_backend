@@ -21,7 +21,7 @@ export class PaymentsService {
         private readonly currencyService: CurrencyService
     ) {
         this.stripe = new Stripe(this.configService.get<string>('STRIPE_SECRET_KEY'), {
-            apiVersion: '2025-12-15.clover',
+            apiVersion: '2026-01-28.clover',
         });
     }
 

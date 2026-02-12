@@ -111,7 +111,8 @@ export class PaymentsService {
                     'status',
                     'createdAt',
                     'paymentMethod',
-                    ['paymentInfo', 'description']
+                    ['paymentInfo', 'description'],
+                    'receiptUrl'
                 ],
                 order: [['createdAt', 'DESC']],
                 limit,
@@ -126,6 +127,14 @@ export class PaymentsService {
     private async finalizePayment(paymentIntent: Stripe.PaymentIntent) {
         const payment = await this.paymentsRepository.findOne({ where: { stripePaymentIntentId: paymentIntent.id } });
         if (payment && payment.status !== 'succeeded') {
+            // Fetch receipt URL from Stripe Charge
+            try {
+                const charges = await this.stripe.charges.list({ payment_intent: paymentIntent.id, limit: 1 });
+                payment.receiptUrl = charges.data[0]?.receipt_url ?? null;
+            } catch (e) {
+                // Non-critical: proceed without receipt URL
+            }
+
             payment.status = 'succeeded';
             await payment.save();
 

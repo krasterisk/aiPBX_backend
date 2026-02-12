@@ -78,7 +78,7 @@ export class WidgetKey extends Model<WidgetKey, WidgetKeyCreationAttrs> {
     @Column({ type: DataType.TEXT, allowNull: true })
     appearance: string;
 
-    @BelongsTo(() => User)
+    @BelongsTo(() => User, { onDelete: 'CASCADE' })
     user: User;
 
     @BelongsTo(() => Assistant)

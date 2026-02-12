@@ -13,6 +13,8 @@ import { CreatePriceDto } from "../prices/dto/create-price.dto";
 import { UserLimits } from "./user-limits.model";
 import { CreateUserLimitDto } from "./dto/create-user-limit.dto";
 import { MailerService } from "../mailer/mailer.service";
+import { Payments } from "../payments/payments.model";
+import { AdminTopUpDto } from "./dto/admin-top-up.dto";
 
 @Injectable()
 export class UsersService {
@@ -25,6 +27,7 @@ export class UsersService {
         private roleService: RolesService,
         private priceService: PricesService,
         @InjectModel(UserLimits) private userLimitsRepository: typeof UserLimits,
+        @InjectModel(Payments) private paymentsRepository: typeof Payments,
         private mailerService: MailerService
     ) {
     }
@@ -438,6 +441,10 @@ export class UsersService {
                 }
             });
 
+            if (!user) {
+                throw new HttpException("User not found", HttpStatus.NOT_FOUND);
+            }
+
             const isCanEdit =
                 user.id === Number(tokenId) ||
                 user.vpbx_user_id === Number(tokenId)
@@ -445,7 +452,7 @@ export class UsersService {
             if (!isAdmin && !isCanEdit) {
                 this.logger.warn('Edit Forbidden');
                 throw new HttpException(
-                    "Editing Forbidden", HttpStatus.NOT_FOUND
+                    "Editing Forbidden", HttpStatus.FORBIDDEN
                 );
             }
             return user;
@@ -569,9 +576,8 @@ export class UsersService {
         if (deleted === 0) {
             this.logger.warn('User not found');
             throw new HttpException("User not found", HttpStatus.NOT_FOUND);
-        } else {
-            return { message: "User deleted successfully", statusCode: HttpStatus.OK };
         }
+        return { message: "User deleted successfully", statusCode: HttpStatus.OK };
     }
 
     async getCandidateByTelegramId(telegramId: number) {
@@ -638,6 +644,36 @@ export class UsersService {
             this.logger.error("Error getting usage limit", e);
             throw new HttpException("Error getting usage limit", HttpStatus.BAD_REQUEST);
         }
+    }
+
+    async adminTopUpBalance(dto: AdminTopUpDto) {
+        const user = await this.usersRepository.findByPk(dto.userId);
+        if (!user) {
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
+
+        const currency = dto.currency || 'USD';
+        const isUpdated = await this.updateUserBalance(dto.userId, dto.amount);
+        if (!isUpdated) {
+            throw new HttpException('Failed to update balance', HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+        const payment = await this.paymentsRepository.create({
+            userId: dto.userId,
+            amount: dto.amount,
+            currency,
+            status: 'succeeded',
+            paymentMethod: dto.paymentMethod,
+            paymentInfo: dto.paymentInfo || 'Admin manual top-up',
+        } as any);
+
+        this.logger.log(`Admin top-up: User ${dto.userId}, amount ${dto.amount} ${currency}, method: ${dto.paymentMethod}`);
+
+        return {
+            message: 'Balance topped up successfully',
+            payment,
+            newBalance: (await this.usersRepository.findByPk(dto.userId, { attributes: ['balance'] })).balance,
+        };
     }
 
 }

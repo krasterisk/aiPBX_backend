@@ -84,7 +84,7 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ForeignKey(() => User)
     @Column({ type: DataType.INTEGER })
     userId: number
-    @BelongsTo(() => User)
+    @BelongsTo(() => User, { onDelete: 'CASCADE' })
     user: User
 
     @BelongsToMany(() => AiTool, () => AssistantToolsModel)

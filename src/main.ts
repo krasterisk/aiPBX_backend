@@ -28,8 +28,11 @@ async function start() {
         skipMissingProperties: true
     }))
 
-    // Security headers
-    app.use(helmet())
+    // Security headers (configured for cross-origin API)
+    app.use(helmet({
+        contentSecurityPolicy: false,
+        crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }))
 
     // Enable Cors
     app.enableCors()

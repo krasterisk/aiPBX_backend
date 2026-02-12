@@ -29,6 +29,7 @@ import { UpdatePasswordDto } from "./dto/updatePassword.dto";
 import { ActivationDto } from "./dto/activation.dto";
 import { CreateUserLimitDto } from "./dto/create-user-limit.dto";
 import { UserLimits } from "./user-limits.model";
+import { AdminTopUpDto } from "./dto/admin-top-up.dto";
 
 interface RequestWithUser extends Request {
     isAdmin?: boolean
@@ -42,6 +43,16 @@ export class UsersController {
 
     constructor(private userService: UsersService,
         private authService: AuthService) { }
+
+    @ApiOperation({ summary: "Admin: top up user balance" })
+    @ApiResponse({ status: 200, description: 'Balance topped up successfully' })
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
+    @Post('admin/top-up')
+    @UsePipes(ValidationPipe)
+    adminTopUp(@Body() dto: AdminTopUpDto) {
+        return this.userService.adminTopUpBalance(dto);
+    }
 
     @ApiOperation({ summary: "Create user" })
     @ApiResponse({ status: 200, type: User })

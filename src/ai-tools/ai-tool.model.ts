@@ -47,7 +47,7 @@ export class AiTool extends Model<AiTool> {
     @ForeignKey(() => User)
     @Column({ type: DataType.INTEGER })
     userId: number
-    @BelongsTo(() => User)
+    @BelongsTo(() => User, { onDelete: 'CASCADE' })
     user: User
 
     @BelongsToMany(() => Assistant, () => AssistantToolsModel)

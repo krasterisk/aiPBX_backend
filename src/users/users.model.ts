@@ -64,7 +64,7 @@ export class User extends Model<User, UserCreationAttrs> {
     @Column({ type: DataType.BOOLEAN, unique: false, allowNull: false, defaultValue: false })
     isActivated: boolean
 
-    @BelongsToMany(() => Role, () => UserRoles)
+    @BelongsToMany(() => Role, { through: () => UserRoles, onDelete: 'CASCADE' })
     roles: Role[]
 
     @ApiProperty({ example: '4', description: "VPBX cabinet id" })

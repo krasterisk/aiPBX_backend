@@ -29,6 +29,6 @@ export class Organization extends Model<Organization, OrganizationCreationAttrs>
     @Column({ type: DataType.STRING, allowNull: false })
     address: string;
 
-    @BelongsTo(() => User)
+    @BelongsTo(() => User, { onDelete: 'CASCADE' })
     user: User;
 }

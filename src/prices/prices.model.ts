@@ -20,7 +20,7 @@ export class Prices extends Model<Prices, CreatePrice> {
     @ForeignKey(() => User)
     @Column({ type: DataType.INTEGER, unique: true })
     userId: number
-    @BelongsTo(() => User)
+    @BelongsTo(() => User, { onDelete: 'CASCADE' })
     user: User
 
 }

@@ -65,7 +65,7 @@ export class PbxServers extends Model<PbxServers, CreatePbxServer> {
     @Column({ type: DataType.INTEGER })
     userId: number
 
-    @BelongsTo(() => User, { foreignKey: 'userId' })
+    @BelongsTo(() => User, { foreignKey: 'userId', onDelete: 'CASCADE' })
     user: User;
 }
 

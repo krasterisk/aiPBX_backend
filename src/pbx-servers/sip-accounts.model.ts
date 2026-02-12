@@ -51,6 +51,6 @@ export class SipAccounts extends Model<SipAccounts, CreateSipAccount> {
     @Column({ type: DataType.INTEGER })
     userId: number
 
-    @BelongsTo(() => User)
+    @BelongsTo(() => User, { onDelete: 'CASCADE' })
     user: User
 }

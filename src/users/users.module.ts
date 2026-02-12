@@ -10,12 +10,13 @@ import { FilesModule } from "../files/files.module";
 import { Rates } from "../currency/rates.model";
 import { PricesModule } from "../prices/prices.module";
 import { MailerModule } from "../mailer/mailer.module";
+import { Payments } from "../payments/payments.model";
 
 @Module({
     controllers: [UsersController],
     providers: [UsersService],
     imports: [
-        SequelizeModule.forFeature([User, Rates, UserLimits]),
+        SequelizeModule.forFeature([User, Rates, UserLimits, Payments]),
         RolesModule,
         forwardRef(() => AuthModule),
         FilesModule,

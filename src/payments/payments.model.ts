@@ -8,6 +8,7 @@ interface CreatePayment {
     currency?: string
     status?: string
     paymentMethod?: string
+    receiptUrl?: string
 }
 
 @Table({ tableName: "payments" })
@@ -41,4 +42,8 @@ export class Payments extends Model<Payments, CreatePayment> {
     @ApiProperty({ example: 'usd', description: "Currency" })
     @Column({ type: DataType.STRING, allowNull: true })
     currency: string;
+
+    @ApiProperty({ example: 'https://pay.stripe.com/receipts/...', description: "Stripe receipt URL" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    receiptUrl: string;
 }

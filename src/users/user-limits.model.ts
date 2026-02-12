@@ -15,7 +15,7 @@ export class UserLimits extends Model<UserLimits, UserLimitsCreationAttrs> {
     @Column({ type: DataType.INTEGER, unique: true, allowNull: false })
     userId: number;
 
-    @BelongsTo(() => User)
+    @BelongsTo(() => User, { onDelete: 'CASCADE' })
     user: User;
 
     @ApiProperty({ example: '100', description: "Limit amount in currency" })

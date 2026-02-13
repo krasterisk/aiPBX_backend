@@ -7,8 +7,7 @@ import { AiCdr } from "./ai-cdr.model";
 import { AiEvents } from "./ai-events.model";
 import { AiEventDto } from "./dto/ia-events.dto";
 import { GetDashboardAllData, GetDashboardData, GetDashboardDoneData, GetDashboardDto } from "./dto/getDashboardDto";
-import { Prices } from "../prices/prices.model";
-import { UsersService } from "../users/users.service";
+import { BillingService } from "../billing/billing.service";
 import { Assistant } from '../assistants/assistants.model';
 import { SipAccounts } from '../pbx-servers/sip-accounts.model';
 import { AiAnalytics } from "../ai-analytics/ai-analytics.model";
@@ -38,9 +37,8 @@ export class AiCdrService {
     constructor(
         @InjectModel(AiCdr) private aiCdrRepository: typeof AiCdr,
         @InjectModel(AiEvents) private aiEventsRepository: typeof AiEvents,
-        @InjectModel(Prices) private readonly pricesRepository: typeof Prices,
         @InjectModel(Assistant) private readonly assistantRepository: typeof Assistant,
-        private readonly usersService: UsersService,
+        private readonly billingService: BillingService,
         @Inject(forwardRef(() => AiAnalyticsService)) private readonly aiAnalyticsService: AiAnalyticsService
     ) { }
 
@@ -86,19 +84,8 @@ export class AiCdrService {
             const createdAt = new Date(aiCdr.createdAt);
             const duration = Math.floor((now.getTime() - createdAt.getTime()) / 1000);
 
-            const tokens = aiCdr.tokens
-            let cost: number = 0
-            if (tokens > 0) {
-                const userId = aiCdr.userId
-                const price = await this.pricesRepository.findOne({
-                    where: { userId }
-                })
-                cost = tokens * (price.realtime / 1000000)
-                if (cost > 0) {
-                    await this.usersService.decrementUserBalance(userId, cost)
-                }
-
-            }
+            const billingResult = await this.billingService.finalizeCallBilling(channelId);
+            const cost = billingResult.totalCost;
 
             // Generate recordUrl
             let recordUrl = '';

@@ -5,6 +5,7 @@ import { OpenAiConnection } from "./open-ai.connection";
 import { WsServerGateway } from "../ws-server/ws-server.gateway";
 import { Assistant } from "../assistants/assistants.model";
 import { AiCdrService } from "../ai-cdr/ai-cdr.service";
+import { BillingService } from "../billing/billing.service";
 import { AiToolsHandlersService } from "../ai-tools-handlers/ai-tools-handlers.service";
 import { ConfigService } from "@nestjs/config";
 import { UsersService } from "../users/users.service";
@@ -40,6 +41,7 @@ export class OpenAiService implements OnModuleInit {
         @Inject(WsServerGateway) private readonly wsGateway: WsServerGateway,
         @Inject(forwardRef(() => AiCdrService)) private readonly aiCdrService: AiCdrService,
         @Inject(AiToolsHandlersService) private readonly aiToolsHandlersService: AiToolsHandlersService,
+        private readonly billingService: BillingService,
         private readonly configService: ConfigService,
         @Inject(UsersService) private readonly usersService: UsersService,
         private readonly audioService: AudioService
@@ -335,9 +337,9 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "response.done") {
-            const tokens = serverEvent?.response?.usage?.total_tokens ?? 0
-            if (tokens) {
-                await this.aiCdrService.cdrUpdate({ channelId, callerId, tokens })
+            const usage = serverEvent?.response?.usage;
+            if (usage) {
+                await this.billingService.accumulateRealtimeTokens(channelId, usage);
             }
 
             const output = serverEvent?.response?.output;

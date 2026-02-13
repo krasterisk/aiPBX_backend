@@ -5,8 +5,7 @@ import { AiCdrService } from "../ai-cdr/ai-cdr.service";
 import { OpenAiService } from "../open-ai/open-ai.service";
 
 import { AiCdr } from "../ai-cdr/ai-cdr.model";
-import { Prices } from "../prices/prices.model";
-import { UsersService } from "../users/users.service";
+import { BillingService } from "../billing/billing.service";
 import { Op } from "sequelize";
 import { AnalyticsMetrics } from "./interfaces/analytics-metrics.interface";
 
@@ -17,8 +16,7 @@ export class AiAnalyticsService {
     constructor(
         @InjectModel(AiAnalytics) private aiAnalyticsRepository: typeof AiAnalytics,
         @InjectModel(AiCdr) private readonly aiCdrRepository: typeof AiCdr,
-        @InjectModel(Prices) private readonly pricesRepository: typeof Prices,
-        @Inject(UsersService) private readonly usersService: UsersService,
+        private readonly billingService: BillingService,
         @Inject(forwardRef(() => AiCdrService)) private readonly aiCdrService: AiCdrService,
         @Inject(forwardRef(() => OpenAiService)) private readonly openAiService: OpenAiService,
     ) { }
@@ -124,9 +122,11 @@ Return ONLY valid JSON without markdown formatting.
 
             let metrics: AnalyticsMetrics;
             try {
-                metrics = JSON.parse(result.content);
+                const sanitized = this.sanitizeJsonResponse(result.content);
+                metrics = JSON.parse(sanitized);
             } catch (e) {
                 this.logger.error('Failed to parse JSON from OpenAI', e);
+                this.logger.debug('Raw OpenAI content:', result.content?.substring(0, 200));
                 return;
             }
 
@@ -136,26 +136,11 @@ Return ONLY valid JSON without markdown formatting.
                 return;
             }
 
-            // Calculate cost
-            let cost = 0;
+            // Calculate cost via BillingService
             const totalTokens = result.usage ? result.usage.total_tokens : 0;
-
-            try {
-                const aiCdr = await this.aiCdrRepository.findOne({ where: { channelId } });
-                if (aiCdr && totalTokens > 0) {
-                    const userId = aiCdr.userId;
-                    const price = await this.pricesRepository.findOne({ where: { userId } });
-
-                    if (price) {
-                        cost = totalTokens * (price.analytic / 1000000);
-                        if (cost > 0) {
-                            await this.usersService.decrementUserBalance(userId, cost);
-                        }
-                    }
-                    await aiCdr.increment({ tokens: totalTokens, cost: cost });
-                }
-            } catch (e) {
-                this.logger.error(`Error calculating cost for ${channelId}: ` + e.message);
+            let cost = 0;
+            if (totalTokens > 0) {
+                cost = await this.billingService.chargeAnalytics(channelId, totalTokens);
             }
 
 
@@ -285,6 +270,44 @@ Return ONLY valid JSON without markdown formatting.
             this.logger.error('[AiAnalytics]: Dashboard error - ' + e.message);
             throw new HttpException({ message: "[AiAnalytics]: Dashboard request error", error: e.message }, HttpStatus.BAD_REQUEST);
         }
+    }
+
+    /**
+     * Очистка ответа OpenAI от известных артефактов, которые ломают JSON.parse:
+     * 1. Markdown code fences (```json ... ```)
+     * 2. BOM (Byte Order Mark) в начале строки
+     * 3. Trailing commas перед } или ]
+     * 4. Unicode zero-width символы (ZWSP, ZWNJ, ZWJ, BOM inline)
+     * 5. Управляющие символы (кроме \n, \r, \t)
+     */
+    private sanitizeJsonResponse(raw: string): string {
+        if (!raw) return '{}';
+
+        let cleaned = raw;
+
+        // 1. BOM (U+FEFF) — OpenAI иногда вставляет в начало
+        cleaned = cleaned.replace(/^\uFEFF/, '');
+
+        // 2. Markdown code fences: ```json\n{...}\n``` или ```\n{...}\n```
+        cleaned = cleaned.replace(/^```(?:json|JSON)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+
+        // 3. Zero-width символы внутри строки
+        cleaned = cleaned.replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+
+        // 4. Управляющие символы (ASCII 0x00–0x1F) кроме \t \n \r — могут попадать при проблемах с кодировкой
+        cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+
+        // 5. Trailing commas: {a: 1,} или [1, 2,] — невалидный JSON, но GPT иногда генерирует
+        cleaned = cleaned.replace(/,\s*([\]}])/g, '$1');
+
+        // 6. Финальный trim
+        cleaned = cleaned.trim();
+
+        if (cleaned !== raw.trim()) {
+            this.logger.debug('OpenAI response was sanitized before JSON.parse');
+        }
+
+        return cleaned;
     }
 
     /**

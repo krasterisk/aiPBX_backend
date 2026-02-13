@@ -8,6 +8,7 @@ import { AiToolsHandlersModule } from "../ai-tools-handlers/ai-tools-handlers.mo
 import { ConfigModule } from "@nestjs/config";
 import { UsersModule } from "../users/users.module";
 import { AudioModule } from "../audio/audio.module";
+import { BillingModule } from "../billing/billing.module";
 
 @Module({
   controllers: [OpenAiController],
@@ -19,7 +20,8 @@ import { AudioModule } from "../audio/audio.module";
     forwardRef(() => AiCdrModule),
     AiToolsHandlersModule,
     ConfigModule,
-    AudioModule
+    AudioModule,
+    BillingModule
   ],
   exports: [OpenAiService]
 })

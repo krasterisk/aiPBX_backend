@@ -5,8 +5,7 @@ import { SequelizeModule } from "@nestjs/sequelize";
 import { AuthModule } from "../auth/auth.module";
 import { AiCdr } from "./ai-cdr.model";
 import { AiEvents } from "./ai-events.model";
-import { Prices } from "../prices/prices.model";
-import { UsersModule } from "../users/users.module";
+import { BillingModule } from "../billing/billing.module";
 import { Assistant } from '../assistants/assistants.model';
 import { SipAccounts } from '../pbx-servers/sip-accounts.model';
 import { AiAnalyticsModule } from "../ai-analytics/ai-analytics.module";
@@ -15,10 +14,10 @@ import { AiAnalyticsModule } from "../ai-analytics/ai-analytics.module";
   controllers: [AiCdrController],
   providers: [AiCdrService],
   imports: [
-    SequelizeModule.forFeature([AiCdr, AiEvents, Prices, Assistant, SipAccounts]),
+    SequelizeModule.forFeature([AiCdr, AiEvents, Assistant, SipAccounts]),
     forwardRef(() => AuthModule),
     forwardRef(() => AiAnalyticsModule),
-    UsersModule
+    BillingModule
   ],
   exports: [AiCdrService],
 })

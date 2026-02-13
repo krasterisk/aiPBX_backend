@@ -1,5 +1,6 @@
-import { Column, DataType, HasOne, Model, Table } from "sequelize-typescript";
+import { Column, DataType, HasMany, HasOne, Model, Table } from "sequelize-typescript";
 import { AiAnalytics } from "../ai-analytics/ai-analytics.model";
+import { BillingRecord } from "../billing/billing-record.model";
 import { ApiProperty } from "@nestjs/swagger";
 
 interface CreateAiCdr {
@@ -22,13 +23,13 @@ export class AiCdr extends Model<AiCdr, CreateAiCdr> {
     @ApiProperty({ example: '2', description: "Assistant id" })
     @Column({ type: DataType.STRING, allowNull: true })
     assistantId: string
-    @ApiProperty({ example: '1023', description: "Used tokens count" })
-    @Column({ type: DataType.INTEGER, allowNull: true })
+    @ApiProperty({ example: '1023', description: "Cached total tokens count" })
+    @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
     tokens: number
-    @ApiProperty({ example: '10', description: "call duration seconds" })
+    @ApiProperty({ example: '10', description: "Call duration seconds" })
     @Column({ type: DataType.INTEGER, allowNull: true })
     duration: number
-    @ApiProperty({ example: '10', description: "call duration seconds" })
+    @ApiProperty({ example: '0.084', description: "Cached total cost" })
     @Column({ type: DataType.FLOAT, allowNull: false, defaultValue: 0 })
     cost: number
     @ApiProperty({ example: '1', description: "UserId" })
@@ -43,4 +44,7 @@ export class AiCdr extends Model<AiCdr, CreateAiCdr> {
 
     @HasOne(() => AiAnalytics, { foreignKey: 'channelId', sourceKey: 'channelId' })
     analytics: AiAnalytics
+
+    @HasMany(() => BillingRecord, { foreignKey: 'channelId', sourceKey: 'channelId' })
+    billingRecords: BillingRecord[]
 }

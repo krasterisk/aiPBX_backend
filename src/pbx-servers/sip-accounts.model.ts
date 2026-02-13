@@ -2,7 +2,7 @@ import { BelongsTo, Column, DataType, ForeignKey, Model, Table } from "sequelize
 import { ApiProperty } from "@nestjs/swagger";
 import { User } from "../users/users.model";
 import { PbxServers } from "./pbx-servers.model";
-import { Assistant } from "src/assistants/assistants.model";
+import { Assistant } from "../assistants/assistants.model";
 
 interface CreateSipAccount {
     sipUri: string

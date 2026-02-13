@@ -13,7 +13,9 @@ export class Prices extends Model<Prices, CreatePrice> {
     @ApiProperty({ example: '123', description: "Realtime Price" })
     @Column({ type: DataType.FLOAT, allowNull: false, defaultValue: 0 })
     realtime: number
-
+    @ApiProperty({ example: '123', description: "Text Price" })
+    @Column({ type: DataType.FLOAT, allowNull: false, defaultValue: 0 })
+    text: number
     @ApiProperty({ example: '123', description: "Analytic Price" })
     @Column({ type: DataType.FLOAT, allowNull: false, defaultValue: 0 })
     analytic: number

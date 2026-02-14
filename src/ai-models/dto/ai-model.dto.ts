@@ -4,11 +4,15 @@ export class AiModelDto {
     @IsString({ message: 'Must be a string' })
     name: string
     @IsString({ message: 'Must be a string' })
+    publishName: string
+    @IsString({ message: 'Must be a string' })
     comment: string
 }
 
 export class UpdateAiModelDto {
     id: number;
     name?: string;
+    publish?: boolean;
+    publishName?: string;
     comment?: string;
 }

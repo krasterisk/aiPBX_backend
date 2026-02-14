@@ -58,7 +58,8 @@ export class UsersService {
             const price: CreatePriceDto = {
                 userId: user.id,
                 realtime: 35,
-                analytic: 0
+                analytic: 5,
+                text: 1
             }
             await this.priceService.create(price)
 

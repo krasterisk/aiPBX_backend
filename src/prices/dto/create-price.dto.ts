@@ -16,4 +16,9 @@ export class CreatePriceDto {
     @IsNotEmpty()
     @IsNumber()
     readonly analytic: number;
+
+    @ApiProperty({ example: 1.0, description: 'Text Price' })
+    @IsNotEmpty()
+    @IsNumber()
+    readonly text: number;
 }

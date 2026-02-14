@@ -10,6 +10,7 @@ import { AiToolsHandlersService } from "../ai-tools-handlers/ai-tools-handlers.s
 import { ConfigService } from "@nestjs/config";
 import { UsersService } from "../users/users.service";
 import { AudioService } from "../audio/audio.service";
+import { PbxServers } from "../pbx-servers/pbx-servers.model";
 
 export interface sessionData {
     channelId?: string
@@ -23,6 +24,7 @@ export interface sessionData {
     init?: string
     events?: object[]
     assistant?: Assistant
+    pbxServer?: PbxServers  // PbxServers instance for transfer context
     lastResponseAt?: number
     lastEventAt?: number
     watchdogTimer?: NodeJS.Timeout
@@ -353,6 +355,23 @@ export class OpenAiService implements OnModuleInit {
                         if (item.name === 'transfer_call') {
                             this.logger.log('transfering call')
 
+                            // Playground doesn't support call transfer
+                            if (currentSession.isPlayground || currentSession.channelId?.startsWith('playground-')) {
+                                this.logger.log('Transfer not supported in playground mode');
+
+                                const noTransferEvent = {
+                                    type: "conversation.item.create",
+                                    item: {
+                                        type: "function_call_output",
+                                        call_id: item.call_id,
+                                        output: "Transfer is not available in playground mode. Please inform the user that call transfer to an agent is not supported in the test environment."
+                                    }
+                                };
+                                currentSession.openAiConn.send(noTransferEvent);
+                                currentSession.openAiConn.send({ type: "response.create" });
+                                return;
+                            }
+
                             let args: any = {};
                             try {
                                 args = typeof item.arguments === 'string'
@@ -367,8 +386,8 @@ export class OpenAiService implements OnModuleInit {
                             if (hasExtension) {
 
                                 const params = {
-                                    extension: args.exten
-                                    // context: 'sip-out'+assistant.userId
+                                    extension: args.exten,
+                                    context: currentSession.pbxServer?.context || 'default'
                                 }
 
                                 this.eventEmitter.emit(`transferToDialplan.${currentSession.channelId}`, params)
@@ -468,7 +487,7 @@ export class OpenAiService implements OnModuleInit {
 
             this.logger.log(`[updateRtAudioSession] Final instructions length: ${instructions.length} characters`);
 
-            const tools = (assistant.tools || []).map(tool => {
+            const tools: any[] = (assistant.tools || []).map(tool => {
                 // Handle both Sequelize models and plain objects
                 const data = tool.toJSON?.() || tool.dataValues || tool;
 
@@ -485,6 +504,34 @@ export class OpenAiService implements OnModuleInit {
                     return toolData && typeof toolData === 'object' ? toolData : {}
                 }
             }).filter(tool => tool !== null);
+
+            // Add built-in call control functions based on assistant settings
+            if (assistant.allowHangup) {
+                tools.push({
+                    type: 'function',
+                    name: 'hangup_call',
+                    description: 'End the current call. Use this function when the conversation is clearly finished, the user has said goodbye, or the user explicitly asks to end the call.',
+                    parameters: { type: 'object', properties: {} }
+                });
+            }
+
+            if (assistant.allowTransfer) {
+                tools.push({
+                    type: 'function',
+                    name: 'transfer_call',
+                    description: 'Transfer the current call to another phone number or extension. Use this function when you need to connect the caller to a specific department or person, or when the user explicitly asks to be transferred.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            exten: {
+                                type: 'string',
+                                description: 'The phone number or extension to transfer the call to'
+                            }
+                        },
+                        required: ['exten']
+                    }
+                });
+            }
             const initAudioSession = {
                 type: 'session.update',
                 session: {
@@ -635,6 +682,7 @@ export class OpenAiService implements OnModuleInit {
                 init: metadata.init,
                 openAiConn: metadata.openAiConn,
                 assistant: metadata.assistant, // Preserve assistant!
+                pbxServer: metadata.pbxServer, // Preserve PBX server for transfer context
                 responseIds: [],
                 itemIds: [],
                 events: []

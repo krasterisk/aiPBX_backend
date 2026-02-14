@@ -21,6 +21,7 @@ interface SessionData {
     init: string;
     openAiConn: OpenAiConnection;
     assistant: Assistant;
+    pbxServer?: any;
 }
 
 export class CallSession {
@@ -157,7 +158,8 @@ export class CallSession {
                 port: String(rtpPort),
                 init: 'false',
                 openAiConn: this.openAiConnection,
-                assistant
+                assistant,
+                pbxServer: this.pbxServer
             };
 
             // await this.ariClient.playMedia(this.channel.id, 'silence/1', 'en');
@@ -336,7 +338,8 @@ export class CallSession {
                     port: String(rtpPort),
                     init: 'false',
                     openAiConn: this.openAiConnection,
-                    assistant: this.assistant
+                    assistant: this.assistant,
+                    pbxServer: this.pbxServer
                 };
 
                 // Refresh mapping in UDP server

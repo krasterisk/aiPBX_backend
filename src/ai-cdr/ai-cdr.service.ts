@@ -11,6 +11,7 @@ import { BillingService } from "../billing/billing.service";
 import { Assistant } from '../assistants/assistants.model';
 import { SipAccounts } from '../pbx-servers/sip-accounts.model';
 import { AiAnalytics } from "../ai-analytics/ai-analytics.model";
+import { BillingRecord } from "../billing/billing-record.model";
 import { AiAnalyticsService } from "../ai-analytics/ai-analytics.service";
 import { forwardRef } from "@nestjs/common";
 
@@ -95,7 +96,7 @@ export class AiCdrService {
                     include: [SipAccounts]
                 });
 
-                if (assistant && assistant.sipAccount) {
+                if (assistant && assistant.sipAccount.records) {
                     const sipUri = assistant.sipAccount.sipUri;
                     const serverUrl = sipUri.split('@')[1];
                     if (serverUrl) {
@@ -248,6 +249,11 @@ export class AiCdrService {
                         assistantName: {
                             [sequelize.Op.like]: `%${search}%`
                         }
+                    },
+                    {
+                        '$analytics.summary$': {
+                            [sequelize.Op.like]: `%${search}%`
+                        }
                     }
                 ]
             };
@@ -289,16 +295,43 @@ export class AiCdrService {
                 };
             }
 
+            const sortField = query.sortField || 'createdAt';
+            const sortOrder = query.sortOrder || 'DESC';
+
+            // Build order clause based on field type
+            let orderClause: any[];
+            const isAssociatedSort = sortField === 'csat' || sortField === 'scenarioSuccess';
+            // subQuery: false needed when sorting/searching by JOINed fields
+            const needsFlatQuery = isAssociatedSort || (search && search.trim() !== '');
+
+            if (sortField === 'csat') {
+                // Sort by associated AiAnalytics.csat column
+                orderClause = [[{ model: AiAnalytics, as: 'analytics' }, 'csat', sortOrder]];
+            } else if (sortField === 'scenarioSuccess') {
+                // Sort by JSON field inside analytics.metrics
+                orderClause = [[sequelize.literal(`JSON_EXTRACT(\`analytics\`.\`metrics\`, '$.scenario_analysis.success') ${sortOrder}`)]];
+            } else {
+                orderClause = [[sortField, sortOrder]];
+            }
+
             const { count, rows } = await this.aiCdrRepository.findAndCountAll({
                 offset,
                 limit,
                 distinct: true,
+                // subQuery: false needed when sorting/searching by JOINed fields,
+                // otherwise Sequelize puts conditions inside a subquery where the JOIN isn't available
+                subQuery: !needsFlatQuery,
                 where: whereClause,
-                order: [['createdAt', 'DESC']],
+                order: orderClause,
                 include: [
                     {
                         model: AiAnalytics,
                         as: 'analytics',
+                        required: false
+                    },
+                    {
+                        model: BillingRecord,
+                        as: 'billingRecords',
                         required: false
                     }
                 ]

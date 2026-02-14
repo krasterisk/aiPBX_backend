@@ -78,6 +78,12 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: true, description: "Enable post-call analytics" })
     @Column({ type: DataType.BOOLEAN, defaultValue: false, allowNull: true })
     analytic: boolean;
+    @ApiProperty({ example: false, description: "Allow AI to hang up the call" })
+    @Column({ type: DataType.BOOLEAN, defaultValue: false, allowNull: true })
+    allowHangup: boolean;
+    @ApiProperty({ example: false, description: "Allow AI to transfer the call" })
+    @Column({ type: DataType.BOOLEAN, defaultValue: false, allowNull: true })
+    allowTransfer: boolean;
     @ApiProperty({ example: 'comment', description: "Any comments" })
     @Column({ type: DataType.STRING, allowNull: true })
     comment: string

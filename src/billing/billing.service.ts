@@ -165,7 +165,8 @@ export class BillingService {
                 where: { channelId, type: 'analytic' },
                 defaults: { channelId, type: 'analytic' },
             });
-            await record.increment({ totalTokens, totalCost: analyticCost });
+            // Chat completion tokens are all text tokens
+            await record.increment({ textTokens: totalTokens, totalTokens, totalCost: analyticCost, textCost: analyticCost });
 
             // Update cached totals in CDR
             await aiCdr.increment({ tokens: totalTokens, cost: analyticCost });

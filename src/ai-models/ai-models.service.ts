@@ -38,9 +38,10 @@ export class AiModelsService {
         }
     }
 
-    async getAll() {
+    async getAll(isAdmin: boolean = false) {
         try {
-            const aiModel = await this.aiModelsRepository.findAll()
+            const whereClause = isAdmin ? {} : { publish: true };
+            const aiModel = await this.aiModelsRepository.findAll({ where: whereClause });
             if (aiModel) {
                 return aiModel
             }

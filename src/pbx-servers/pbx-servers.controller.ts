@@ -8,6 +8,7 @@ import { GetPbxDto } from "./dto/getPbx.dto";
 import { PbxDto } from "./dto/pbx.dto";
 import { SipAccountDto } from "./dto/sip-account.dto";
 import { SipAccounts } from "./sip-accounts.model";
+import { LoggerService } from "../logger/logger.service";
 
 interface RequestWithUser extends Request {
     isAdmin?: boolean
@@ -18,7 +19,8 @@ interface RequestWithUser extends Request {
 @Controller('pbx-servers')
 export class PbxServersController {
 
-    constructor(private pbxServersService: PbxServersService) { }
+    constructor(private pbxServersService: PbxServersService,
+        private loggerService: LoggerService) { }
 
     @ApiOperation({ summary: "pbx list" })
     @ApiResponse({ status: 200, type: PbxServers })
@@ -71,8 +73,11 @@ export class PbxServersController {
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Post()
-    create(@Body() dto: PbxDto) {
-        return this.pbxServersService.create(dto)
+    async create(@Body() dto: PbxDto, @Req() request: RequestWithUser) {
+        const result = await this.pbxServersService.create(dto)
+        const userId = request.vpbxUserId || request.tokenUserId;
+        await this.loggerService.logAction(Number(userId), 'create', 'pbxServer', null, `Created PBX server`, null, dto, request);
+        return result;
     }
 
     @ApiOperation({ summary: "Update pbx" })
@@ -80,8 +85,11 @@ export class PbxServersController {
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Patch()
-    update(@Body() dto: PbxDto) {
-        return this.pbxServersService.update(dto)
+    async update(@Body() dto: PbxDto, @Req() request: RequestWithUser) {
+        const result = await this.pbxServersService.update(dto)
+        const userId = request.vpbxUserId || request.tokenUserId;
+        await this.loggerService.logAction(Number(userId), 'update', 'pbxServer', (dto as any).id, `Updated PBX server`, null, dto, request);
+        return result;
     }
 
     @ApiOperation({ summary: "Create SIP URI" })
@@ -137,7 +145,10 @@ export class PbxServersController {
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Delete('/:id')
-    delete(@Param('id') id: string) {
-        return this.pbxServersService.delete(id)
+    async delete(@Param('id') id: string, @Req() request: RequestWithUser) {
+        const result = await this.pbxServersService.delete(id)
+        const userId = request.vpbxUserId || request.tokenUserId;
+        await this.loggerService.logAction(Number(userId), 'delete', 'pbxServer', Number(id), `Deleted PBX server #${id}`, null, null, request);
+        return result;
     }
 }

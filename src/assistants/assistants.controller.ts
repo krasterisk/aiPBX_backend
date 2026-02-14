@@ -6,6 +6,7 @@ import { RolesGuard } from "../auth/roles.guard";
 import { Assistant } from "./assistants.model";
 import { AssistantDto } from "./dto/assistant.dto";
 import { GetAssistantsDto } from "./dto/getAssistants.dto";
+import { LoggerService } from "../logger/logger.service";
 
 interface RequestWithUser extends Request {
     isAdmin?: boolean
@@ -15,7 +16,8 @@ interface RequestWithUser extends Request {
 @Controller('assistants')
 export class AssistantsController {
 
-    constructor(private assistantsService: AssistantsService) { }
+    constructor(private assistantsService: AssistantsService,
+        private loggerService: LoggerService) { }
 
     @ApiOperation({ summary: "assistants list" })
     @ApiResponse({ status: 200, type: Assistant })
@@ -59,12 +61,14 @@ export class AssistantsController {
     @UseGuards(RolesGuard)
     //    @UsePipes(ValidationPipe)
     @Post()
-    create(@Body() dto: AssistantDto[],
+    async create(@Body() dto: AssistantDto[],
         @Req() request: RequestWithUser
     ) {
         const isAdmin = request.isAdmin
         const userId = request.tokenUserId
-        return this.assistantsService.create(dto, isAdmin, userId)
+        const result = await this.assistantsService.create(dto, isAdmin, userId)
+        await this.loggerService.logAction(Number(userId), 'create', 'assistant', null, `Created assistant(s)`, null, dto, request);
+        return result;
     }
 
     @ApiOperation({ summary: "Update assistant" })
@@ -72,8 +76,11 @@ export class AssistantsController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Patch()
-    update(@Body() dto: AssistantDto) {
-        return this.assistantsService.update(dto)
+    async update(@Body() dto: AssistantDto, @Req() request: RequestWithUser) {
+        const result = await this.assistantsService.update(dto)
+        const userId = request.vpbxUserId || request.tokenUserId;
+        await this.loggerService.logAction(Number(userId), 'update', 'assistant', (dto as any).id, `Updated assistant`, null, dto, request);
+        return result;
     }
 
     @ApiOperation({ summary: "Delete assistant" })
@@ -81,8 +88,11 @@ export class AssistantsController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Delete('/:id')
-    delete(@Param('id') id: string) {
-        return this.assistantsService.delete(id)
+    async delete(@Param('id') id: string, @Req() request: RequestWithUser) {
+        const result = await this.assistantsService.delete(id)
+        const userId = request.vpbxUserId || request.tokenUserId;
+        await this.loggerService.logAction(Number(userId), 'delete', 'assistant', Number(id), `Deleted assistant #${id}`, null, null, request);
+        return result;
     }
 
     @ApiOperation({ summary: "Generate prompt using AI" })

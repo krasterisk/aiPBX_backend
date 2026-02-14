@@ -11,6 +11,7 @@ import { Rates } from "../currency/rates.model";
 import { PricesModule } from "../prices/prices.module";
 import { MailerModule } from "../mailer/mailer.module";
 import { Payments } from "../payments/payments.model";
+import { LoggerModule } from "../logger/logger.module";
 
 @Module({
     controllers: [UsersController],
@@ -21,7 +22,8 @@ import { Payments } from "../payments/payments.model";
         forwardRef(() => AuthModule),
         FilesModule,
         PricesModule,
-        MailerModule
+        MailerModule,
+        LoggerModule,
     ],
     exports: [
         UsersService

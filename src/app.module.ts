@@ -28,6 +28,7 @@ import { WidgetKeysModule } from './widget-keys/widget-keys.module';
 import { WidgetModule } from './widget/widget.module';
 import { AiAnalyticsModule } from "./ai-analytics/ai-analytics.module";
 import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
+import { McpClientModule } from './mcp-client/mcp-client.module';
 
 @Module({
     imports: [
@@ -69,6 +70,7 @@ import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
         WidgetKeysModule,
         WidgetModule,
         AiAnalyticsModule,
+        McpClientModule,
         ThrottlerModule.forRoot([{
             ttl: 60000,
             limit: 30,

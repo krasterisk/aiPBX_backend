@@ -14,7 +14,7 @@ async function start() {
     const config = new DocumentBuilder()
         .setTitle('AI PBX')
         .setDescription('REST API Documentation')
-        .setVersion('1.0.1')
+        .setVersion('1.5.5')
         .addTag('AI PBX API')
         .build()
     const document = SwaggerModule.createDocument(app, config)

@@ -1,19 +1,19 @@
-import {HttpException, HttpStatus, Injectable, Logger, UnauthorizedException} from '@nestjs/common';
-import {CreateUserDto} from "../users/dto/create-user.dto";
-import {UsersService} from "../users/users.service";
-import {JwtService} from "@nestjs/jwt";
+import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { CreateUserDto } from "../users/dto/create-user.dto";
+import { UsersService } from "../users/users.service";
+import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from 'bcryptjs'
-import {User} from "../users/users.model";
-import {MailerService} from "../mailer/mailer.service";
-import {v4 as uuidv4} from 'uuid';
-import {CreateRoleDto} from "../roles/dto/create-role.dto";
-import {ResetPasswordDto} from "../users/dto/resetPassword.dto";
-import {OAuth2Client} from 'google-auth-library';
+import { User } from "../users/users.model";
+import { MailerService } from "../mailer/mailer.service";
+import { v4 as uuidv4 } from 'uuid';
+import { CreateRoleDto } from "../roles/dto/create-role.dto";
+import { ResetPasswordDto } from "../users/dto/resetPassword.dto";
+import { OAuth2Client } from 'google-auth-library';
 import * as crypto from 'crypto';
-import {TelegramAuthDto} from "./dto/telegram.auth.dto";
-import {ActivationDto} from "../users/dto/activation.dto";
-import {TelegramService} from "../telegram/telegram.service";
-import {LoggerService} from "../logger/logger.service";
+import { TelegramAuthDto } from "./dto/telegram.auth.dto";
+import { ActivationDto } from "../users/dto/activation.dto";
+import { TelegramService } from "../telegram/telegram.service";
+import { LoggerService } from "../logger/logger.service";
 
 @Injectable()
 export class AuthService {
@@ -22,17 +22,17 @@ export class AuthService {
     private googleClient: OAuth2Client;
 
     constructor(private userService: UsersService,
-                private jwtService: JwtService,
-                private mailerService: MailerService,
-                private telegramService: TelegramService,
-                private readonly logService: LoggerService,
+        private jwtService: JwtService,
+        private mailerService: MailerService,
+        private telegramService: TelegramService,
+        private readonly logService: LoggerService,
     ) {
         this.googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
     }
 
     async login(userDto: CreateUserDto) {
 
-        if(!userDto.email) {
+        if (!userDto.email) {
             this.logger.warn("Email is empty")
             throw new HttpException('Email is empty!', HttpStatus.BAD_REQUEST)
         }
@@ -54,7 +54,7 @@ export class AuthService {
 
         const result = await this.mailerService.sendActivationMail(userDto.email, activationCode)
 
-        if(result.success) {
+        if (result.success) {
             return { success: true }
         }
 
@@ -83,7 +83,7 @@ export class AuthService {
 
         await this.mailerService.sendActivationMail(userDto.email, activationCode)
 
-        if(!candidate) {
+        if (!candidate) {
             const user = await this.userService.create({
                 ...userDto,
                 roles,
@@ -92,11 +92,11 @@ export class AuthService {
             })
 
             if (user) {
-                return {success: true}
+                return { success: true }
             }
         }
 
-        if(!candidate.isActivated) {
+        if (!candidate.isActivated) {
             candidate.activationCode = activationCode
             candidate.activationExpires = activationExpires
             await candidate.save()
@@ -110,60 +110,60 @@ export class AuthService {
     }
 
     async activate(activation: ActivationDto) {
-            if(!activation.activationCode) {
-                this.logger.warn("Activation error: no code", activation)
-                throw new HttpException('Activation error!', HttpStatus.BAD_REQUEST)
-            }
+        if (!activation.activationCode) {
+            this.logger.warn("Activation error: no code", activation)
+            throw new HttpException('Activation error!', HttpStatus.BAD_REQUEST)
+        }
 
-            if(!activation.email) {
-                this.logger.warn("Activation user not found by email", activation)
-                throw new HttpException('Activation error!', HttpStatus.BAD_REQUEST)
-            }
+        if (!activation.email) {
+            this.logger.warn("Activation user not found by email", activation)
+            throw new HttpException('Activation error!', HttpStatus.BAD_REQUEST)
+        }
 
-            const candidate = await this.userService.getCandidateByEmail(activation.email);
+        const candidate = await this.userService.getCandidateByEmail(activation.email);
 
-            if (!candidate) {
-                this.logger.warn("Activation user not found", activation)
-                throw new HttpException('User not found', HttpStatus.NOT_FOUND);
-            }
+        if (!candidate) {
+            this.logger.warn("Activation user not found", activation)
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
 
-            if (!candidate.activationCode) {
-                this.logger.warn("Activation code is empty", candidate.activationCode)
-                    throw new HttpException('Activation code is wrong', HttpStatus.BAD_REQUEST);
-            }
+        if (!candidate.activationCode) {
+            this.logger.warn("Activation code is empty", candidate.activationCode)
+            throw new HttpException('Activation code is wrong', HttpStatus.BAD_REQUEST);
+        }
 
-            if (!candidate.activationExpires) {
-                this.logger.warn("Activation time expired",
-                    String(candidate.activationExpires)
-                )
-                throw new HttpException('Activation error', HttpStatus.BAD_REQUEST);
-            }
+        if (!candidate.activationExpires) {
+            this.logger.warn("Activation time expired",
+                String(candidate.activationExpires)
+            )
+            throw new HttpException('Activation error', HttpStatus.BAD_REQUEST);
+        }
 
-            if (candidate.activationExpires < Date.now()) {
-                                this.logger.warn("Activation code expires")
-                throw new HttpException('Activation code expired', HttpStatus.BAD_REQUEST);
-            }
+        if (candidate.activationExpires < Date.now()) {
+            this.logger.warn("Activation code expires")
+            throw new HttpException('Activation code expired', HttpStatus.BAD_REQUEST);
+        }
 
-            if (candidate.activationCode !== activation.activationCode.trim()) {
-                this.logger.warn("Invalid activation code")
-                throw new HttpException('Invalid activation code', HttpStatus.BAD_REQUEST);
-            }
+        if (candidate.activationCode !== activation.activationCode.trim()) {
+            this.logger.warn("Invalid activation code")
+            throw new HttpException('Invalid activation code', HttpStatus.BAD_REQUEST);
+        }
 
-            candidate.isActivated = true;
-            candidate.activationCode = null;
-            candidate.activationExpires = null;
-            candidate.authType = 'email';
-            await candidate.save();
+        candidate.isActivated = true;
+        candidate.activationCode = null;
+        candidate.activationExpires = null;
+        candidate.authType = 'email';
+        await candidate.save();
 
-            const token = await this.generateToken(candidate)
+        const token = await this.generateToken(candidate)
 
-            if(token) {
-                await this.authLog(candidate, activation)
-                return { token, user: candidate };
-            }
+        if (token) {
+            await this.authLog(candidate, activation)
+            return { token, user: candidate };
+        }
 
-            this.logger.warn("Generate token error")
-            throw new HttpException('Authorization error', HttpStatus.BAD_REQUEST);
+        this.logger.warn("Generate token error")
+        throw new HttpException('Authorization error', HttpStatus.BAD_REQUEST);
 
 
     }
@@ -176,7 +176,7 @@ export class AuthService {
             }
 
             const hashPassword = await bcrypt.hash(userDto.password, 5)
-            const user = await this.userService.create({...userDto, password: hashPassword})
+            const user = await this.userService.create({ ...userDto, password: hashPassword })
             return user
         } catch (e) {
             this.logger.warn('Create user error!', e)
@@ -188,21 +188,23 @@ export class AuthService {
         user: User,
         activationData: ActivationDto,
         tgEvent: boolean = true
-        ) {
-        if(tgEvent) {
+    ) {
+        if (tgEvent) {
             const JSONText = JSON.stringify(user, null, 2);
             const formattedResult =
                 `<b>User ${activationData.type} via ${user.authType}</b><pre>${JSONText}</pre>`.trim();
             await this.telegramService.sendMessage(
                 formattedResult, {
-                    parse_mode: "HTML"
-                });
+                parse_mode: "HTML"
+            });
         }
-        await this.logService.create({
-            event: `User ${activationData.type} via ${user.authType}`,
-            eventId: 1,
-            userId: user.id
-        })
+        await this.logService.logAction(
+            user.id,
+            activationData.type === 'signup' ? 'create' : 'login',
+            'user',
+            user.id,
+            `User ${activationData.type} via ${user.authType}`,
+        )
     }
 
     private async generateToken(user: User) {
@@ -215,7 +217,7 @@ export class AuthService {
     }
 
 
-     async loginWithGoogle(idToken: string) {
+    async loginWithGoogle(idToken: string) {
         try {
             const gdata = await this.checkGoogleToken(idToken)
             const { sub: googleId, email, name, picture } = gdata;
@@ -236,10 +238,10 @@ export class AuthService {
             // Генерируем JWT
             const token = await this.generateToken(user)
 
-            if(token) {
-                await this.authLog(user, {type: 'login'})
+            if (token) {
+                await this.authLog(user, { type: 'login' })
                 this.logger.log(`User successfully login via ${user.authType}`, user.email)
-                return {token, user};
+                return { token, user };
             }
             this.logger.error(`Generate token error for ${user.authType} account`)
             throw new HttpException('Authorization error', HttpStatus.BAD_REQUEST);
@@ -271,14 +273,14 @@ export class AuthService {
                 googleId,
                 authType: 'google',
                 avatar: picture,
-                });
+            });
 
             // Генерируем JWT
             const token = await this.generateToken(user)
-            if(token) {
-                await this.authLog(user, {type: 'signup'})
+            if (token) {
+                await this.authLog(user, { type: 'signup' })
                 this.logger.log('User successfully signup via google', user.email)
-                return {token, user};
+                return { token, user };
             }
 
             this.logger.warn("Generate token error for google account")
@@ -350,7 +352,7 @@ export class AuthService {
             this.logger.warn('User already exist')
             throw new UnauthorizedException('User already exist');
         }
-         // Создаём нового
+        // Создаём нового
         const roles = [{ value: 'USER', description: 'CUSTOMER' }];
 
         const user = await this.userService.create({
@@ -366,15 +368,15 @@ export class AuthService {
         // Генерим JWT
         const token = await this.generateToken(user)
 
-        if(token) {
-            await this.authLog(user, {type: 'signup'})
+        if (token) {
+            await this.authLog(user, { type: 'signup' })
             this.logger.log('User successfully signup via telegram', user.name)
-            return {token, user};
+            return { token, user };
         }
 
         this.logger.error("Generate token error for telegram account")
         throw new HttpException('Authorization error', HttpStatus.BAD_REQUEST);
-}
+    }
 
     async loginWithTelegram(data: TelegramAuthDto) {
 
@@ -395,17 +397,17 @@ export class AuthService {
         user.authType = 'telegram';
         user.telegramId = data.id;
         user.name = `${data.first_name || ''} ${data.last_name || ''}`.trim();
-        if(data.photo_url !== user.avatar) {
+        if (data.photo_url !== user.avatar) {
             user.avatar = data.photo_url
         }
         await user.save()
         // Генерим JWT
         const token = await this.generateToken(user)
 
-        if(token) {
-            await this.authLog(user, {type: 'login'})
+        if (token) {
+            await this.authLog(user, { type: 'login' })
             this.logger.log(`User successfully login via ${user.authType}`, user.email)
-            return {token, user};
+            return { token, user };
         }
 
         this.logger.error("Generate token error for telegram account")

@@ -9,6 +9,7 @@ import { ConfigModule } from "@nestjs/config";
 import { UsersModule } from "../users/users.module";
 import { AudioModule } from "../audio/audio.module";
 import { BillingModule } from "../billing/billing.module";
+import { McpClientModule } from '../mcp-client/mcp-client.module';
 
 @Module({
   controllers: [OpenAiController],
@@ -21,7 +22,8 @@ import { BillingModule } from "../billing/billing.module";
     AiToolsHandlersModule,
     ConfigModule,
     AudioModule,
-    BillingModule
+    BillingModule,
+    McpClientModule,
   ],
   exports: [OpenAiService]
 })

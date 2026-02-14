@@ -8,6 +8,7 @@ import { HttpModule } from "@nestjs/axios";
 import { Assistant } from "../assistants/assistants.model";
 import { SipAccounts } from "./sip-accounts.model";
 import { AriModule } from "../ari/ari.module";
+import { LoggerModule } from "../logger/logger.module";
 
 @Module({
   controllers: [PbxServersController],
@@ -16,7 +17,8 @@ import { AriModule } from "../ari/ari.module";
     SequelizeModule.forFeature([PbxServers, Assistant, SipAccounts]),
     forwardRef(() => AuthModule),
     forwardRef(() => AriModule),
-    HttpModule
+    HttpModule,
+    LoggerModule,
   ],
   exports: [PbxServersService]
 })

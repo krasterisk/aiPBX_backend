@@ -11,6 +11,8 @@ import { ConfigService } from "@nestjs/config";
 import { UsersService } from "../users/users.service";
 import { AudioService } from "../audio/audio.service";
 import { PbxServers } from "../pbx-servers/pbx-servers.model";
+import { ToolGatewayService } from "../mcp-client/services/tool-gateway.service";
+import { McpToolRegistryService } from "../mcp-client/services/mcp-tool-registry.service";
 
 export interface sessionData {
     channelId?: string
@@ -29,6 +31,11 @@ export interface sessionData {
     lastEventAt?: number
     watchdogTimer?: NodeJS.Timeout
     isPlayground?: boolean  // Flag to identify playground sessions
+    toolCallHistory?: Array<{
+        name: string;
+        calledAt: number;
+        result: 'success' | 'error';
+    }>;
 }
 
 @Injectable()
@@ -46,7 +53,9 @@ export class OpenAiService implements OnModuleInit {
         private readonly billingService: BillingService,
         private readonly configService: ConfigService,
         @Inject(UsersService) private readonly usersService: UsersService,
-        private readonly audioService: AudioService
+        private readonly audioService: AudioService,
+        @Inject(ToolGatewayService) private readonly toolGateway: ToolGatewayService,
+        @Inject(McpToolRegistryService) private readonly mcpToolRegistry: McpToolRegistryService,
     ) {
         this.API_KEY = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
         this.openAiClient = new OpenAI({ apiKey: this.API_KEY });
@@ -347,79 +356,39 @@ export class OpenAiService implements OnModuleInit {
             const output = serverEvent?.response?.output;
 
             if (Array.isArray(output)) {
-                // const currentSession = this.sessions.get(channelId);
                 for (const item of output) {
-                    if (
-                        item.type === "function_call"
-                    ) {
-                        if (item.name === 'transfer_call') {
-                            this.logger.log('transfering call')
+                    if (item.type === "function_call") {
+                        try {
+                            const { output: toolOutput, sendResponse } = await this.toolGateway.execute(
+                                item,
+                                currentSession,
+                                assistant,
+                            );
 
-                            // Playground doesn't support call transfer
-                            if (currentSession.isPlayground || currentSession.channelId?.startsWith('playground-')) {
-                                this.logger.log('Transfer not supported in playground mode');
-
-                                const noTransferEvent = {
-                                    type: "conversation.item.create",
-                                    item: {
-                                        type: "function_call_output",
-                                        call_id: item.call_id,
-                                        output: "Transfer is not available in playground mode. Please inform the user that call transfer to an agent is not supported in the test environment."
-                                    }
-                                };
-                                currentSession.openAiConn.send(noTransferEvent);
-                                currentSession.openAiConn.send({ type: "response.create" });
-                                return;
-                            }
-
-                            let args: any = {};
-                            try {
-                                args = typeof item.arguments === 'string'
-                                    ? JSON.parse(item.arguments)
-                                    : item.arguments;
-                            } catch (e) {
-                                this.logger.error('Error parsing arguments:', e);
-                            }
-
-                            const hasExtension = args?.exten && args.exten.trim() !== '';
-
-                            if (hasExtension) {
-
-                                const params = {
-                                    extension: args.exten,
-                                    context: currentSession.pbxServer?.context || 'default'
-                                }
-
-                                this.eventEmitter.emit(`transferToDialplan.${currentSession.channelId}`, params)
-                            }
-                        } else if (item.name === 'hangup_call') {
-                            this.logger.log('hangup call')
-                            this.eventEmitter.emit(`HangupCall.${currentSession.channelId}`)
-                        } else {
-                            const result = await this.aiToolsHandlersService.functionHandler(item.name, item.arguments, assistant)
-                            if (result) {
-
-                                this.logger.log("RESULT:", typeof result === 'string' ? result : JSON.stringify(result))
+                            if (sendResponse && toolOutput) {
+                                this.logger.log("RESULT:", toolOutput);
 
                                 const functionEvent = {
                                     type: "conversation.item.create",
                                     item: {
                                         type: "function_call_output",
                                         call_id: item.call_id,
-                                        output: typeof result === 'string' ? result : JSON.stringify(result)
-                                    }
-                                }
+                                        output: toolOutput,
+                                    },
+                                };
 
-                                currentSession.openAiConn.send(functionEvent)
+                                currentSession.openAiConn.send(functionEvent);
 
                                 const metadata: sessionData = {
                                     channelId: currentSession.channelId,
                                     address: currentSession.address,
-                                    port: currentSession.port
-                                }
+                                    port: currentSession.port,
+                                };
 
-                                this.rtAudioOutBandResponseCreate(metadata, currentSession)
+                                this.rtAudioOutBandResponseCreate(metadata, currentSession);
                             }
+                        } catch (error) {
+                            this.logger.error(`Tool ${item.name} execution error:`, error.message);
                         }
                     }
                 }
@@ -454,7 +423,7 @@ export class OpenAiService implements OnModuleInit {
         }
     }
 
-    public updateRtAudioSession(session: sessionData) {
+    public async updateRtAudioSession(session: sessionData) {
         if (session && session.openAiConn) {
             const connection = session.openAiConn
             const assistant = session.assistant
@@ -532,6 +501,18 @@ export class OpenAiService implements OnModuleInit {
                     }
                 });
             }
+
+            // Add MCP tools from registry
+            try {
+                const mcpTools = await this.mcpToolRegistry.getToolsForOpenAI(assistant.userId);
+                if (mcpTools.length > 0) {
+                    tools.push(...mcpTools);
+                    this.logger.log(`Added ${mcpTools.length} MCP tools to session for ${session.channelId}`);
+                }
+            } catch (e) {
+                this.logger.warn(`Failed to load MCP tools for user ${assistant.userId}: ${e.message}`);
+            }
+
             const initAudioSession = {
                 type: 'session.update',
                 session: {

@@ -30,6 +30,7 @@ import { ActivationDto } from "./dto/activation.dto";
 import { CreateUserLimitDto } from "./dto/create-user-limit.dto";
 import { UserLimits } from "./user-limits.model";
 import { AdminTopUpDto } from "./dto/admin-top-up.dto";
+import { LoggerService } from "../logger/logger.service";
 
 interface RequestWithUser extends Request {
     isAdmin?: boolean
@@ -42,7 +43,8 @@ interface RequestWithUser extends Request {
 export class UsersController {
 
     constructor(private userService: UsersService,
-        private authService: AuthService) { }
+        private authService: AuthService,
+        private loggerService: LoggerService) { }
 
     @ApiOperation({ summary: "Admin: top up user balance" })
     @ApiResponse({ status: 200, description: 'Balance topped up successfully' })
@@ -60,9 +62,12 @@ export class UsersController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Post()
-    create(@Body() dto: CreateUserDto) {
+    async create(@Body() dto: CreateUserDto, @Req() request: RequestWithUser) {
         const activatedDto = { ...dto, isActivated: true }
-        return this.authService.create(activatedDto)
+        const result = await this.authService.create(activatedDto)
+        const userId = request.vpbxUserId || request.tokenUserId;
+        await this.loggerService.logAction(Number(userId), 'create', 'user', null, `Created user ${dto.email || dto.username}`, null, null, request);
+        return result;
     }
 
     @ApiOperation({ summary: "Get users by page" })
@@ -181,8 +186,11 @@ export class UsersController {
     @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @Put()
-    UpdateUser(@Body() updates: Partial<User>) {
-        return this.userService.updateUser(updates)
+    async UpdateUser(@Body() updates: Partial<User>, @Req() request: RequestWithUser) {
+        const result = await this.userService.updateUser(updates)
+        const userId = request.vpbxUserId || request.tokenUserId;
+        await this.loggerService.logAction(Number(userId), 'update', 'user', (updates as any).id, `Admin updated user`, null, updates, request);
+        return result;
     }
 
     @ApiOperation({ summary: "Upload user avatar" })
@@ -202,8 +210,11 @@ export class UsersController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Delete('/:id')
-    DeleteUser(@Param('id') id: number) {
-        return this.userService.deleteUser(id)
+    async DeleteUser(@Param('id') id: number, @Req() request: RequestWithUser) {
+        const result = await this.userService.deleteUser(id)
+        const userId = request.vpbxUserId || request.tokenUserId;
+        await this.loggerService.logAction(Number(userId), 'delete', 'user', id, `Deleted user #${id}`, null, null, request);
+        return result;
     }
 
     @ApiOperation({ summary: "Set user usage limit" })

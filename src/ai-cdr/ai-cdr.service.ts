@@ -96,7 +96,7 @@ export class AiCdrService {
                     include: [SipAccounts]
                 });
 
-                if (assistant && assistant.sipAccount.records) {
+                if (assistant?.sipAccount?.records) {
                     const sipUri = assistant.sipAccount.sipUri;
                     const serverUrl = sipUri.split('@')[1];
                     if (serverUrl) {
@@ -238,24 +238,31 @@ export class AiCdrService {
                     : Number(query.userId);
 
             // Prepare the where clause
-            let whereClause: any = {
-                [sequelize.Op.or]: [
-                    {
-                        callerId: {
-                            [sequelize.Op.like]: `%${search}%`
-                        }
-                    },
-                    {
-                        assistantName: {
-                            [sequelize.Op.like]: `%${search}%`
-                        }
-                    },
-                    {
-                        '$analytics.summary$': {
-                            [sequelize.Op.like]: `%${search}%`
-                        }
+            const searchConditions: any[] = [
+                {
+                    callerId: {
+                        [sequelize.Op.like]: `%${search}%`
                     }
-                ]
+                },
+                {
+                    assistantName: {
+                        [sequelize.Op.like]: `%${search}%`
+                    }
+                },
+            ];
+
+            // Only search in associated analytics.summary when there's actual search text,
+            // otherwise Sequelize puts it in a subquery where the JOIN isn't available
+            if (search && search.trim() !== '') {
+                searchConditions.push({
+                    '$analytics.summary$': {
+                        [sequelize.Op.like]: `%${search}%`
+                    }
+                });
+            }
+
+            let whereClause: any = {
+                [sequelize.Op.or]: searchConditions
             };
 
             // Обработка случаев, когда указаны оба параметра startDate и endDate

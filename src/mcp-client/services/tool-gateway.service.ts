@@ -1,11 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { McpCallLog } from '../models/mcp-call-log.model';
+import { McpServer } from '../models/mcp-server.model';
 import { McpToolRegistryService } from './mcp-tool-registry.service';
 import { McpClientService } from './mcp-client.service';
 import { AiToolsHandlersService } from '../../ai-tools-handlers/ai-tools-handlers.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Assistant } from '../../assistants/assistants.model';
+import { ComposioService } from './composio.service';
 
 /**
  * Minimal session interface — mirrors the fields used from OpenAI sessionData.
@@ -28,7 +30,7 @@ interface ToolGatewaySession {
  * ToolGatewayService — unified entry point for ALL tool calls.
  *
  * Replaces the if/else chain in dataDecode() with a single execute() method
- * that routes to: built-in tools → local webhook tools → MCP remote tools.
+ * that routes to: built-in tools → composio direct → MCP remote tools → local webhook tools.
  */
 @Injectable()
 export class ToolGatewayService {
@@ -37,10 +39,13 @@ export class ToolGatewayService {
     constructor(
         @InjectModel(McpCallLog)
         private readonly callLogModel: typeof McpCallLog,
+        @InjectModel(McpServer)
+        private readonly mcpServerModel: typeof McpServer,
         private readonly mcpToolRegistry: McpToolRegistryService,
         private readonly mcpClient: McpClientService,
         private readonly aiToolsHandlers: AiToolsHandlersService,
         private readonly eventEmitter: EventEmitter2,
+        private readonly composioService: ComposioService,
     ) { }
 
     /**
@@ -75,7 +80,26 @@ export class ToolGatewayService {
                 return { output, sendResponse: true };
             }
 
-            // ─── 2. MCP Remote Tools ──────────────────────────────────
+            // ─── 2. Composio Direct Tools ──────────────────────────────
+            const composioParsed = this.parseComposioToolName(item.name);
+            if (composioParsed) {
+                source = 'composio';
+                const args = this.parseArguments(item.arguments);
+
+                // Auto-inject metadata from the MCP server (e.g. chatId for Telegram)
+                await this.injectComposioMeta(composioParsed.toolSlug, args, assistant.userId);
+
+                output = await this.composioService.executeAction(
+                    assistant.userId,
+                    composioParsed.toolSlug,
+                    args,
+                );
+
+                this.trackToolCall(session, item.name, 'success');
+                return { output, sendResponse: true };
+            }
+
+            // ─── 3. MCP Remote Tools ──────────────────────────────────
             const mcpParsed = this.mcpToolRegistry.parseMcpToolName(item.name);
             if (mcpParsed) {
                 source = 'mcp';
@@ -93,7 +117,7 @@ export class ToolGatewayService {
                 return { output, sendResponse: true };
             }
 
-            // ─── 3. Local Webhook Tools ───────────────────────────────
+            // ─── 4. Local Webhook Tools ───────────────────────────────
             source = 'webhook';
             output = await this.aiToolsHandlers.functionHandler(
                 item.name,
@@ -161,6 +185,47 @@ export class ToolGatewayService {
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Parse Composio tool names.
+     * Convention: composio_GMAIL_SEND_EMAIL → toolSlug = GMAIL_SEND_EMAIL
+     */
+    private parseComposioToolName(name: string): { toolSlug: string } | null {
+        if (!name.startsWith('composio_')) return null;
+        const toolSlug = name.substring('composio_'.length);
+        if (!toolSlug) return null;
+        return { toolSlug };
+    }
+
+    /**
+     * Auto-inject metadata from the MCP server's composioMeta into tool arguments.
+     * E.g. for Telegram, injects chat_id from the stored chatId.
+     */
+    private async injectComposioMeta(
+        toolSlug: string,
+        args: Record<string, any>,
+        userId: number,
+    ): Promise<void> {
+        // Extract toolkit prefix from tool slug (e.g. TELEGRAM_SEND_TEXT_MESSAGE → telegram)
+        const toolkitSlug = toolSlug.split('_')[0]?.toLowerCase();
+        if (!toolkitSlug) return;
+
+        const server = await this.mcpServerModel.findOne({
+            where: {
+                userId,
+                composioToolkit: toolkitSlug,
+                status: 'active',
+            },
+        });
+
+        if (!server?.composioMeta) return;
+
+        // Telegram: inject chat_id if not already provided by AI
+        if (toolkitSlug === 'telegram' && server.composioMeta.chatId && !args.chat_id) {
+            args.chat_id = server.composioMeta.chatId;
+            this.logger.log(`Auto-injected chat_id=${args.chat_id} for Telegram tool`);
+        }
+    }
 
     private parseArguments(rawArgs: string): any {
         if (!rawArgs) return {};

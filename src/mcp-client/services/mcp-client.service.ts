@@ -6,6 +6,7 @@ import { McpConnectionManagerService } from './mcp-connection-manager.service';
 import { McpToolRegistryService } from './mcp-tool-registry.service';
 import { McpPolicyService } from './mcp-policy.service';
 import { McpCryptoService } from './mcp-crypto.service';
+import { ComposioService } from './composio.service';
 import { GetMcpServersDto } from '../dto/get-mcp-servers.dto';
 import sequelize from 'sequelize';
 
@@ -22,6 +23,7 @@ export class McpClientService {
         private readonly toolRegistry: McpToolRegistryService,
         private readonly policyService: McpPolicyService,
         private readonly cryptoService: McpCryptoService,
+        private readonly composioService: ComposioService,
     ) { }
 
     /**
@@ -143,6 +145,21 @@ export class McpClientService {
     async deleteServer(serverId: number, userId: number): Promise<void> {
         const server = await this.getServerById(serverId, userId);
         this.connectionManager.disconnect(serverId);
+
+        // If this is a Composio server, also delete the Composio connection
+        if (server.composioAccountId && this.composioService.isConfigured()) {
+            try {
+                await this.composioService.deleteConnection(server.composioAccountId);
+                this.logger.log(
+                    `Auto-deleted Composio connection ${server.composioAccountId} for server ${serverId}`,
+                );
+            } catch (err) {
+                this.logger.warn(
+                    `Failed to delete Composio connection ${server.composioAccountId}: ${err.message}`,
+                );
+            }
+        }
+
         await server.destroy();
     }
 
@@ -150,6 +167,26 @@ export class McpClientService {
 
     async connectServer(serverId: number, userId: number): Promise<{ connected: boolean; toolsSynced: number }> {
         const server = await this.getServerById(serverId, userId);
+
+        // Composio servers don't use real MCP transport — just mark active and sync
+        if (server.composioToolkit) {
+            await server.update({
+                status: 'active',
+                lastConnectedAt: new Date(),
+                lastError: null,
+            });
+
+            let toolsSynced = 0;
+            try {
+                const actions = await this.composioService.discoverActions(server.composioToolkit);
+                const tools = await this.toolRegistry.saveComposioTools(server.id, userId, actions);
+                toolsSynced = tools.length;
+            } catch (syncError) {
+                this.logger.warn(`Composio sync failed for server ${serverId}: ${syncError.message}`);
+            }
+
+            return { connected: true, toolsSynced };
+        }
 
         try {
             await this.connectionManager.connect(this.buildConnectionConfig(server));

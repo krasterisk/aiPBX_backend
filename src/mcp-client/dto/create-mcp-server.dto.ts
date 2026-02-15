@@ -22,4 +22,14 @@ export class CreateMcpServerDto {
     @IsOptional()
     @IsObject({ message: 'authCredentials: Must be an object' })
     readonly authCredentials?: any;
+
+    @ApiProperty({ example: 'gmail', description: 'Composio toolkit ID', required: false })
+    @IsOptional()
+    @IsString({ message: 'composioToolkit: Must be a string' })
+    readonly composioToolkit?: string;
+
+    @ApiProperty({ example: 'con_abc123', description: 'Composio connected account ID', required: false })
+    @IsOptional()
+    @IsString({ message: 'composioAccountId: Must be a string' })
+    readonly composioAccountId?: string;
 }

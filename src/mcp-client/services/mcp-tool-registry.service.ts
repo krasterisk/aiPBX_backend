@@ -101,11 +101,19 @@ export class McpToolRegistryService {
 
     /**
      * Convert a single MCP tool to OpenAI function format.
+     * Uses `composio_` prefix for Composio tools, `mcp_` prefix for MCP tools.
      */
     mcpToolToOpenAITool(tool: McpToolRegistry): any {
+        const server = (tool as any).mcpServer;
+        const isComposio = server?.composioToolkit;
+
+        const name = isComposio
+            ? `composio_${tool.name}`
+            : `mcp_${tool.mcpServerId}_${tool.name}`;
+
         return {
             type: 'function',
-            name: `mcp_${tool.mcpServerId}_${tool.name}`,
+            name,
             description: tool.description || tool.name,
             parameters: tool.inputSchema || { type: 'object', properties: {} },
         };
@@ -130,6 +138,68 @@ export class McpToolRegistryService {
         tool.isEnabled = !tool.isEnabled;
         await tool.save();
         return tool;
+    }
+
+    /**
+     * Bulk enable or disable all tools for a server.
+     */
+    async bulkToggleTools(
+        serverId: number,
+        userId: number,
+        enabled: boolean,
+    ): Promise<{ updated: number }> {
+        const [updated] = await this.toolRegistryModel.update(
+            { isEnabled: enabled },
+            { where: { mcpServerId: serverId, userId } },
+        );
+        this.logger.log(`Bulk toggled ${updated} tools for server ${serverId} → ${enabled}`);
+        return { updated };
+    }
+
+    /**
+     * Save Composio-discovered actions into the tool registry.
+     * New tools are created with isEnabled=false (unchecked) by default.
+     * Existing tools keep their current isEnabled state on re-sync.
+     */
+    async saveComposioTools(
+        serverId: number,
+        userId: number,
+        actions: Array<{ slug: string; name: string; description: string; inputSchema: any }>,
+    ): Promise<McpToolRegistry[]> {
+        const now = new Date();
+        const syncedIds: number[] = [];
+
+        for (const action of actions) {
+            // Check if the tool already exists — preserve its isEnabled state
+            const existing = await this.toolRegistryModel.findOne({
+                where: { mcpServerId: serverId, name: action.slug },
+            });
+
+            const [record] = await this.toolRegistryModel.upsert({
+                mcpServerId: serverId,
+                name: action.slug,
+                description: action.description || action.name,
+                inputSchema: action.inputSchema || null,
+                lastSyncedAt: now,
+                userId,
+                // New tools default to disabled; existing ones keep their state
+                isEnabled: existing ? existing.isEnabled : false,
+            } as any);
+            syncedIds.push(record.id);
+        }
+
+        // Remove tools that are no longer available
+        if (syncedIds.length > 0) {
+            await this.toolRegistryModel.destroy({
+                where: {
+                    mcpServerId: serverId,
+                    id: { [require('sequelize').Op.notIn]: syncedIds },
+                },
+            });
+        }
+
+        this.logger.log(`Saved ${actions.length} Composio actions for server ${serverId}`);
+        return this.getToolsByServer(serverId);
     }
 
     /**

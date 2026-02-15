@@ -40,6 +40,14 @@ export class McpServer extends Model<McpServer> {
     @Column({ type: DataType.STRING, allowNull: true })
     composioToolkit: string;
 
+    @ApiProperty({ example: 'con_abc123', description: 'Composio connected account ID', required: false })
+    @Column({ type: DataType.STRING, allowNull: true })
+    composioAccountId: string;
+
+    @ApiProperty({ example: '{ "chatId": "123456" }', description: 'Toolkit-specific metadata (e.g. Telegram chatId)', required: false })
+    @Column({ type: DataType.JSON, allowNull: true })
+    composioMeta: Record<string, any>;
+
     @ForeignKey(() => User)
     @Column({ type: DataType.INTEGER })
     userId: number;

@@ -1,5 +1,5 @@
 import {
-    Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards,
+    Body, Controller, Delete, Get, HttpException, Param, Patch, Post, Query, Req, Res, UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
@@ -136,6 +136,18 @@ export class McpClientController {
         return this.toolRegistry.toggleTool(id, this.getUserId(req));
     }
 
+    @ApiOperation({ summary: 'Bulk enable/disable all tools for a server' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Patch('servers/:id/tools/toggle-all')
+    bulkToggleTools(
+        @Param('id') serverId: number,
+        @Body() body: { enabled: boolean },
+        @Req() req: RequestWithUser,
+    ) {
+        return this.toolRegistry.bulkToggleTools(serverId, this.getUserId(req), body.enabled);
+    }
+
     // ─── Policies ─────────────────────────────────────────────────────
 
     @ApiOperation({ summary: 'Create policy for a tool' })
@@ -190,6 +202,18 @@ export class McpClientController {
 
     // ─── Composio Integration ──────────────────────────────────────
 
+    @ApiOperation({ summary: 'Get available Composio templates/toolkits' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get('composio/templates')
+    getComposioTemplates() {
+        return Object.entries(COMPOSIO_TOOLKITS).map(([key, tk]) => ({
+            key,
+            slug: tk.slug,
+            name: tk.name,
+        }));
+    }
+
     @ApiOperation({ summary: 'Initiate Composio OAuth connection' })
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
@@ -204,6 +228,75 @@ export class McpClientController {
         return this.composioService.initiateConnection(userId, body.toolkit, callbackUrl);
     }
 
+    @ApiOperation({ summary: 'Connect API-key toolkit (Telegram, WhatsApp)' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Post('composio/connect-apikey')
+    async composioConnectApiKey(
+        @Body() body: { toolkit: string; apiKey?: string; chatId?: string },
+        @Req() req: RequestWithUser,
+    ) {
+        const userId = this.getUserId(req);
+        const toolkitInfo = COMPOSIO_TOOLKITS[body.toolkit];
+        if (!toolkitInfo) throw new Error(`Unknown toolkit: ${body.toolkit}`);
+
+        // For Telegram: bot token from ENV, user provides chatId
+        let credentialValue = body.apiKey;
+        let meta: Record<string, any> = {};
+
+        if (body.toolkit === 'telegram') {
+            credentialValue = process.env.TELEGRAM_BOT_TOKEN;
+            if (!credentialValue) {
+                throw new HttpException(
+                    'TELEGRAM_BOT_TOKEN is not configured in environment',
+                    400,
+                );
+            }
+            if (!body.chatId) {
+                throw new HttpException(
+                    'chatId is required for Telegram connection',
+                    400,
+                );
+            }
+            meta = { chatId: body.chatId };
+        }
+
+        if (!credentialValue) {
+            throw new HttpException('apiKey is required', 400);
+        }
+
+        const { connectedAccountId } = await this.composioService.connectWithApiKey(
+            userId, body.toolkit, credentialValue,
+        );
+
+        // Auto-create MCP server record
+        const server = await this.mcpClient.createServer(
+            {
+                name: toolkitInfo.name,
+                url: `composio://${body.toolkit}`,
+                transport: 'http' as const,
+                authType: 'apikey' as const,
+                authCredentials: { apiKey: process.env.COMPOSIO_API_KEY },
+                composioToolkit: body.toolkit,
+                composioAccountId: connectedAccountId,
+                composioMeta: Object.keys(meta).length > 0 ? meta : null,
+                status: 'active',
+                lastConnectedAt: new Date(),
+            } as any,
+            userId,
+        );
+
+        // Discover and save actions
+        try {
+            const actions = await this.composioService.discoverActions(body.toolkit);
+            await this.toolRegistry.saveComposioTools(server.id, userId, actions);
+        } catch (e) {
+            // Non-fatal
+        }
+
+        return { server, connectedAccountId };
+    }
+
     @ApiOperation({ summary: 'Composio OAuth callback' })
     @Get('composio/callback')
     async composioCallback(
@@ -215,26 +308,40 @@ export class McpClientController {
     ) {
         const clientUrl = process.env.CLIENT_URL || 'https://aipbx.com';
 
-        if (status === 'success') {
+        if (status === 'success' && connectedAccountId) {
             try {
-                const mcpUrl = await this.composioService.getMcpUrl(Number(userId));
                 const toolkitInfo = COMPOSIO_TOOLKITS[toolkit];
                 const name = toolkitInfo?.name || `${toolkit} (Composio)`;
 
-                // Auto-create MCP server
+                // Auto-create MCP server record (as a reference, not for MCP transport)
                 const server = await this.mcpClient.createServer(
                     {
                         name,
-                        url: mcpUrl,
+                        url: `composio://${toolkit}`,
                         transport: 'http' as const,
                         authType: 'apikey' as const,
                         authCredentials: { apiKey: process.env.COMPOSIO_API_KEY },
                         composioToolkit: toolkit,
+                        composioAccountId: connectedAccountId,
+                        status: 'active',
+                        lastConnectedAt: new Date(),
                     },
                     Number(userId),
                 );
 
-                return res.redirect(`${clientUrl}/mcp-servers/${server.id}`);
+                // Discover and save actions for this toolkit
+                try {
+                    const actions = await this.composioService.discoverActions(toolkit);
+                    await this.toolRegistry.saveComposioTools(
+                        server.id,
+                        Number(userId),
+                        actions,
+                    );
+                } catch (syncErr) {
+                    // Non-fatal — actions can be discovered later
+                }
+
+                return res.redirect(`${clientUrl}/mcp-servers/${server.id}?composio=success`);
             } catch (error) {
                 return res.redirect(`${clientUrl}/mcp-servers?error=creation_failed`);
             }
@@ -243,11 +350,63 @@ export class McpClientController {
         return res.redirect(`${clientUrl}/mcp-servers?error=auth_failed`);
     }
 
-    @ApiOperation({ summary: 'Get Composio connection status' })
+    @ApiOperation({ summary: 'Get Composio connection status for all toolkits' })
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Get('composio/status')
     composioStatus(@Req() req: RequestWithUser) {
         return this.composioService.getConnectionStatus(this.getUserId(req));
+    }
+
+    @ApiOperation({ summary: 'List Composio connections for current user' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get('composio/connections')
+    getComposioConnections(
+        @Req() req: RequestWithUser,
+        @Query('toolkit') toolkit?: string,
+    ) {
+        return this.composioService.getConnections(this.getUserId(req), toolkit);
+    }
+
+    @ApiOperation({ summary: 'Delete a Composio connection' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Delete('composio/connections/:id')
+    async deleteComposioConnection(
+        @Param('id') id: string,
+        @Req() req: RequestWithUser,
+    ) {
+        await this.composioService.deleteConnection(id);
+        await this.loggerService.logAction(
+            this.getUserId(req), 'delete', 'composioConnection', null,
+            `Deleted Composio connection ${id}`, null, null, req,
+        );
+        return { deleted: true };
+    }
+
+    @ApiOperation({ summary: 'Discover actions for a Composio toolkit' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get('composio/actions/:toolkit')
+    discoverComposioActions(@Param('toolkit') toolkit: string) {
+        return this.composioService.discoverActions(toolkit);
+    }
+
+    @ApiOperation({ summary: 'Execute a Composio action (manual test)' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Post('composio/execute')
+    async executeComposioAction(
+        @Body() body: { toolSlug: string; arguments: Record<string, any> },
+        @Req() req: RequestWithUser,
+    ) {
+        const userId = this.getUserId(req);
+        const result = await this.composioService.executeAction(
+            userId,
+            body.toolSlug,
+            body.arguments || {},
+        );
+        return { result };
     }
 }

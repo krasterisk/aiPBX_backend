@@ -14,6 +14,7 @@ import { McpClientService } from './services/mcp-client.service';
 import { ToolGatewayService } from './services/tool-gateway.service';
 import { McpCryptoService } from './services/mcp-crypto.service';
 import { ComposioService } from './services/composio.service';
+import { Bitrix24Service } from './services/bitrix24.service';
 
 import { McpClientController } from './mcp-client.controller';
 import { AiToolsHandlersModule } from '../ai-tools-handlers/ai-tools-handlers.module';
@@ -47,6 +48,7 @@ import { ConfigModule } from '@nestjs/config';
         ToolGatewayService,
         McpCryptoService,
         ComposioService,
+        Bitrix24Service,
     ],
     exports: [
         McpClientService,

@@ -8,6 +8,7 @@ import { AiToolsHandlersService } from '../../ai-tools-handlers/ai-tools-handler
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Assistant } from '../../assistants/assistants.model';
 import { ComposioService } from './composio.service';
+import { Bitrix24Service } from './bitrix24.service';
 
 /**
  * Minimal session interface — mirrors the fields used from OpenAI sessionData.
@@ -46,6 +47,7 @@ export class ToolGatewayService {
         private readonly aiToolsHandlers: AiToolsHandlersService,
         private readonly eventEmitter: EventEmitter2,
         private readonly composioService: ComposioService,
+        private readonly bitrix24Service: Bitrix24Service,
     ) { }
 
     /**
@@ -92,6 +94,23 @@ export class ToolGatewayService {
                 output = await this.composioService.executeAction(
                     assistant.userId,
                     composioParsed.toolSlug,
+                    args,
+                );
+
+                this.trackToolCall(session, item.name, 'success');
+                return { output, sendResponse: true };
+            }
+            // ─── 2b. Bitrix24 Direct Tools ─────────────────────────────
+            const bitrix24Parsed = this.parseBitrix24ToolName(item.name);
+            if (bitrix24Parsed) {
+                source = 'bitrix24';
+                const args = this.parseArguments(item.arguments);
+
+                // Find the Bitrix24 server to get webhook URL
+                const webhookUrl = await this.getBitrix24WebhookUrl(assistant.userId);
+                output = await this.bitrix24Service.executeAction(
+                    webhookUrl,
+                    bitrix24Parsed.toolSlug,
                     args,
                 );
 
@@ -195,6 +214,36 @@ export class ToolGatewayService {
         const toolSlug = name.substring('composio_'.length);
         if (!toolSlug) return null;
         return { toolSlug };
+    }
+
+    /**
+     * Parse Bitrix24 tool names.
+     * Convention: bitrix24_BITRIX24_CRM_LEAD_ADD → toolSlug = BITRIX24_CRM_LEAD_ADD
+     */
+    private parseBitrix24ToolName(name: string): { toolSlug: string } | null {
+        if (!name.startsWith('bitrix24_')) return null;
+        const toolSlug = name.substring('bitrix24_'.length);
+        if (!toolSlug) return null;
+        return { toolSlug };
+    }
+
+    /**
+     * Get the Bitrix24 webhook URL for a user from their MCP server record.
+     */
+    private async getBitrix24WebhookUrl(userId: number): Promise<string> {
+        const server = await this.mcpServerModel.findOne({
+            where: {
+                userId,
+                composioToolkit: 'bitrix24',
+                status: 'active',
+            },
+        });
+
+        if (!server?.url) {
+            throw new Error('Bitrix24 is not connected. Please connect your Bitrix24 account first.');
+        }
+
+        return server.url;
     }
 
     /**

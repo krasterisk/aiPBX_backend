@@ -6,8 +6,7 @@ import { ConfigService } from '@nestjs/config';
 export const COMPOSIO_TOOLKITS: Record<string, { slug: string; name: string; authType: 'oauth' | 'api_key' }> = {
     gmail: { slug: 'gmail', name: 'Gmail MCP', authType: 'oauth' },
     googlecalendar: { slug: 'googlecalendar', name: 'Google Calendar MCP', authType: 'oauth' },
-    outlook: { slug: 'outlook', name: 'Outlook Mail MCP', authType: 'oauth' },
-    outlookcalendar: { slug: 'outlookcalendar', name: 'Outlook Calendar MCP', authType: 'oauth' },
+    outlook: { slug: 'outlook', name: 'Outlook MCP', authType: 'oauth' },
     telegram: { slug: 'telegram', name: 'Telegram MCP', authType: 'api_key' },
     whatsapp: { slug: 'whatsapp', name: 'WhatsApp MCP', authType: 'api_key' },
     slack: { slug: 'slack', name: 'Slack MCP', authType: 'oauth' },
@@ -73,6 +72,8 @@ export class ComposioService {
             is_composio_managed: true,
         });
 
+
+
         let authConfigId: string;
         if (authConfigs.items?.length > 0) {
             authConfigId = authConfigs.items[0].id;
@@ -83,6 +84,8 @@ export class ComposioService {
             });
             authConfigId = created.auth_config.id;
         }
+
+
 
         // Create a link session which returns the redirect URL
         const linkResult = await client.link.create({

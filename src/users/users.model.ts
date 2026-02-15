@@ -43,7 +43,7 @@ export class User extends Model<User, UserCreationAttrs> {
     @Column({ type: DataType.STRING, unique: false, allowNull: true })
     banReason: string
     @ApiProperty({ example: '40', description: "User balance" })
-    @Column({ type: DataType.FLOAT, unique: false, allowNull: false, defaultValue: 0 })
+    @Column({ type: DataType.FLOAT, unique: false, allowNull: false, defaultValue: 1 })
     balance: number
     @ApiProperty({ example: 'USD', description: "Currency" })
     @Column({ type: DataType.STRING, unique: false, allowNull: false, defaultValue: 'USD' })

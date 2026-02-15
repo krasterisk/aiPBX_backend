@@ -14,6 +14,7 @@ import { CreateMcpPolicyDto } from './dto/create-mcp-policy.dto';
 import { GetMcpServersDto } from './dto/get-mcp-servers.dto';
 import { LoggerService } from '../logger/logger.service';
 import { ComposioService, COMPOSIO_TOOLKITS } from './services/composio.service';
+import { Bitrix24Service } from './services/bitrix24.service';
 
 interface RequestWithUser extends Request {
     isAdmin?: boolean;
@@ -30,6 +31,7 @@ export class McpClientController {
         private readonly policyService: McpPolicyService,
         private readonly loggerService: LoggerService,
         private readonly composioService: ComposioService,
+        private readonly bitrix24Service: Bitrix24Service,
     ) { }
 
     private getUserId(req: RequestWithUser): number {
@@ -295,6 +297,53 @@ export class McpClientController {
         }
 
         return { server, connectedAccountId };
+    }
+
+    // ─── Bitrix24 Integration ──────────────────────────────────────────
+
+    @ApiOperation({ summary: 'Connect Bitrix24 via webhook URL' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Post('bitrix24/connect')
+    async bitrix24Connect(
+        @Body() body: { webhookUrl: string },
+        @Req() req: RequestWithUser,
+    ) {
+        const userId = this.getUserId(req);
+
+        if (!body.webhookUrl?.trim()) {
+            throw new HttpException('webhookUrl is required', 400);
+        }
+
+        // Validate the webhook URL
+        const isValid = await this.bitrix24Service.validateWebhook(body.webhookUrl);
+        if (!isValid) {
+            throw new HttpException(
+                'Invalid Bitrix24 webhook URL. Please check the URL and try again.',
+                400,
+            );
+        }
+
+        // Create MCP server record
+        const server = await this.mcpClient.createServer(
+            {
+                name: 'Bitrix24 CRM',
+                url: body.webhookUrl.trim(),
+                transport: 'http' as const,
+                authType: 'apikey' as const,
+                authCredentials: { apiKey: body.webhookUrl.trim() },
+                composioToolkit: 'bitrix24',
+                status: 'active',
+                lastConnectedAt: new Date(),
+            } as any,
+            userId,
+        );
+
+        // Register predefined Bitrix24 tools
+        const tools = this.bitrix24Service.getAvailableTools();
+        await this.toolRegistry.saveComposioTools(server.id, userId, tools);
+
+        return { server };
     }
 
     @ApiOperation({ summary: 'Composio OAuth callback' })

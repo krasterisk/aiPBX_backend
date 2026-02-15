@@ -105,11 +105,16 @@ export class McpToolRegistryService {
      */
     mcpToolToOpenAITool(tool: McpToolRegistry): any {
         const server = (tool as any).mcpServer;
-        const isComposio = server?.composioToolkit;
+        const toolkit = server?.composioToolkit;
 
-        const name = isComposio
-            ? `composio_${tool.name}`
-            : `mcp_${tool.mcpServerId}_${tool.name}`;
+        let name: string;
+        if (toolkit === 'bitrix24') {
+            name = `bitrix24_${tool.name}`;
+        } else if (toolkit) {
+            name = `composio_${tool.name}`;
+        } else {
+            name = `mcp_${tool.mcpServerId}_${tool.name}`;
+        }
 
         return {
             type: 'function',

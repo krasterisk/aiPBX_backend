@@ -72,51 +72,37 @@ export class AuthService {
 
         const candidate = await this.userService.getCandidateByEmail(userDto.email)
 
-        // Пользователь уже существует и активирован — регистрация запрещена
-        if (candidate && candidate.isActivated) {
-            this.logger.warn("Email already exist!", candidate.email)
-            throw new HttpException('Email already exist!', HttpStatus.BAD_REQUEST)
+        // Пользователь уже существует — регистрация запрещена
+        if (candidate) {
+            this.logger.warn("Email already exists!", candidate.email)
+            throw new HttpException('User already exists!', HttpStatus.BAD_REQUEST)
         }
 
         const activationCode = ("" + Math.floor(100000 + Math.random() * 900000)).substring(0, 6);
         const activationExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
 
-        await this.mailerService.sendActivationMail(userDto.email, activationCode)
-
-        // Пользователь существует, но не активирован — обновляем код активации
-        if (candidate && !candidate.isActivated) {
-            candidate.activationCode = activationCode
-            candidate.activationExpires = activationExpires
-            await candidate.save()
-            return { success: true }
-        }
-
-        // Пользователь не найден — создаём нового
-        if (!candidate) {
-            const roles: CreateRoleDto[] = [
-                {
-                    value: 'USER',
-                    description: 'CUSTOMER'
-                }
-            ]
-
-            const user = await this.userService.create({
-                ...userDto,
-                roles,
-                activationCode,
-                activationExpires
-            })
-
-            if (user) {
-                return { success: true }
+        const roles: CreateRoleDto[] = [
+            {
+                value: 'USER',
+                description: 'CUSTOMER'
             }
+        ]
 
+        const user = await this.userService.create({
+            ...userDto,
+            roles,
+            activationCode,
+            activationExpires
+        })
+
+        if (!user) {
             this.logger.warn("Signup error: user creation failed", userDto.email)
             throw new HttpException('Signup error!', HttpStatus.BAD_REQUEST)
         }
 
-        this.logger.warn("Signup error!", userDto.email)
-        throw new HttpException('Signup error!', HttpStatus.BAD_REQUEST)
+        await this.mailerService.sendActivationMail(userDto.email, activationCode)
+
+        return { success: true }
     }
 
     async activate(activation: ActivationDto) {

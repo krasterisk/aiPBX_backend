@@ -15,7 +15,7 @@ import { MailerModule } from "../mailer/mailer.module";
         JwtModule.register({
             secret: process.env.PRIVATE_KEY || 'SECRET',
             signOptions: {
-                expiresIn: '180d'
+                expiresIn: '14d'
             }
         }),
         LoggerModule,

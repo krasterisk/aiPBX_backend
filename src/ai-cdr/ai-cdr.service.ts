@@ -34,6 +34,7 @@ type AiEventItem = AudioTranscriptionEvent | AssistantResponseEvent;
 @Injectable()
 export class AiCdrService {
     private readonly logger = new Logger(AiCdrService.name);
+    private readonly dialect: string;
 
     constructor(
         @InjectModel(AiCdr) private aiCdrRepository: typeof AiCdr,
@@ -41,7 +42,49 @@ export class AiCdrService {
         @InjectModel(Assistant) private readonly assistantRepository: typeof Assistant,
         private readonly billingService: BillingService,
         @Inject(forwardRef(() => AiAnalyticsService)) private readonly aiAnalyticsService: AiAnalyticsService
-    ) { }
+    ) {
+        this.dialect = this.aiCdrRepository.sequelize.getDialect();
+    }
+
+    // ─── Dialect-aware SQL helpers ───
+
+    /** Quote identifier: backticks for MySQL, double quotes for Postgres */
+    private q(name: string): string {
+        return this.dialect === 'postgres' ? `"${name}"` : `\`${name}\``;
+    }
+
+    /** DATE(col) — extract date from timestamp */
+    private sqlDate(col: string): string {
+        return this.dialect === 'postgres' ? `${col}::date` : `DATE(${col})`;
+    }
+
+    /** Group by day with a label */
+    private sqlGroupByDay(col: string): { groupBy: string; label: string } {
+        return this.dialect === 'postgres'
+            ? { groupBy: `${col}::date`, label: `${col}::date as label` }
+            : { groupBy: `DAY(${col})`, label: `DATE(${col}) as label` };
+    }
+
+    /** Group by month with a label */
+    private sqlGroupByMonth(col: string): { groupBy: string; label: string } {
+        return this.dialect === 'postgres'
+            ? { groupBy: `TO_CHAR(${col}, 'YYYY-MM')`, label: `TO_CHAR(${col}, 'YYYY-MM') as label` }
+            : { groupBy: `MONTH(${col})`, label: `DATE_FORMAT(${col}, '%Y-%m') as label` };
+    }
+
+    /** Group by year with a label */
+    private sqlGroupByYear(col: string): { groupBy: string; label: string } {
+        return this.dialect === 'postgres'
+            ? { groupBy: `TO_CHAR(${col}, 'YYYY')`, label: `TO_CHAR(${col}, 'YYYY') as label` }
+            : { groupBy: `YEAR(${col})`, label: `DATE_FORMAT(${col}, '%Y') as label` };
+    }
+
+    /** JSON_EXTRACT for sorting by nested JSON path */
+    private sqlJsonExtract(table: string, column: string, jsonPath: string): string {
+        return this.dialect === 'postgres'
+            ? `(${this.q(table)}.${this.q(column)}::jsonb->'scenario_analysis'->>'success')`
+            : `JSON_EXTRACT(${this.q(table)}.${this.q(column)}, '${jsonPath}')`;
+    }
 
     async cdrCreate(dto: AiCdrDto) {
         try {
@@ -315,8 +358,8 @@ export class AiCdrService {
                 // Sort by associated AiAnalytics.csat column
                 orderClause = [[{ model: AiAnalytics, as: 'analytics' }, 'csat', sortOrder]];
             } else if (sortField === 'scenarioSuccess') {
-                // Sort by JSON field inside analytics.metrics
-                orderClause = [[sequelize.literal(`JSON_EXTRACT(\`analytics\`.\`metrics\`, '$.scenario_analysis.success') ${sortOrder}`)]];
+                // Sort by JSON field inside analytics.metrics (dialect-aware)
+                orderClause = [[sequelize.literal(`${this.sqlJsonExtract('analytics', 'metrics', '$.scenario_analysis.success')} ${sortOrder}`)]];
             } else {
                 orderClause = [[sortField, sortOrder]];
             }
@@ -380,35 +423,40 @@ export class AiCdrService {
         }
 
 
-        let whereClause: string = `WHERE (DATE(createdAt) between DATE('${startDate}') AND DATE('${endDate}'))`;
+        const tbl = this.q('aiCdr');
+        const colDate = this.sqlDate('"createdAt"');
+        let whereClause: string = `WHERE (${colDate} BETWEEN ${this.sqlDate(`'${startDate}'`)} AND ${this.sqlDate(`'${endDate}'`)})`;
         let whereAddClause: string = "";
         let groupByClause = "";
         let dopAttr = "";
 
         if (dateArray.length <= 31) {
-            groupByClause = "GROUP by DAY(createdAt)";
-            dopAttr = "DATE(createdAt) as label";
+            const g = this.sqlGroupByDay('"createdAt"');
+            groupByClause = `GROUP BY ${g.groupBy}`;
+            dopAttr = g.label;
         } else if (dateArray.length > 31 && dateArray.length <= 366) {
-            groupByClause = "GROUP by MONTH(createdAt)";
-            dopAttr = "DATE_FORMAT(createdAt, '%Y-%m') as label";
+            const g = this.sqlGroupByMonth('"createdAt"');
+            groupByClause = `GROUP BY ${g.groupBy}`;
+            dopAttr = g.label;
         } else if (dateArray.length > 366) {
-            groupByClause = "GROUP by YEAR(createdAt)";
-            dopAttr = "DATE_FORMAT(createdAt, '%Y') as label";
+            const g = this.sqlGroupByYear('"createdAt"');
+            groupByClause = `GROUP BY ${g.groupBy}`;
+            dopAttr = g.label;
         }
 
         if (userId) {
-            whereAddClause += `AND userId = ${userId} `;
+            whereAddClause += `AND ${this.q('userId')} = ${userId} `;
         }
 
         if (assistantId) {
-            whereAddClause += `AND assistantId IN (${assistantId}) `;
+            whereAddClause += `AND ${this.q('assistantId')} IN (${assistantId}) `;
         }
 
-        const attrPeriodClause = `${dopAttr}, COUNT(*) as allCount, SUM(tokens) as tokensCount, SUM(duration) as durationCount, SUM(cost) as amount`;
-        const attrTotalClause = `COUNT(*) as allCount, SUM(tokens) as allTokensCount, SUM(duration) as allDurationCount, SUM(cost) as allCost`;
+        const attrPeriodClause = `${dopAttr}, COUNT(*) as "allCount", SUM(${this.q('tokens')}) as "tokensCount", SUM(${this.q('duration')}) as "durationCount", SUM(${this.q('cost')}) as "amount"`;
+        const attrTotalClause = `COUNT(*) as "allCount", SUM(${this.q('tokens')}) as "allTokensCount", SUM(${this.q('duration')}) as "allDurationCount", SUM(${this.q('cost')}) as "allCost"`;
 
-        const requestPeriod = `SELECT ${attrPeriodClause} FROM aiCdr ${whereClause} ${whereAddClause} ${groupByClause}`;
-        const request = `SELECT ${attrTotalClause} FROM aiCdr ${whereClause} ${whereAddClause}`;
+        const requestPeriod = `SELECT ${attrPeriodClause} FROM ${tbl} ${whereClause} ${whereAddClause} ${groupByClause}`;
+        const request = `SELECT ${attrTotalClause} FROM ${tbl} ${whereClause} ${whereAddClause}`;
 
         try {
             const chartData = await this.aiCdrRepository.sequelize.query(requestPeriod, {

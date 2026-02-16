@@ -5,12 +5,20 @@ import { AssistantDto } from "./dto/assistant.dto";
 import { GetAssistantsDto } from "./dto/getAssistants.dto";
 import sequelize from "sequelize";
 import { nanoid } from 'nanoid';
+import { OpenAiService } from "../open-ai/open-ai.service";
+import { Prices } from "../prices/prices.model";
+import { UsersService } from "../users/users.service";
 
 @Injectable()
 export class AssistantsService {
     private readonly logger = new Logger(AssistantsService.name);
 
-    constructor(@InjectModel(Assistant) private assistantsRepository: typeof Assistant) { }
+    constructor(
+        @InjectModel(Assistant) private assistantsRepository: typeof Assistant,
+        @InjectModel(Prices) private readonly pricesRepository: typeof Prices,
+        private readonly openAiService: OpenAiService,
+        private readonly usersService: UsersService,
+    ) { }
 
     async create(dto: AssistantDto[], isAdmin: boolean, userId: string) {
         try {
@@ -236,41 +244,91 @@ export class AssistantsService {
         }
     }
 
-    async generatePrompt(prompt: string) {
+    async generatePrompt(prompt: string, userId: string) {
         try {
 
             if (!prompt) {
                 throw new HttpException('Prompt is empty', HttpStatus.BAD_REQUEST);
             }
 
-            // Initialize OpenAI client
-            const OpenAI = require('openai').default;
-            const openai = new OpenAI({
-                apiKey: process.env.OPENAI_API_KEY
-            });
+            const systemPrompt = `You are an expert-level System Prompt Architect specializing in voice AI assistants.
+Your task: given the user's description of a desired voice bot, produce a professional, production-ready system prompt (instruction) that the bot will follow during real-time phone/voice conversations.
 
-            const systemPrompt = `You are Prompt Generator that helps generate system prompt for voice bots.
-Based on the user's request, generate system prompt for the bot's behavior
-Return your response in JSON format with one field: "instruction".
-The instruction should be detailed and comprehensive.`;
+When generating the instruction, you MUST structure it according to the following sections. Include every section that is relevant; omit only those that truly do not apply.
 
-            const response = await openai.chat.completions.create({
-                model: 'gpt-4.1-mini-2025-04-14',
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: prompt }
-                ],
-                response_format: { type: 'json_object' },
-                temperature: 0.7
-            });
+1. **Role & Identity**
+   - Clearly define who the bot is: name (if provided), company/organization, job title or role.
+   - Specify the domain and area of expertise.
+   - State the primary goal of every conversation (e.g., book an appointment, qualify a lead, provide support).
 
-            const content = response.choices[0]?.message?.content;
+2. **Personality & Tone of Voice**
+   - Define the communication style: formal/informal, friendly/authoritative, concise/detailed.
+   - Specify emotional tone: empathetic, energetic, calm, professional, etc.
+   - Mandate that the bot must always sound natural, human-like, and never robotic.
 
-            if (!content) {
+3. **Conversation Flow & Structure**
+   - Describe the greeting and how the bot should open a conversation.
+   - List the key stages of the conversation in logical order (e.g., greeting → need identification → information delivery → objection handling → closing/CTA).
+   - For each stage, describe what the bot should do and what information to collect.
+   - Specify how the conversation should end (farewell, summary, next steps).
+
+4. **Behavioral Rules & Constraints**
+   - The bot must ask only ONE question at a time and wait for the user's response.
+   - The bot must stay strictly within its defined role and topic scope.
+   - If the user asks something outside the bot's scope, it should politely redirect or offer to connect with a human.
+   - The bot must not invent, fabricate, or guess information it does not have.
+   - The bot should handle interruptions gracefully.
+
+5. **Key Information & Knowledge Base**
+   - List all specific facts, prices, schedules, addresses, product details, FAQs, and any other factual data the bot must know, based on whatever the user provides.
+   - If the user hasn't provided specifics, include clear placeholders (e.g., "[INSERT BUSINESS HOURS]") so they can fill them in.
+
+6. **Objection Handling & Edge Cases**
+   - Anticipate common objections or difficult questions relevant to the domain.
+   - Provide strategies or example responses for handling them.
+   - Define fallback behavior when the bot is unsure or stuck.
+
+7. **Voice-Specific Guidelines**
+   - Keep responses short (1-3 sentences max per turn) — this is a voice conversation, not text chat.
+   - Avoid bulleted lists, markdown, URLs, or any visual formatting — the output will be spoken aloud.
+   - Use simple, conversational language; avoid jargon unless the domain requires it.
+   - Provide phonetic hints for unusual words or acronyms if needed.
+
+8. **Safety & Ethics**
+   - The bot must never provide medical, legal, or financial advice unless explicitly designed for that by a certified professional.
+   - The bot must not engage with offensive, discriminatory, or inappropriate content.
+   - The bot must respect user privacy and not request unnecessary personal data.
+
+9. **Language**
+   - Generate the instruction in the SAME language the user wrote their request in.
+
+Return your response strictly as a JSON object with a single field: "instruction".
+The "instruction" value must be a single string containing the complete, ready-to-use system prompt.
+Do NOT include any explanations, commentary, or metadata outside the JSON object.`;
+
+            const messages = [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: prompt }
+            ];
+
+            const response = await this.openAiService.chatCompletion(messages, 'gpt-4o-mini');
+
+            if (!response || !response.content) {
                 throw new HttpException('Failed to generate prompt', HttpStatus.INTERNAL_SERVER_ERROR);
             }
 
-            const result = JSON.parse(content);
+            // Списание с баланса по price.text
+            const totalTokens = response.usage ? response.usage.total_tokens : 0;
+            if (totalTokens > 0 && userId) {
+                const price = await this.pricesRepository.findOne({ where: { userId: Number(userId) } });
+                if (price && price.text > 0) {
+                    const cost = totalTokens * (price.text / 1_000_000);
+                    await this.usersService.decrementUserBalance(userId, cost);
+                    this.logger.log(`Generate prompt charged userId=${userId}: tokens=${totalTokens}, cost=${cost.toFixed(6)}`);
+                }
+            }
+
+            const result = JSON.parse(response.content);
 
             return {
                 success: true,

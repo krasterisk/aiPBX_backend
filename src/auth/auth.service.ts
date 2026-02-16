@@ -65,8 +65,14 @@ export class AuthService {
 
     async signup(userDto: CreateUserDto) {
 
+        if (!userDto.email) {
+            this.logger.warn("Email is empty")
+            throw new HttpException('Email is empty!', HttpStatus.BAD_REQUEST)
+        }
+
         const candidate = await this.userService.getCandidateByEmail(userDto.email)
 
+        // Пользователь уже существует и активирован — регистрация запрещена
         if (candidate && candidate.isActivated) {
             this.logger.warn("Email already exist!", candidate.email)
             throw new HttpException('Email already exist!', HttpStatus.BAD_REQUEST)
@@ -74,16 +80,26 @@ export class AuthService {
 
         const activationCode = ("" + Math.floor(100000 + Math.random() * 900000)).substring(0, 6);
         const activationExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
-        const roles: CreateRoleDto[] = [
-            {
-                value: 'USER',
-                description: 'CUSTOMER'
-            }
-        ]
 
         await this.mailerService.sendActivationMail(userDto.email, activationCode)
 
+        // Пользователь существует, но не активирован — обновляем код активации
+        if (candidate && !candidate.isActivated) {
+            candidate.activationCode = activationCode
+            candidate.activationExpires = activationExpires
+            await candidate.save()
+            return { success: true }
+        }
+
+        // Пользователь не найден — создаём нового
         if (!candidate) {
+            const roles: CreateRoleDto[] = [
+                {
+                    value: 'USER',
+                    description: 'CUSTOMER'
+                }
+            ]
+
             const user = await this.userService.create({
                 ...userDto,
                 roles,
@@ -94,19 +110,13 @@ export class AuthService {
             if (user) {
                 return { success: true }
             }
+
+            this.logger.warn("Signup error: user creation failed", userDto.email)
+            throw new HttpException('Signup error!', HttpStatus.BAD_REQUEST)
         }
 
-        if (!candidate.isActivated) {
-            candidate.activationCode = activationCode
-            candidate.activationExpires = activationExpires
-            await candidate.save()
-            return { success: true }
-        }
-
-        this.logger.warn("Signup error!", candidate.email)
+        this.logger.warn("Signup error!", userDto.email)
         throw new HttpException('Signup error!', HttpStatus.BAD_REQUEST)
-
-        // return this.generateToken(user)
     }
 
     async activate(activation: ActivationDto) {

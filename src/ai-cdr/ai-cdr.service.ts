@@ -424,22 +424,23 @@ export class AiCdrService {
 
 
         const tbl = this.q('aiCdr');
-        const colDate = this.sqlDate('"createdAt"');
+        const col = this.q('createdAt');
+        const colDate = this.sqlDate(col);
         let whereClause: string = `WHERE (${colDate} BETWEEN ${this.sqlDate(`'${startDate}'`)} AND ${this.sqlDate(`'${endDate}'`)})`;
         let whereAddClause: string = "";
         let groupByClause = "";
         let dopAttr = "";
 
         if (dateArray.length <= 31) {
-            const g = this.sqlGroupByDay('"createdAt"');
+            const g = this.sqlGroupByDay(col);
             groupByClause = `GROUP BY ${g.groupBy}`;
             dopAttr = g.label;
         } else if (dateArray.length > 31 && dateArray.length <= 366) {
-            const g = this.sqlGroupByMonth('"createdAt"');
+            const g = this.sqlGroupByMonth(col);
             groupByClause = `GROUP BY ${g.groupBy}`;
             dopAttr = g.label;
         } else if (dateArray.length > 366) {
-            const g = this.sqlGroupByYear('"createdAt"');
+            const g = this.sqlGroupByYear(col);
             groupByClause = `GROUP BY ${g.groupBy}`;
             dopAttr = g.label;
         }
@@ -452,8 +453,8 @@ export class AiCdrService {
             whereAddClause += `AND ${this.q('assistantId')} IN (${assistantId}) `;
         }
 
-        const attrPeriodClause = `${dopAttr}, COUNT(*) as "allCount", SUM(${this.q('tokens')}) as "tokensCount", SUM(${this.q('duration')}) as "durationCount", SUM(${this.q('cost')}) as "amount"`;
-        const attrTotalClause = `COUNT(*) as "allCount", SUM(${this.q('tokens')}) as "allTokensCount", SUM(${this.q('duration')}) as "allDurationCount", SUM(${this.q('cost')}) as "allCost"`;
+        const attrPeriodClause = `${dopAttr}, COUNT(*) as allCount, SUM(${this.q('tokens')}) as tokensCount, SUM(${this.q('duration')}) as durationCount, SUM(${this.q('cost')}) as amount`;
+        const attrTotalClause = `COUNT(*) as allCount, SUM(${this.q('tokens')}) as allTokensCount, SUM(${this.q('duration')}) as allDurationCount, SUM(${this.q('cost')}) as allCost`;
 
         const requestPeriod = `SELECT ${attrPeriodClause} FROM ${tbl} ${whereClause} ${whereAddClause} ${groupByClause}`;
         const request = `SELECT ${attrTotalClause} FROM ${tbl} ${whereClause} ${whereAddClause}`;

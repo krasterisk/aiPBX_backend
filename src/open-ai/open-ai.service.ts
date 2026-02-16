@@ -702,7 +702,6 @@ export class OpenAiService implements OnModuleInit {
         }
     }
 
-
     async chatCompletion(messages: any[], model: string = 'gpt-4o') {
         try {
             const completion = await this.openAiClient.chat.completions.create({

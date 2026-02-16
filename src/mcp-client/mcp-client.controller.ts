@@ -15,6 +15,7 @@ import { GetMcpServersDto } from './dto/get-mcp-servers.dto';
 import { LoggerService } from '../logger/logger.service';
 import { ComposioService, COMPOSIO_TOOLKITS } from './services/composio.service';
 import { Bitrix24Service } from './services/bitrix24.service';
+import { TelegramService } from '../telegram/telegram.service';
 
 interface RequestWithUser extends Request {
     isAdmin?: boolean;
@@ -32,6 +33,7 @@ export class McpClientController {
         private readonly loggerService: LoggerService,
         private readonly composioService: ComposioService,
         private readonly bitrix24Service: Bitrix24Service,
+        private readonly telegramService: TelegramService,
     ) { }
 
     private getUserId(req: RequestWithUser): number {
@@ -79,7 +81,7 @@ export class McpClientController {
         @Body() dto: UpdateMcpServerDto,
         @Req() req: RequestWithUser,
     ) {
-        const result = await this.mcpClient.updateServer(id, dto, this.getUserId(req));
+        const result = await this.mcpClient.updateServer(id, dto, this.getUserId(req), req.isAdmin);
         await this.loggerService.logAction(this.getUserId(req), 'update', 'mcpServer', id, `Updated MCP server #${id}`, null, dto, req);
         return result;
     }
@@ -89,7 +91,7 @@ export class McpClientController {
     @UseGuards(RolesGuard)
     @Delete('servers/:id')
     async deleteServer(@Param('id') id: number, @Req() req: RequestWithUser) {
-        const result = await this.mcpClient.deleteServer(id, this.getUserId(req));
+        const result = await this.mcpClient.deleteServer(id, this.getUserId(req), req.isAdmin);
         await this.loggerService.logAction(this.getUserId(req), 'delete', 'mcpServer', id, `Deleted MCP server #${id}`, null, null, req);
         return result;
     }
@@ -101,7 +103,7 @@ export class McpClientController {
     @UseGuards(RolesGuard)
     @Post('servers/:id/connect')
     connectServer(@Param('id') id: number, @Req() req: RequestWithUser) {
-        return this.mcpClient.connectServer(id, this.getUserId(req));
+        return this.mcpClient.connectServer(id, this.getUserId(req), req.isAdmin);
     }
 
     @ApiOperation({ summary: 'Disconnect from an MCP server' })
@@ -109,7 +111,7 @@ export class McpClientController {
     @UseGuards(RolesGuard)
     @Post('servers/:id/disconnect')
     disconnectServer(@Param('id') id: number, @Req() req: RequestWithUser) {
-        return this.mcpClient.disconnectServer(id, this.getUserId(req));
+        return this.mcpClient.disconnectServer(id, this.getUserId(req), req.isAdmin);
     }
 
     // ─── Tools ────────────────────────────────────────────────────────
@@ -342,6 +344,62 @@ export class McpClientController {
         // Register predefined Bitrix24 tools
         const tools = this.bitrix24Service.getAvailableTools();
         await this.toolRegistry.saveComposioTools(server.id, userId, tools);
+
+        return { server };
+    }
+
+    // ─── Telegram Integration (Direct, no Composio) ─────────────────────
+
+    @ApiOperation({ summary: 'Connect Telegram via Chat ID (direct, no Composio)' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Post('telegram/connect')
+    async telegramConnect(
+        @Body() body: { chatId: string },
+        @Req() req: RequestWithUser,
+    ) {
+        const userId = this.getUserId(req);
+
+        if (!body.chatId?.trim()) {
+            throw new HttpException('chatId is required', 400);
+        }
+
+        if (!this.telegramService.isConfigured()) {
+            throw new HttpException('TELEGRAM_BOT_TOKEN is not configured on the server', 500);
+        }
+
+        // Validate the chat ID
+        const isValid = await this.telegramService.validateChatId(body.chatId.trim());
+        if (!isValid) {
+            throw new HttpException(
+                'Invalid Chat ID. Make sure you have started a conversation with the bot first.',
+                400,
+            );
+        }
+
+        // Create MCP server record (no Composio, no authCredentials needed)
+        const server = await this.mcpClient.createServer(
+            {
+                name: 'Telegram',
+                url: 'internal://telegram',
+                transport: 'http' as const,
+                authType: 'none' as const,
+                composioToolkit: 'telegram',
+                composioMeta: { chatId: body.chatId.trim() },
+                status: 'active',
+                lastConnectedAt: new Date(),
+            } as any,
+            userId,
+        );
+
+        // Register predefined Telegram tools
+        const tools = this.telegramService.getAvailableTools();
+        await this.toolRegistry.saveComposioTools(server.id, userId, tools);
+
+        await this.loggerService.logAction(
+            userId, 'create', 'mcpServer', server.id,
+            `Connected Telegram (chatId: ${body.chatId})`, null, null, req,
+        );
 
         return { server };
     }

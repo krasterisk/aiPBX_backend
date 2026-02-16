@@ -126,14 +126,20 @@ export class McpClientService {
         }
     }
 
-    async getServerById(serverId: number, userId: number): Promise<McpServer> {
-        const server = await this.mcpServerModel.findOne({ where: { id: serverId, userId } });
-        if (!server) throw new Error(`MCP server ${serverId} not found`);
+    async getServerById(serverId: number, userId: number, isAdmin = false): Promise<McpServer> {
+        const where: any = { id: serverId };
+        if (!isAdmin) {
+            where.userId = userId;
+        }
+        const server = await this.mcpServerModel.unscoped().findOne({ where });
+        if (!server) {
+            throw new HttpException(`MCP server ${serverId} not found`, HttpStatus.NOT_FOUND);
+        }
         return server;
     }
 
-    async updateServer(serverId: number, data: any, userId: number): Promise<McpServer> {
-        const server = await this.getServerById(serverId, userId);
+    async updateServer(serverId: number, data: any, userId: number, isAdmin = false): Promise<McpServer> {
+        const server = await this.getServerById(serverId, userId, isAdmin);
         const updateData = { ...data };
         if (updateData.authCredentials) {
             updateData.authCredentials = this.cryptoService.encrypt(updateData.authCredentials);
@@ -142,8 +148,8 @@ export class McpClientService {
         return server;
     }
 
-    async deleteServer(serverId: number, userId: number): Promise<void> {
-        const server = await this.getServerById(serverId, userId);
+    async deleteServer(serverId: number, userId: number, isAdmin = false): Promise<void> {
+        const server = await this.getServerById(serverId, userId, isAdmin);
         this.connectionManager.disconnect(serverId);
 
         // If this is a Composio server, also delete the Composio connection
@@ -165,8 +171,8 @@ export class McpClientService {
 
     // ─── Connection Lifecycle ──────────────────────────────────────────
 
-    async connectServer(serverId: number, userId: number): Promise<{ connected: boolean; toolsSynced: number }> {
-        const server = await this.getServerById(serverId, userId);
+    async connectServer(serverId: number, userId: number, isAdmin = false): Promise<{ connected: boolean; toolsSynced: number }> {
+        const server = await this.getServerById(serverId, userId, isAdmin);
 
         // Composio servers don't use real MCP transport — just mark active and sync
         if (server.composioToolkit) {
@@ -219,8 +225,8 @@ export class McpClientService {
         }
     }
 
-    async disconnectServer(serverId: number, userId: number): Promise<void> {
-        const server = await this.getServerById(serverId, userId);
+    async disconnectServer(serverId: number, userId: number, isAdmin = false): Promise<void> {
+        const server = await this.getServerById(serverId, userId, isAdmin);
         this.connectionManager.disconnect(serverId);
         await server.update({ status: 'inactive' });
     }
@@ -249,7 +255,7 @@ export class McpClientService {
         channelId: string,
         userId: number,
     ): Promise<string> {
-        const server = await this.mcpServerModel.findByPk(serverId);
+        const server = await this.mcpServerModel.unscoped().findByPk(serverId);
         if (!server) throw new Error(`MCP server ${serverId} not found`);
 
         // Check policies

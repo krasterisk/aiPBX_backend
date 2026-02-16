@@ -183,11 +183,20 @@ export class ComposioService {
 
     /**
      * Delete a connected account by its ID.
+     * Gracefully handles 404 (account already deleted).
      */
     async deleteConnection(connectedAccountId: string) {
         const client = await this.getClient();
-        await client.connectedAccounts.delete(connectedAccountId);
-        this.logger.log(`Composio connection deleted: ${connectedAccountId}`);
+        try {
+            await client.connectedAccounts.delete(connectedAccountId);
+            this.logger.log(`Composio connection deleted: ${connectedAccountId}`);
+        } catch (err) {
+            if (err?.status === 404) {
+                this.logger.warn(`Composio connection ${connectedAccountId} already deleted (404)`);
+                return;
+            }
+            throw err;
+        }
     }
 
     /**

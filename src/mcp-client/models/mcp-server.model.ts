@@ -1,8 +1,18 @@
-import { BelongsTo, Column, DataType, ForeignKey, HasMany, Model, Table } from 'sequelize-typescript';
+import { BelongsTo, BelongsToMany, Column, DataType, ForeignKey, HasMany, Model, Table } from 'sequelize-typescript';
 import { ApiProperty } from '@nestjs/swagger';
 import { User } from '../../users/users.model';
+import { Assistant } from '../../assistants/assistants.model';
+import { AssistantMcpServersModel } from './assistant-mcp-servers.model';
 
-@Table({ tableName: 'mcpServers' })
+@Table({
+    tableName: 'mcpServers',
+    defaultScope: {
+        attributes: { exclude: ['authCredentials'] },
+    },
+    scopes: {
+        withCredentials: { attributes: { include: [] } },
+    },
+})
 export class McpServer extends Model<McpServer> {
     @ApiProperty({ example: 'My CRM Server', description: 'Human-readable MCP server name' })
     @Column({ type: DataType.STRING, allowNull: false })
@@ -54,4 +64,14 @@ export class McpServer extends Model<McpServer> {
 
     @BelongsTo(() => User, { onDelete: 'CASCADE' })
     user: User;
+
+    @BelongsToMany(() => Assistant, () => AssistantMcpServersModel)
+    assistants: Assistant[];
+
+    /** Strip sensitive fields when serialized to JSON (API responses) */
+    toJSON() {
+        const values = { ...this.get() } as any;
+        delete values.authCredentials;
+        return values;
+    }
 }

@@ -4,6 +4,8 @@ import { McpToolRegistry } from '../models/mcp-tool-registry.model';
 import { McpServer } from '../models/mcp-server.model';
 import { McpConnectionManagerService } from './mcp-connection-manager.service';
 import { McpCryptoService } from './mcp-crypto.service';
+import { TelegramService } from '../../telegram/telegram.service';
+import { Bitrix24Service } from './bitrix24.service';
 
 @Injectable()
 export class McpToolRegistryService {
@@ -16,14 +18,30 @@ export class McpToolRegistryService {
         private readonly mcpServerModel: typeof McpServer,
         private readonly connectionManager: McpConnectionManagerService,
         private readonly cryptoService: McpCryptoService,
+        private readonly telegramService: TelegramService,
+        private readonly bitrix24Service: Bitrix24Service,
     ) { }
 
     /**
      * Sync tools from an MCP server — calls tools/list and upserts into DB.
+     * For internal integrations (Telegram, Bitrix24), uses predefined tool lists.
      */
     async syncTools(serverId: number): Promise<McpToolRegistry[]> {
-        const server = await this.mcpServerModel.findByPk(serverId);
+        const server = await this.mcpServerModel.unscoped().findByPk(serverId);
         if (!server) throw new Error(`MCP server ${serverId} not found`);
+
+        // ─── Internal integrations: use predefined tools ─────────────
+        if (server.composioToolkit === 'telegram') {
+            const tools = this.telegramService.getAvailableTools();
+            return this.saveComposioTools(serverId, server.userId, tools);
+        }
+
+        if (server.composioToolkit === 'bitrix24') {
+            const tools = this.bitrix24Service.getAvailableTools();
+            return this.saveComposioTools(serverId, server.userId, tools);
+        }
+
+        // ─── Remote MCP servers ──────────────────────────────────────
 
         let authType = server.authType;
         let authCredentials = this.cryptoService.decrypt(server.authCredentials);
@@ -101,7 +119,8 @@ export class McpToolRegistryService {
 
     /**
      * Convert a single MCP tool to OpenAI function format.
-     * Uses `composio_` prefix for Composio tools, `mcp_` prefix for MCP tools.
+     * Uses `telegram_` prefix for Telegram, `bitrix24_` for Bitrix24,
+     * `composio_` for other Composio tools, `mcp_` for generic MCP tools.
      */
     mcpToolToOpenAITool(tool: McpToolRegistry): any {
         const server = (tool as any).mcpServer;
@@ -110,6 +129,8 @@ export class McpToolRegistryService {
         let name: string;
         if (toolkit === 'bitrix24') {
             name = `bitrix24_${tool.name}`;
+        } else if (toolkit === 'telegram') {
+            name = `telegram_${tool.name}`;
         } else if (toolkit) {
             name = `composio_${tool.name}`;
         } else {
@@ -203,7 +224,7 @@ export class McpToolRegistryService {
             });
         }
 
-        this.logger.log(`Saved ${actions.length} Composio actions for server ${serverId}`);
+        this.logger.log(`Saved ${actions.length} tools for server ${serverId}`);
         return this.getToolsByServer(serverId);
     }
 

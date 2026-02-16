@@ -4,6 +4,8 @@ import { User } from "../users/users.model";
 import { AiTool } from "../ai-tools/ai-tool.model";
 import { AssistantToolsModel } from "../ai-tools/assistant-tools.model";
 import { SipAccounts } from "../pbx-servers/sip-accounts.model";
+import { McpServer } from "../mcp-client/models/mcp-server.model";
+import { AssistantMcpServersModel } from "../mcp-client/models/assistant-mcp-servers.model";
 
 interface CreateAssistantAttr {
     name: string;
@@ -98,4 +100,7 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
 
     @HasOne(() => SipAccounts)
     sipAccount: SipAccounts
+
+    @BelongsToMany(() => McpServer, () => AssistantMcpServersModel)
+    mcpServers: McpServer[]
 }

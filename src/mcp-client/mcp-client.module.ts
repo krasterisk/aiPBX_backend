@@ -6,6 +6,7 @@ import { McpServer } from './models/mcp-server.model';
 import { McpToolRegistry } from './models/mcp-tool-registry.model';
 import { McpToolPolicy } from './models/mcp-tool-policy.model';
 import { McpCallLog } from './models/mcp-call-log.model';
+import { AssistantMcpServersModel } from './models/assistant-mcp-servers.model';
 
 import { McpConnectionManagerService } from './services/mcp-connection-manager.service';
 import { McpToolRegistryService } from './services/mcp-tool-registry.service';
@@ -15,6 +16,7 @@ import { ToolGatewayService } from './services/tool-gateway.service';
 import { McpCryptoService } from './services/mcp-crypto.service';
 import { ComposioService } from './services/composio.service';
 import { Bitrix24Service } from './services/bitrix24.service';
+import { TelegramModule } from '../telegram/telegram.module';
 
 import { McpClientController } from './mcp-client.controller';
 import { AiToolsHandlersModule } from '../ai-tools-handlers/ai-tools-handlers.module';
@@ -29,6 +31,7 @@ import { ConfigModule } from '@nestjs/config';
             McpToolRegistry,
             McpToolPolicy,
             McpCallLog,
+            AssistantMcpServersModel,
         ]),
         HttpModule.register({
             timeout: 30000,
@@ -38,6 +41,7 @@ import { ConfigModule } from '@nestjs/config';
         AuthModule,
         LoggerModule,
         ConfigModule,
+        TelegramModule,
     ],
     controllers: [McpClientController],
     providers: [

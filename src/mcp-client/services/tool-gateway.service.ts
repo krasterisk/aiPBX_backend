@@ -9,6 +9,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Assistant } from '../../assistants/assistants.model';
 import { ComposioService } from './composio.service';
 import { Bitrix24Service } from './bitrix24.service';
+import { TelegramService } from '../../telegram/telegram.service';
 
 /**
  * Minimal session interface — mirrors the fields used from OpenAI sessionData.
@@ -48,6 +49,7 @@ export class ToolGatewayService {
         private readonly eventEmitter: EventEmitter2,
         private readonly composioService: ComposioService,
         private readonly bitrix24Service: Bitrix24Service,
+        private readonly telegramService: TelegramService,
     ) { }
 
     /**
@@ -82,7 +84,24 @@ export class ToolGatewayService {
                 return { output, sendResponse: true };
             }
 
-            // ─── 2. Composio Direct Tools ──────────────────────────────
+            // ─── 2. Telegram Direct Tools ─────────────────────────────
+            const telegramParsed = this.parseTelegramToolName(item.name);
+            if (telegramParsed) {
+                source = 'telegram';
+                const args = this.parseArguments(item.arguments);
+
+                const chatId = await this.getTelegramChatId(assistant.userId);
+                output = await this.telegramService.executeAction(
+                    chatId,
+                    telegramParsed.toolSlug,
+                    args,
+                );
+
+                this.trackToolCall(session, item.name, 'success');
+                return { output, sendResponse: true };
+            }
+
+            // ─── 2b. Composio Direct Tools ─────────────────────────────
             const composioParsed = this.parseComposioToolName(item.name);
             if (composioParsed) {
                 source = 'composio';
@@ -100,7 +119,7 @@ export class ToolGatewayService {
                 this.trackToolCall(session, item.name, 'success');
                 return { output, sendResponse: true };
             }
-            // ─── 2b. Bitrix24 Direct Tools ─────────────────────────────
+            // ─── 2c. Bitrix24 Direct Tools ─────────────────────────────
             const bitrix24Parsed = this.parseBitrix24ToolName(item.name);
             if (bitrix24Parsed) {
                 source = 'bitrix24';
@@ -244,6 +263,36 @@ export class ToolGatewayService {
         }
 
         return server.url;
+    }
+
+    /**
+     * Parse Telegram tool names.
+     * Convention: telegram_TELEGRAM_SEND_MESSAGE → toolSlug = TELEGRAM_SEND_MESSAGE
+     */
+    private parseTelegramToolName(name: string): { toolSlug: string } | null {
+        if (!name.startsWith('telegram_')) return null;
+        const toolSlug = name.substring('telegram_'.length);
+        if (!toolSlug) return null;
+        return { toolSlug };
+    }
+
+    /**
+     * Get the Telegram chatId for a user from their MCP server record.
+     */
+    private async getTelegramChatId(userId: number): Promise<string> {
+        const server = await this.mcpServerModel.findOne({
+            where: {
+                userId,
+                composioToolkit: 'telegram',
+                status: 'active',
+            },
+        });
+
+        if (!server?.composioMeta?.chatId) {
+            throw new Error('Telegram is not connected. Please connect Telegram and provide your Chat ID first.');
+        }
+
+        return server.composioMeta.chatId;
     }
 
     /**

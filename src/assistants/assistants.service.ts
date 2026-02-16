@@ -41,6 +41,11 @@ export class AssistantsService {
                     await result.$set('tools', toolsIds)
                     result.tools = assistant.tools
                 }
+                if (result && (assistant as any).mcpServers?.length) {
+                    const mcpServerIds = (assistant as any).mcpServers.map((s: any) => s.id);
+                    await result.$set('mcpServers', mcpServerIds);
+                    result.mcpServers = (assistant as any).mcpServers;
+                }
                 assistants.push(result)
             }
             return assistants
@@ -73,6 +78,15 @@ export class AssistantsService {
             } else if (updates.tools?.length === 0) {
                 await assistant.$set('tools', []);
                 assistant.tools = [];
+            }
+
+            if ((updates as any).mcpServers && (updates as any).mcpServers.length) {
+                const mcpServerIds = (updates as any).mcpServers.map((s: any) => s.id);
+                await assistant.$set('mcpServers', mcpServerIds);
+                assistant.mcpServers = (updates as any).mcpServers;
+            } else if ((updates as any).mcpServers?.length === 0) {
+                await assistant.$set('mcpServers', []);
+                assistant.mcpServers = [];
             }
             return assistant
         } catch (e) {
@@ -135,7 +149,8 @@ export class AssistantsService {
                                 "telegramId",
                                 "activationExpires",
                                 "isActivated",
-                                "vpbx_user_id"
+                                "vpbx_user_id",
+                                "authCredentials"
                             ]
                         }
                     }
@@ -174,7 +189,8 @@ export class AssistantsService {
                                 "telegramId",
                                 "activationExpires",
                                 "isActivated",
-                                "vpbx_user_id"
+                                "vpbx_user_id",
+                                "authCredentials"
                             ]
                         }
                     }
@@ -203,7 +219,8 @@ export class AssistantsService {
                             "telegramId",
                             "activationExpires",
                             "isActivated",
-                            "vpbx_user_id"
+                            "vpbx_user_id",
+                            "authCredentials"
                         ]
                     }
                 }
@@ -231,7 +248,8 @@ export class AssistantsService {
                             "telegramId",
                             "activationExpires",
                             "isActivated",
-                            "vpbx_user_id"
+                            "vpbx_user_id",
+                            "authCredentials"
                         ]
                     }
                 }

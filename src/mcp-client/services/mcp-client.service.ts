@@ -238,8 +238,8 @@ export class McpClientService {
         return this.toolRegistry.syncTools(serverId);
     }
 
-    async getToolsForOpenAI(userId: number): Promise<any[]> {
-        return this.toolRegistry.getToolsForOpenAI(userId);
+    async getToolsForOpenAI(mcpServerIds: number[]): Promise<any[]> {
+        return this.toolRegistry.getToolsForOpenAI(mcpServerIds);
     }
 
     // ─── Tool Execution (via MCP) ──────────────────────────────────────

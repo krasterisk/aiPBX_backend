@@ -220,7 +220,7 @@ export class OpenAiService implements OnModuleInit {
         });
     }
 
-    public async cdrCreateLog(channelId: string, callerId: string, assistant?: Assistant) {
+    public async cdrCreateLog(channelId: string, callerId: string, assistant?: Assistant, source: string = 'call') {
         try {
             if (channelId) {
                 await this.aiCdrService.cdrCreate({
@@ -229,7 +229,8 @@ export class OpenAiService implements OnModuleInit {
                     assistantId: assistant?.id,
                     assistantName: assistant?.name,
                     userId: assistant?.userId,
-                    vPbxUserId: assistant?.user?.vpbx_user_id
+                    vPbxUserId: assistant?.user?.vpbx_user_id,
+                    source,
                 })
             }
         } catch (e) {
@@ -278,8 +279,13 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "session.created") {
-            await this.cdrCreateLog(channelId, callerId, assistant)
-            this.logger.log(`CDR created ${channelId}`)
+            const source = channelId.startsWith('playground-')
+                ? 'playground'
+                : channelId.startsWith('widget_')
+                    ? 'widget'
+                    : 'call';
+            await this.cdrCreateLog(channelId, callerId, assistant, source)
+            this.logger.log(`CDR created ${channelId} (source: ${source})`)
         }
 
         if (serverEvent.type === "input_audio_buffer.speech_started") {
@@ -502,15 +508,18 @@ export class OpenAiService implements OnModuleInit {
                 });
             }
 
-            // Add MCP tools from registry
+            // Add MCP tools from registry (ONLY for servers explicitly linked to this assistant)
             try {
-                const mcpTools = await this.mcpToolRegistry.getToolsForOpenAI(assistant.userId);
-                if (mcpTools.length > 0) {
-                    tools.push(...mcpTools);
-                    this.logger.log(`Added ${mcpTools.length} MCP tools to session for ${session.channelId}`);
+                const mcpServerIds = assistant.mcpServers?.map(s => s.id) || [];
+                if (mcpServerIds.length > 0) {
+                    const mcpTools = await this.mcpToolRegistry.getToolsForOpenAI(mcpServerIds);
+                    if (mcpTools.length > 0) {
+                        tools.push(...mcpTools);
+                        this.logger.log(`Added ${mcpTools.length} MCP tools to session for ${session.channelId}`);
+                    }
                 }
             } catch (e) {
-                this.logger.warn(`Failed to load MCP tools for user ${assistant.userId}: ${e.message}`);
+                this.logger.warn(`Failed to load MCP tools for assistant ${assistant.id}: ${e.message}`);
             }
 
             const initAudioSession = {

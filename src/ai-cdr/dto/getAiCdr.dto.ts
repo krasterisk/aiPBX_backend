@@ -12,8 +12,14 @@ export class GetAiCdrDto {
     limit: number | string = 10
 
     @IsOptional()
-    @IsIn(['createdAt', 'callerId', 'assistantName', 'tokens', 'cost', 'duration', 'csat', 'scenarioSuccess'], {
-        message: 'sortField must be one of: createdAt, callerId, assistantName, tokens, cost, duration, csat, scenarioSuccess'
+    @IsIn(['call', 'widget', 'playground'], {
+        message: 'source must be one of: call, widget, playground'
+    })
+    source?: string
+
+    @IsOptional()
+    @IsIn(['createdAt', 'callerId', 'assistantName', 'tokens', 'cost', 'duration', 'source', 'csat', 'scenarioSuccess'], {
+        message: 'sortField must be one of: createdAt, callerId, assistantName, tokens, cost, duration, source, csat, scenarioSuccess'
     })
     sortField?: string
 

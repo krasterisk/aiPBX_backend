@@ -4,6 +4,7 @@ export class GetDashboardDto {
     tab?: string
     endDate?: string
     userId?: string
+    source?: string
 }
 
 export class GetDashboardAllData {

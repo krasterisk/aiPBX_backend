@@ -170,7 +170,7 @@ Return ONLY valid JSON without markdown formatting.
 
     async getAnalyticsDashboard(query: any, isAdmin: boolean, realUserId: string) {
         try {
-            const { userId: queryUserId, assistantId, startDate, endDate } = query;
+            const { userId: queryUserId, assistantId, startDate, endDate, source } = query;
 
             // Определение userId с учетом прав доступа
             const userId = !queryUserId && isAdmin
@@ -218,6 +218,11 @@ Return ONLY valid JSON without markdown formatting.
                         [Op.in]: assistantIds
                     };
                 }
+            }
+
+            // Фильтр по source (call, widget, playground)
+            if (source) {
+                whereClause.source = source;
             }
 
             // Получение всех CDR с аналитикой

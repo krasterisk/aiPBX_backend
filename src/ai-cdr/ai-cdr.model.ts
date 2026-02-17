@@ -3,10 +3,17 @@ import { AiAnalytics } from "../ai-analytics/ai-analytics.model";
 import { BillingRecord } from "../billing/billing-record.model";
 import { ApiProperty } from "@nestjs/swagger";
 
+export enum CdrSource {
+    CALL = 'call',
+    WIDGET = 'widget',
+    PLAYGROUND = 'playground',
+}
+
 interface CreateAiCdr {
     channelId: string
     callerId: string
     tokens?: number
+    source?: CdrSource
 }
 
 @Table({ tableName: "aiCdr" })
@@ -38,6 +45,9 @@ export class AiCdr extends Model<AiCdr, CreateAiCdr> {
     @ApiProperty({ example: '1006', description: "vPbxUserId" })
     @Column({ type: DataType.STRING, allowNull: true })
     vPbxUserId: string
+    @ApiProperty({ example: 'call', description: "Call source: call, widget, playground" })
+    @Column({ type: DataType.STRING, allowNull: true, defaultValue: 'call' })
+    source: string
     @ApiProperty({ example: 'https://server.com/records/assistantId/channelId.mp3', description: "Record URL" })
     @Column({ type: DataType.STRING, allowNull: true })
     recordUrl: string

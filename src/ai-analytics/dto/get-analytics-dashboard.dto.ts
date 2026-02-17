@@ -37,6 +37,15 @@ export class GetAnalyticsDashboardDto {
     @IsOptional()
     @IsString({ message: 'Must be a string!' })
     endDate?: string;
+
+    @ApiProperty({
+        example: 'call',
+        description: 'Source filter: call, widget, playground',
+        required: false
+    })
+    @IsOptional()
+    @IsString({ message: 'Must be a string!' })
+    source?: string;
 }
 
 // Агрегированные метрики

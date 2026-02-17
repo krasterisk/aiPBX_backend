@@ -88,13 +88,16 @@ export class AiCdrService {
 
     async cdrCreate(dto: AiCdrDto) {
         try {
-            const aiCdr = await this.aiCdrRepository.create(dto)
-            return aiCdr
-        } catch (e) {
-            if (e.name === 'SequelizeUniqueConstraintError') {
-                throw new HttpException('AiCdr already exists', HttpStatus.BAD_REQUEST)
+            const [aiCdr, created] = await this.aiCdrRepository.findOrCreate({
+                where: { channelId: dto.channelId },
+                defaults: dto as any,
+            });
+            if (!created) {
+                this.logger.warn(`CDR already exists for ${dto.channelId}, skipping duplicate`);
             }
-            throw new HttpException('[AiCdr]:  Request error' + e, HttpStatus.BAD_REQUEST)
+            return aiCdr;
+        } catch (e) {
+            throw new HttpException('[AiCdr]: Request error' + e, HttpStatus.BAD_REQUEST)
         }
     }
 
@@ -345,6 +348,10 @@ export class AiCdrService {
                 };
             }
 
+            if (query.source) {
+                whereClause.source = query.source;
+            }
+
             const sortField = query.sortField || 'createdAt';
             const sortOrder = query.sortOrder || 'DESC';
 
@@ -405,6 +412,7 @@ export class AiCdrService {
         const startDate = query.startDate || "";
         const endDate = query.endDate || "";
         const tab = query.tab || "";
+        const source = query.source || "";
 
         const userId = !query.userId && isAdmin ? undefined : Number(query.userId);
 
@@ -451,6 +459,10 @@ export class AiCdrService {
 
         if (assistantId) {
             whereAddClause += `AND ${this.q('assistantId')} IN (${assistantId}) `;
+        }
+
+        if (source) {
+            whereAddClause += `AND ${this.q('source')} = '${source}' `;
         }
 
         const attrPeriodClause = `${dopAttr}, COUNT(*) as allCount, SUM(${this.q('tokens')}) as tokensCount, SUM(${this.q('duration')}) as durationCount, SUM(${this.q('cost')}) as amount`;

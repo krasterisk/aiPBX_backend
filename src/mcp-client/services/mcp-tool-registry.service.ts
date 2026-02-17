@@ -100,20 +100,25 @@ export class McpToolRegistryService {
     }
 
     /**
-     * Get all enabled tools for a user.
+     * Get all enabled tools for specific MCP servers.
      */
-    async getEnabledToolsByUser(userId: number): Promise<McpToolRegistry[]> {
+    async getEnabledToolsByServers(mcpServerIds: number[]): Promise<McpToolRegistry[]> {
+        if (!mcpServerIds?.length) return [];
         return this.toolRegistryModel.findAll({
-            where: { userId, isEnabled: true },
+            where: {
+                mcpServerId: mcpServerIds,
+                isEnabled: true,
+            },
             include: [{ model: McpServer, where: { status: 'active' } }],
         });
     }
 
     /**
      * Convert MCP tools to OpenAI function format for session.update.
+     * Only loads tools from the specified server IDs (linked to the assistant).
      */
-    async getToolsForOpenAI(userId: number): Promise<any[]> {
-        const tools = await this.getEnabledToolsByUser(userId);
+    async getToolsForOpenAI(mcpServerIds: number[]): Promise<any[]> {
+        const tools = await this.getEnabledToolsByServers(mcpServerIds);
         return tools.map((tool) => this.mcpToolToOpenAITool(tool));
     }
 

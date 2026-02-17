@@ -6,6 +6,7 @@ import { AssistantsService } from '../assistants/assistants.service';
 import { AriConnection } from './ari-connection';
 import { PbxServersService } from "../pbx-servers/pbx-servers.service";
 import { WidgetKeysService } from "../widget-keys/widget-keys.service";
+import { TelegramService } from "../telegram/telegram.service";
 import { PbxServers } from '../pbx-servers/pbx-servers.model';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
         private readonly streamAudioService: StreamAudioService,
         private readonly assistantsService: AssistantsService,
         private readonly widgetKeysService: WidgetKeysService,
+        private readonly telegramService: TelegramService,
     ) {
     }
 
@@ -55,6 +57,7 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
                 this.streamAudioService,
                 this.assistantsService,
                 this.widgetKeysService,
+                this.telegramService,
             );
 
             await connection.connect();

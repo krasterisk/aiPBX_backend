@@ -8,6 +8,7 @@ import { WidgetKeysModule } from '../widget-keys/widget-keys.module';
 import { OpenAiModule } from '../open-ai/open-ai.module';
 import { AiCdrModule } from '../ai-cdr/ai-cdr.module';
 import { TelegramModule } from '../telegram/telegram.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
     imports: [
@@ -16,6 +17,7 @@ import { TelegramModule } from '../telegram/telegram.module';
         OpenAiModule,
         AiCdrModule,
         TelegramModule,
+        AuthModule,
     ],
     controllers: [WidgetController],
     providers: [WidgetService, WidgetWebRTCService],

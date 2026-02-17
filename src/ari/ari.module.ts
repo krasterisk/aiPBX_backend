@@ -12,6 +12,7 @@ import { PbxServersModule } from "../pbx-servers/pbx-servers.module";
 import { ConfigModule } from "@nestjs/config";
 import { OpenAiModule } from "../open-ai/open-ai.module";
 import { WidgetKeysModule } from "../widget-keys/widget-keys.module";
+import { TelegramModule } from "../telegram/telegram.module";
 
 
 @Module({
@@ -30,6 +31,7 @@ import { WidgetKeysModule } from "../widget-keys/widget-keys.module";
         AiToolsHandlersModule,
         PbxServersModule,
         WidgetKeysModule,
+        TelegramModule,
     ],
     exports: [
         AriService

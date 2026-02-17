@@ -110,4 +110,29 @@ export class WidgetKeysController {
     remove(@Request() req, @Param('id') id: string): Promise<void> {
         return this.widgetKeysService.remove(+id, req.tokenUserId);
     }
+
+    @Get(':id/embed')
+    @ApiOperation({ summary: 'Get embed code and JWT token for a widget key' })
+    @ApiResponse({ status: 200, description: 'Embed code and token' })
+    @ApiResponse({ status: 404, description: 'Widget key not found' })
+    async getEmbed(
+        @Request() req,
+        @Param('id') id: string,
+    ): Promise<{ token: string | null; embedCode: string }> {
+        const widget = await this.widgetKeysService.findOne(+id, req.tokenUserId, req.isAdmin);
+
+        const scriptSrc = 'https://cdn.jsdelivr.net/gh/krasterisk/aipbx_widget@latest/dist/widget.min.js';
+
+        if (widget.token) {
+            return {
+                token: widget.token,
+                embedCode: `<!-- AI PBX Voice Widget -->\n<script\n    src="${scriptSrc}"\n    data-token="${widget.token}"\n></script>`,
+            };
+        }
+
+        return {
+            token: null,
+            embedCode: `<!-- AI PBX Voice Widget -->\n<script\n    src="${scriptSrc}"\n    data-key="${widget.publicKey}"\n></script>`,
+        };
+    }
 }

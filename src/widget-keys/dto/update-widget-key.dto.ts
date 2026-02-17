@@ -122,4 +122,13 @@ export class UpdateWidgetKeyDto {
     @IsOptional()
     @IsString()
     appearance?: string;
+
+    @ApiProperty({
+        example: 'https://api.example.com/api',
+        description: 'API URL to encode in the widget JWT token',
+        required: false
+    })
+    @IsOptional()
+    @IsString()
+    apiUrl?: string;
 }

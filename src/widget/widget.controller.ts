@@ -8,6 +8,8 @@ import {
     Ip,
     HttpCode,
     HttpStatus,
+    ForbiddenException,
+    NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { WidgetWebRTCService } from './widget-webrtc.service';
@@ -16,6 +18,7 @@ import { WidgetKeysService } from '../widget-keys/widget-keys.service';
 import { WidgetOfferDto } from './dto/widget-offer.dto';
 import { WidgetIceCandidateDto } from './dto/widget-ice-candidate.dto';
 import { WidgetHangupDto } from './dto/widget-hangup.dto';
+import { JwtService } from '@nestjs/jwt';
 
 @ApiTags('Widget (Public)')
 @Controller('widget')
@@ -24,6 +27,7 @@ export class WidgetController {
         private readonly widgetWebRTCService: WidgetWebRTCService,
         private readonly widgetService: WidgetService,
         private readonly widgetKeysService: WidgetKeysService,
+        private readonly jwtService: JwtService,
     ) { }
 
     @Post('offer')
@@ -126,6 +130,63 @@ export class WidgetController {
 
         if (!wsUrl && pbxServer?.sip_host) {
             // Basic fallback heuristic: replace port 5060/5061 with 8089 and prepend wss://
+            const hostPart = pbxServer.sip_host.split(':')[0];
+            wsUrl = `wss://${hostPart}:8089/ws`;
+        }
+
+        return {
+            assistantId: assistant.uniqueId,
+            assistantName: widgetKey.name || assistant.name,
+            voice: assistant.voice,
+            language: widgetKey.language || 'en',
+            wsUrl: wsUrl,
+            sipDomain: pbxServer?.sip_host ? pbxServer.sip_host.split(':')[0] : undefined,
+            logo: widgetKey.logo ? `/static/${widgetKey.logo}` : undefined,
+            appearance: widgetKey.appearance ? JSON.parse(widgetKey.appearance) : undefined,
+            maxConcurrentSessions: widgetKey.maxConcurrentSessions,
+            maxSessionDuration: widgetKey.maxSessionDuration,
+        };
+    }
+
+    @Get('config')
+    @ApiOperation({ summary: 'Get widget configuration via JWT token (public endpoint)' })
+    @ApiResponse({ status: 200, description: 'Widget configuration' })
+    @ApiResponse({ status: 401, description: 'Invalid or missing token' })
+    async getConfigByToken(
+        @Headers('authorization') authHeader?: string,
+    ): Promise<any> {
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            throw new ForbiddenException('Missing or invalid Authorization header');
+        }
+
+        const token = authHeader.slice(7);
+        let payload: any;
+
+        try {
+            payload = this.jwtService.verify(token);
+        } catch (err) {
+            throw new ForbiddenException('Invalid widget token');
+        }
+
+        const publicKey = payload.sub;
+        if (!publicKey) {
+            throw new ForbiddenException('Invalid token payload');
+        }
+
+        const widgetKey = await this.widgetKeysService.findByPublicKey(publicKey);
+        if (!widgetKey) {
+            throw new NotFoundException('Widget key not found');
+        }
+
+        if (!widgetKey.isActive) {
+            throw new ForbiddenException('Widget key is not active');
+        }
+
+        const assistant = widgetKey.assistant;
+        const pbxServer = widgetKey.pbxServer;
+
+        let wsUrl = pbxServer?.wss_url;
+        if (!wsUrl && pbxServer?.sip_host) {
             const hostPart = pbxServer.sip_host.split(':')[0];
             wsUrl = `wss://${hostPart}:8089/ws`;
         }

@@ -6,6 +6,7 @@ import { AssistantsService } from '../assistants/assistants.service';
 import { CallSession } from './call-sessions';
 import { PbxServers } from '../pbx-servers/pbx-servers.model';
 import { WidgetKeysService } from "../widget-keys/widget-keys.service";
+import { TelegramService } from '../telegram/telegram.service';
 import { AriHttpClient } from './ari-http-client';
 import { WebSocket } from 'ws';
 
@@ -34,6 +35,7 @@ export class AriConnection {
         private readonly streamAudioService: StreamAudioService,
         private readonly assistantsService: AssistantsService,
         private readonly widgetKeysService: WidgetKeysService,
+        private readonly telegramService: TelegramService,
     ) {
         this.logger.log(`Creating AriConnection for server: ${pbxServer.id} - ${pbxServer.ari_url}`);
         this.logger.log(`ARI User: ${pbxServer.ari_user}`);
@@ -245,6 +247,19 @@ export class AriConnection {
                 return;
             }
             this.logger.log(`Starting ari connections for: ${assistant.name}_${assistant.id}_${uniqueId}`)
+
+            // Notify admin via Telegram about new widget call
+            if (uniqueId.startsWith('wk_')) {
+                const callerId = event.channel?.caller?.number || 'unknown';
+                const tgMessage = `<b>📞 New Widget Call</b>\n\n` +
+                    `<b>Assistant:</b> ${assistant.name}\n` +
+                    `<b>Caller:</b> ${callerId}\n` +
+                    `<b>Server:</b> ${this.pbxServer.name}\n` +
+                    `<b>Channel:</b> <code>${channelId}</code>`;
+
+                this.telegramService.sendMessage(tgMessage, { parse_mode: 'HTML' })
+                    .catch(err => this.logger.warn(`Failed to send Telegram notification: ${err.message}`));
+            }
             const externalHost = process.env.EXTERNAL_HOST;
             if (!externalHost) {
                 this.logger.warn(`External host is empty!`);
@@ -257,7 +272,9 @@ export class AriConnection {
                 id: channelId,
                 name: event.channel?.name || '',
                 state: event.channel?.state || '',
-                callerId: event.channel?.caller?.number || '',
+                callerId: uniqueId.startsWith('wk_')
+                    ? (event.channel?.caller?.name || event.channel?.caller?.number || '')
+                    : (event.channel?.caller?.number || ''),
                 dialplan: event.channel?.dialplan || '',
                 creationtime: event.channel?.creationtime || new Date().toISOString()
             };

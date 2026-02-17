@@ -7,6 +7,7 @@ import { CreateWidgetKeyDto } from './dto/create-widget-key.dto';
 import { UpdateWidgetKeyDto } from './dto/update-widget-key.dto';
 import { nanoid } from 'nanoid';
 import { AssistantsService } from '../assistants/assistants.service';
+import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
 export class WidgetKeysService {
@@ -18,6 +19,7 @@ export class WidgetKeysService {
         private assistantsService: AssistantsService,
         private pbxServersService: PbxServersService,
         private filesService: FilesService,
+        private jwtService: JwtService,
     ) { }
 
     async create(userId: number, createWidgetKeyDto: CreateWidgetKeyDto): Promise<WidgetKey> {
@@ -61,10 +63,21 @@ export class WidgetKeysService {
             logo: createWidgetKeyDto.logo,
             appearance: createWidgetKeyDto.appearance,
             isActive: true,
+            apiUrl: createWidgetKeyDto.apiUrl,
+            token: createWidgetKeyDto.apiUrl
+                ? this.generateWidgetToken(publicKey, createWidgetKeyDto.apiUrl)
+                : undefined,
         });
 
         this.logger.log(`Created widget key ${publicKey} for user ${userId}`);
         return widgetKey;
+    }
+
+    private generateWidgetToken(publicKey: string, apiUrl: string): string {
+        return this.jwtService.sign(
+            { sub: publicKey, aud: apiUrl },
+            { expiresIn: undefined },
+        );
     }
 
     async findAll(userId?: number): Promise<WidgetKey[]> {
@@ -166,6 +179,12 @@ export class WidgetKeysService {
         }
 
         await widgetKey.update(updateData);
+
+        // Regenerate token if apiUrl changed
+        if (updateData.apiUrl && updateData.apiUrl !== widgetKey.apiUrl) {
+            const token = this.generateWidgetToken(widgetKey.publicKey, updateData.apiUrl);
+            await widgetKey.update({ apiUrl: updateData.apiUrl, token });
+        }
 
         this.logger.log(`Updated widget key ${widgetKey.publicKey}`);
         return widgetKey;

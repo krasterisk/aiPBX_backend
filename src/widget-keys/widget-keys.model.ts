@@ -17,6 +17,8 @@ interface WidgetKeyCreationAttrs {
     language?: string;
     logo?: string;
     appearance?: string;
+    apiUrl?: string;
+    token?: string;
 }
 
 @Table({ tableName: "widget_keys" })
@@ -77,6 +79,14 @@ export class WidgetKey extends Model<WidgetKey, WidgetKeyCreationAttrs> {
     })
     @Column({ type: DataType.TEXT, allowNull: true })
     appearance: string;
+
+    @ApiProperty({ example: 'https://api.example.com/api', description: "API URL for widget token" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    apiUrl: string;
+
+    @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiJ9...', description: "JWT token for widget embed" })
+    @Column({ type: DataType.TEXT, allowNull: true })
+    token: string;
 
     @BelongsTo(() => User, { onDelete: 'CASCADE' })
     user: User;

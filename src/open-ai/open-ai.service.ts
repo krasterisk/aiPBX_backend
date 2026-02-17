@@ -281,7 +281,7 @@ export class OpenAiService implements OnModuleInit {
         if (serverEvent.type === "session.created") {
             const source = channelId.startsWith('playground-')
                 ? 'playground'
-                : channelId.startsWith('widget_')
+                : (channelId.startsWith('widget_') || callerId.startsWith('wk_'))
                     ? 'widget'
                     : 'call';
             await this.cdrCreateLog(channelId, callerId, assistant, source)

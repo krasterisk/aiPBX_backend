@@ -137,6 +137,7 @@ export class WidgetKeysService {
             include: [
                 {
                     association: 'assistant',
+                    include: [{ all: true }],
                 },
                 {
                     association: 'user',

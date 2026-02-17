@@ -137,7 +137,7 @@ export class PlaygroundService implements OnModuleInit {
 
             // ✅ Manual CDR Creation to ensure record exists
             this.logger.log(`[Init] Creating CDR record manually for ${channelId}`);
-            await this.openAiService.cdrCreateLog(channelId, 'Playground', playgroundAssistant);
+            await this.openAiService.cdrCreateLog(channelId, 'Playground', playgroundAssistant, 'playground');
 
         } catch (e) {
             this.logger.error(`Error initializing playground: ${e.message}`, e.stack);
@@ -182,7 +182,8 @@ export class PlaygroundService implements OnModuleInit {
                 event,
                 session.channelId,
                 'Playground',
-                session.assistant
+                session.assistant,
+                'playground'
             );
         };
 
@@ -245,7 +246,8 @@ export class PlaygroundService implements OnModuleInit {
                 { type: 'call.hangup' },
                 session.channelId,
                 'Playground',
-                session.assistant
+                session.assistant,
+                'playground'
             );
             this.logger.log(`CDR Hangup processed for ${session.channelId}`);
         } catch (e) {

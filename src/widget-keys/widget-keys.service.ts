@@ -76,7 +76,7 @@ export class WidgetKeysService {
     private generateWidgetToken(publicKey: string, apiUrl: string): string {
         return this.jwtService.sign(
             { sub: publicKey, aud: apiUrl },
-            { expiresIn: undefined },
+            { expiresIn: '36500d' },
         );
     }
 

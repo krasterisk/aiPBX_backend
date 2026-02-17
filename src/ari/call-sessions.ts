@@ -83,7 +83,8 @@ export class CallSession {
             event,
             this.channel.id,
             this.channel.callerId || '',
-            this.assistant
+            this.assistant,
+            this.channel.source
         );
         this.openAiService.eventEmitter.on(`openai.${this.channel.id}`, this.openAiEventHandler);
 

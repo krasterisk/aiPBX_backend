@@ -16,7 +16,8 @@ export interface ChannelData {
     state: string,
     callerId: string,
     dialplan: string,
-    creationtime: string
+    creationtime: string,
+    source?: string
 };
 
 
@@ -268,15 +269,17 @@ export class AriConnection {
             }
 
             // Получаем полные данные канала из события
+            const isWidget = uniqueId.startsWith('wk_');
             const channelData: ChannelData = {
                 id: channelId,
                 name: event.channel?.name || '',
                 state: event.channel?.state || '',
-                callerId: uniqueId.startsWith('wk_')
+                callerId: isWidget
                     ? (event.channel?.caller?.name || event.channel?.caller?.number || '')
                     : (event.channel?.caller?.number || ''),
                 dialplan: event.channel?.dialplan || '',
-                creationtime: event.channel?.creationtime || new Date().toISOString()
+                creationtime: event.channel?.creationtime || new Date().toISOString(),
+                source: isWidget ? 'widget' : 'call'
             };
 
             this.logger.log(`Starting new call session for channel ${channelId}`);

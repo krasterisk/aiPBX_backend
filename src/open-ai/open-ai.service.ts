@@ -267,7 +267,7 @@ export class OpenAiService implements OnModuleInit {
         }
     }
 
-    public async dataDecode(e, channelId: string, callerId: string, assistant: Assistant) {
+    public async dataDecode(e, channelId: string, callerId: string, assistant: Assistant, source?: string) {
 
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
         const currentSession = this.sessions.get(channelId)
@@ -279,13 +279,10 @@ export class OpenAiService implements OnModuleInit {
         }
 
         if (serverEvent.type === "session.created") {
-            const source = channelId.startsWith('playground-')
-                ? 'playground'
-                : (channelId.startsWith('widget_') || callerId.startsWith('wk_'))
-                    ? 'widget'
-                    : 'call';
-            await this.cdrCreateLog(channelId, callerId, assistant, source)
-            this.logger.log(`CDR created ${channelId} (source: ${source})`)
+            const resolvedSource = source
+                || (channelId.startsWith('playground-') ? 'playground' : 'call');
+            await this.cdrCreateLog(channelId, callerId, assistant, resolvedSource)
+            this.logger.log(`CDR created ${channelId} (source: ${resolvedSource})`)
         }
 
         if (serverEvent.type === "input_audio_buffer.speech_started") {

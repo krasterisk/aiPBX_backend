@@ -1,4 +1,4 @@
-import {Injectable, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import * as vosk from 'vosk-koffi';
 
 interface recText {
@@ -16,7 +16,7 @@ export class VoskServerService implements OnModuleInit, OnModuleDestroy {
     onModuleInit(): void {
         this.model = new vosk.Model('dist/vosk-model');
         this.speakerModel = new vosk.SpeakerModel('dist/vosk-model');
-        this.recognizer = new vosk.Recognizer<any>({model: this.model, sampleRate: 16000});
+        this.recognizer = new vosk.Recognizer<any>({ model: this.model, sampleRate: 16000 });
     }
 
     async audioAppend(chunk: Buffer) {
@@ -29,10 +29,10 @@ export class VoskServerService implements OnModuleInit, OnModuleDestroy {
                 return text.text
                 //console.log(JSON.stringify(this.recognizer.finalResult(), null, 4));
             } else {
-  //              console.log(JSON.stringify(this.recognizer.partialResult(), null, 4));
+                //              console.log(JSON.stringify(this.recognizer.partialResult(), null, 4));
             }
             this.buffer = Buffer.alloc(0)
-//            console.log(JSON.stringify(this.recognizer.finalResult(), null, 4));
+            //            console.log(JSON.stringify(this.recognizer.finalResult(), null, 4));
         }
     }
 

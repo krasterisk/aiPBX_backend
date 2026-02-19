@@ -52,6 +52,27 @@ export class McpClientController {
         return process.env.API_URL || 'https://aipbx.net';
     }
 
+    /**
+     * Send an HTML page that posts a message to the opener window and closes the popup.
+     * Used for OAuth callback flows opened via window.open().
+     */
+    private sendPopupResult(res: Response, data: Record<string, any>) {
+        const payload = JSON.stringify({ type: 'composio_callback', ...data });
+        const html = `<!DOCTYPE html>
+<html><head><title>Connecting...</title></head>
+<body>
+<p>Connection complete. This window will close automatically.</p>
+<script>
+  if (window.opener) {
+    window.opener.postMessage(${payload}, '*');
+  }
+  window.close();
+</script>
+</body></html>`;
+        res.setHeader('Content-Type', 'text/html');
+        return res.send(html);
+    }
+
     // ─── Servers ───────────────────────────────────────────────────────
 
     @ApiOperation({ summary: 'Create MCP server' })
@@ -461,13 +482,13 @@ export class McpClientController {
                     // Non-fatal — actions can be discovered later
                 }
 
-                return res.redirect(`${clientUrl}/mcp-servers/${server.id}?composio=success`);
+                return this.sendPopupResult(res, { status: 'success', serverId: server.id, toolkit });
             } catch (error) {
-                return res.redirect(`${clientUrl}/mcp-servers?error=creation_failed`);
+                return this.sendPopupResult(res, { status: 'error', error: 'creation_failed', toolkit });
             }
         }
 
-        return res.redirect(`${clientUrl}/mcp-servers?error=auth_failed`);
+        return this.sendPopupResult(res, { status: 'error', error: 'auth_failed', toolkit });
     }
 
     @ApiOperation({ summary: 'Get Composio connection status for all toolkits' })

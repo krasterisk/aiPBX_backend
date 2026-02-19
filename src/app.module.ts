@@ -8,7 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { FilesModule } from './files/files.module';
 import { ServeStaticModule } from "@nestjs/serve-static";
 import * as path from 'path';
-import { getMysqlConfig } from "./config/mysql.config";
+import { getDatabaseConfig } from "./config/database.config";
 import { AriModule } from "./ari/ari.module";
 import { AssistantsModule } from "./assistants/assistants.module";
 import { EventEmitterModule } from "@nestjs/event-emitter";
@@ -41,7 +41,7 @@ import { McpClientModule } from './mcp-client/mcp-client.module';
             serveRoot: '/static',
         }),
         SequelizeModule.forRootAsync({
-            useFactory: getMysqlConfig
+            useFactory: getDatabaseConfig
         }),
         EventEmitterModule.forRoot(),
         UsersModule,

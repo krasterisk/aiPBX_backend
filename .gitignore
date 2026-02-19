@@ -39,3 +39,4 @@ lerna-debug.log*
 .vercel
 .aider*
 pjsip.sql
+.env.*

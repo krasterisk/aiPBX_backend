@@ -40,6 +40,18 @@ export class McpClientController {
         return Number(req.vpbxUserId || req.tokenUserId);
     }
 
+    /**
+     * Derive the public base URL from the incoming request headers.
+     * Nginx forwards Host and X-Forwarded-Proto, so this works
+     * automatically for any domain (aipbx.net, aipbx.com, etc.).
+     */
+    private getBaseUrl(req: RequestWithUser): string {
+        const proto = (req.headers as any)['x-forwarded-proto'] || 'https';
+        const host = (req.headers as any)['host'];
+        if (host) return `${proto}://${host}`;
+        return process.env.API_URL || 'https://aipbx.net';
+    }
+
     // ─── Servers ───────────────────────────────────────────────────────
 
     @ApiOperation({ summary: 'Create MCP server' })
@@ -227,7 +239,7 @@ export class McpClientController {
         @Req() req: RequestWithUser,
     ) {
         const userId = this.getUserId(req);
-        const backendUrl = process.env.API_URL || 'https://aipbx.com';
+        const backendUrl = this.getBaseUrl(req);
         const callbackUrl = `${backendUrl}/api/mcp/composio/callback?userId=${userId}&toolkit=${body.toolkit}`;
         return this.composioService.initiateConnection(userId, body.toolkit, callbackUrl);
     }
@@ -412,8 +424,9 @@ export class McpClientController {
         @Query('status') status: string,
         @Query('connected_account_id') connectedAccountId: string,
         @Res() res: Response,
+        @Req() req: RequestWithUser,
     ) {
-        const clientUrl = process.env.CLIENT_URL || 'https://aipbx.com';
+        const clientUrl = this.getBaseUrl(req);
 
         if (status === 'success' && connectedAccountId) {
             try {

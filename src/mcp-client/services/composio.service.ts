@@ -8,7 +8,7 @@ export const COMPOSIO_TOOLKITS: Record<string, { slug: string; name: string; aut
     googlecalendar: { slug: 'googlecalendar', name: 'Google Calendar MCP', authType: 'oauth' },
     outlook: { slug: 'outlook', name: 'Outlook MCP', authType: 'oauth' },
     telegram: { slug: 'telegram', name: 'Telegram MCP', authType: 'api_key' },
-    whatsapp: { slug: 'whatsapp', name: 'WhatsApp MCP', authType: 'api_key' },
+    whatsapp: { slug: 'whatsapp', name: 'WhatsApp MCP', authType: 'oauth' },
     slack: { slug: 'slack', name: 'Slack MCP', authType: 'oauth' },
 };
 

@@ -13,6 +13,7 @@ import { AudioService } from "../audio/audio.service";
 import { PbxServers } from "../pbx-servers/pbx-servers.model";
 import { ToolGatewayService } from "../mcp-client/services/tool-gateway.service";
 import { McpToolRegistryService } from "../mcp-client/services/mcp-tool-registry.service";
+import { getModelAdapter, RealtimeModelAdapter } from './realtime-model.adapter';
 
 export interface sessionData {
     channelId?: string
@@ -36,6 +37,8 @@ export interface sessionData {
         calledAt: number;
         result: 'success' | 'error';
     }>;
+    _textBuffer?: string;         // Accumulates text deltas for tool-call detection
+    _suppressAudio?: boolean;     // True when [TOOL_CALL_START] detected — suppresses audio output
 }
 
 @Injectable()
@@ -271,9 +274,12 @@ export class OpenAiService implements OnModuleInit {
 
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
         const currentSession = this.sessions.get(channelId)
+        const adapter = getModelAdapter(assistant?.model);
 
         if (serverEvent.type !== "response.audio.delta" &&
-            serverEvent.type !== "response.audio_transcript.delta"
+            serverEvent.type !== "response.output_audio.delta" &&
+            serverEvent.type !== "response.audio_transcript.delta" &&
+            serverEvent.type !== "response.output_text.delta"
         ) {
             await this.loggingEvents(channelId, callerId, e, assistant)
         }
@@ -296,13 +302,13 @@ export class OpenAiService implements OnModuleInit {
                 }
 
                 // console.log(currentSession.currentResponseId, cancelEvent)
-                if (!assistant?.model?.startsWith('qwen')) {
+                if (!adapter.usesServerVad) {
                     currentSession.openAiConn.send(cancelEvent)
                     this.logger.log(`Canceled OpenAI response ${responseId} for ${channelId}`);
                     this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession)
                     currentSession.currentResponseId = ''
                 } else {
-                    this.logger.log(`[Qwen] Skipping manual cancel (handled by server VAD) for ${channelId}`);
+                    this.logger.log(`[ServerVAD] Skipping manual cancel (handled by server VAD) for ${channelId}`);
                 }
 
 
@@ -314,9 +320,8 @@ export class OpenAiService implements OnModuleInit {
             }
         }
 
-        if (serverEvent.type === "response.audio.delta") {
-            // const currentSession = this.getSessionByField('itemIds', serverEvent.item_id)
-            if (currentSession) {
+        if (serverEvent.type === "response.audio.delta" || serverEvent.type === "response.output_audio.delta") {
+            if (currentSession && !currentSession._suppressAudio) {
                 const delta = serverEvent.delta
                 const deltaBuffer = Buffer.from(delta, 'base64')
 
@@ -326,13 +331,29 @@ export class OpenAiService implements OnModuleInit {
                     port: Number(currentSession.port)
                 }
 
-                if (assistant?.model?.startsWith('qwen') && !currentSession.channelId.startsWith('playground-')) {
-                    const pcm16_8k = this.audioService.resampleLinear(deltaBuffer, 24000, 8000);
+                if (adapter.needsPcmToAlaw && !currentSession.channelId.startsWith('playground-')) {
+                    const pcm16_8k = this.audioService.resampleLinear(deltaBuffer, adapter.outputResampleRate, 8000);
                     const outputBuffer = this.audioService.pcm16ToAlaw(pcm16_8k);
                     this.eventEmitter.emit(`audioDelta.${currentSession.channelId}`, outputBuffer, urlData)
                 } else {
                     this.eventEmitter.emit(`audioDelta.${currentSession.channelId}`, deltaBuffer, urlData)
                 }
+            }
+        }
+
+        // Accumulate text deltas; detect [TOOL_CALL_START] early to suppress audio
+        if (serverEvent.type === "response.output_text.delta" && currentSession) {
+            currentSession._textBuffer = (currentSession._textBuffer || '') + (serverEvent.delta || '');
+
+            if (!currentSession._suppressAudio && currentSession._textBuffer.includes('[TOOL_CALL_START]')) {
+                currentSession._suppressAudio = true;
+                this.logger.log(`[${adapter.vendor}] Detected [TOOL_CALL_START] in text delta — suppressing audio and cancelling response`);
+
+                // Cancel the current response to stop further audio generation
+                currentSession.openAiConn?.send({ type: 'response.cancel' });
+
+                // Interrupt any buffered audio playback
+                this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession);
             }
         }
 
@@ -348,6 +369,25 @@ export class OpenAiService implements OnModuleInit {
         if (serverEvent.type === "response.created") {
             this.updateSession(serverEvent, channelId)
             console.log(serverEvent)
+
+            // Reset text buffer & audio suppression for the new response
+            if (currentSession) {
+                currentSession._textBuffer = '';
+                currentSession._suppressAudio = false;
+            }
+        }
+
+        // Intercept text-based tool calls (e.g. Yandex [TOOL_CALL_START])
+        // Works for both response.output_text.done (normal) and response.done (cancelled)
+        if (serverEvent.type === 'response.output_text.done') {
+            await adapter.handleTextToolCalls(serverEvent, currentSession, assistant, this.toolGateway);
+        }
+        if (serverEvent.type === 'response.done' && currentSession?._suppressAudio && currentSession?._textBuffer) {
+            // Response was cancelled after [TOOL_CALL_START] detection — execute tools from buffer
+            const syntheticEvent = { type: 'response.output_text.done', text: currentSession._textBuffer };
+            await adapter.handleTextToolCalls(syntheticEvent, currentSession, assistant, this.toolGateway);
+            currentSession._textBuffer = '';
+            currentSession._suppressAudio = false;
         }
 
         if (serverEvent.type === "response.done") {
@@ -356,42 +396,45 @@ export class OpenAiService implements OnModuleInit {
                 await this.billingService.accumulateRealtimeTokens(channelId, usage);
             }
 
-            const output = serverEvent?.response?.output;
+            // Skip function_call processing if adapter handles it elsewhere (e.g. Yandex uses response.output_item.done)
+            if (!adapter.skipFunctionCallsInResponseDone) {
+                const output = serverEvent?.response?.output;
 
-            if (Array.isArray(output)) {
-                for (const item of output) {
-                    if (item.type === "function_call") {
-                        try {
-                            const { output: toolOutput, sendResponse } = await this.toolGateway.execute(
-                                item,
-                                currentSession,
-                                assistant,
-                            );
+                if (Array.isArray(output)) {
+                    for (const item of output) {
+                        if (item.type === "function_call") {
+                            try {
+                                const { output: toolOutput, sendResponse } = await this.toolGateway.execute(
+                                    item,
+                                    currentSession,
+                                    assistant,
+                                );
 
-                            if (sendResponse && toolOutput) {
-                                this.logger.log("RESULT:", toolOutput);
+                                if (sendResponse && toolOutput) {
+                                    this.logger.log("RESULT:", toolOutput);
 
-                                const functionEvent = {
-                                    type: "conversation.item.create",
-                                    item: {
-                                        type: "function_call_output",
-                                        call_id: item.call_id,
-                                        output: toolOutput,
-                                    },
-                                };
+                                    const functionEvent = {
+                                        type: "conversation.item.create",
+                                        item: {
+                                            type: "function_call_output",
+                                            call_id: item.call_id,
+                                            output: toolOutput,
+                                        },
+                                    };
 
-                                currentSession.openAiConn.send(functionEvent);
+                                    currentSession.openAiConn.send(functionEvent);
 
-                                const metadata: sessionData = {
-                                    channelId: currentSession.channelId,
-                                    address: currentSession.address,
-                                    port: currentSession.port,
-                                };
+                                    const metadata: sessionData = {
+                                        channelId: currentSession.channelId,
+                                        address: currentSession.address,
+                                        port: currentSession.port,
+                                    };
 
-                                this.rtAudioOutBandResponseCreate(metadata, currentSession);
+                                    this.rtAudioOutBandResponseCreate(metadata, currentSession);
+                                }
+                            } catch (error) {
+                                this.logger.error(`Tool ${item.name} execution error:`, error.message);
                             }
-                        } catch (error) {
-                            this.logger.error(`Tool ${item.name} execution error:`, error.message);
                         }
                     }
                 }
@@ -405,8 +448,7 @@ export class OpenAiService implements OnModuleInit {
 
         if (serverEvent.type === "input_audio_buffer.committed") {
             this.updateSession(serverEvent, channelId)
-            // const currentSession = this.getSessionByField('itemIds', serverEvent.previous_item_id)
-            if (currentSession && !assistant?.model?.startsWith('qwen')) { // Skip for Qwen
+            if (currentSession && !adapter.usesServerVad) {
                 const metadata: sessionData = {
                     channelId: currentSession.channelId,
                     address: currentSession.address,
@@ -420,6 +462,9 @@ export class OpenAiService implements OnModuleInit {
             // console.log(JSON.stringify(serverEvent))
             this.updateSession(serverEvent, channelId)
         }
+
+        // Delegate vendor-specific function_call handling (e.g. Yandex uses response.output_item.done)
+        await adapter.handleFunctionCall(serverEvent, currentSession, assistant, this.toolGateway);
 
         if (serverEvent.type === "response.output_item.added") {
             this.updateSession(serverEvent, channelId)
@@ -483,7 +528,17 @@ export class OpenAiService implements OnModuleInit {
                     type: 'function',
                     name: 'hangup_call',
                     description: 'End the current call. Use this function when the conversation is clearly finished, the user has said goodbye, or the user explicitly asks to end the call.',
-                    parameters: { type: 'object', properties: {} }
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            reason: {
+                                type: 'string',
+                                description: 'Brief reason for ending the call, e.g. "user said goodbye"'
+                            }
+                        },
+                        required: ['reason'],
+                        additionalProperties: false
+                    }
                 });
             }
 
@@ -500,7 +555,8 @@ export class OpenAiService implements OnModuleInit {
                                 description: 'The phone number or extension to transfer the call to'
                             }
                         },
-                        required: ['exten']
+                        required: ['exten'],
+                        additionalProperties: false
                     }
                 });
             }
@@ -519,36 +575,8 @@ export class OpenAiService implements OnModuleInit {
                 this.logger.warn(`Failed to load MCP tools for assistant ${assistant.id}: ${e.message}`);
             }
 
-            const initAudioSession = {
-                type: 'session.update',
-                session: {
-                    modalities: ['text', 'audio'],
-                    instructions,
-                    voice: assistant.voice,
-                    input_audio_format: assistant.input_audio_format,
-                    output_audio_format: assistant.output_audio_format,
-                    input_audio_transcription: {
-                        model: assistant.input_audio_transcription_model || 'whisper-1',
-                        ...(assistant.input_audio_transcription_language && {
-                            language: assistant.input_audio_transcription_language
-                        })
-                    },
-
-                    turn_detection: {
-                        type: assistant.turn_detection_type,
-                        threshold: Number(assistant.turn_detection_threshold),
-                        prefix_padding_ms: Number(assistant.turn_detection_prefix_padding_ms),
-                        silence_duration_ms: Number(assistant.turn_detection_silence_duration_ms),
-                        create_response: assistant.model.startsWith('qwen'),
-                        interrupt_response: assistant.model.startsWith('qwen'),
-                        idle_timeout_ms: Number(assistant.idle_timeout_ms) || 10000
-                    },
-                    temperature: Number(assistant.temperature),
-                    max_response_output_tokens: assistant.max_response_output_tokens,
-                    tools,
-                    tool_choice: assistant.tool_choice || 'auto'
-                }
-            };
+            const adapter = getModelAdapter(assistant.model);
+            const initAudioSession = adapter.buildSessionUpdate(assistant, tools, instructions);
 
             this.logger.log(`Updating OpenAI session for ${session.channelId}: input=${assistant.input_audio_format}, output=${assistant.output_audio_format}`);
             this.logger.log(`[updateRtAudioSession] Sending session.update event to OpenAI...`);

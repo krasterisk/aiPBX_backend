@@ -52,7 +52,11 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             if (!currentSession) return
 
             if (currentSession && currentSession.init === 'false') {
-                this.logger.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port}`);
+                const model = currentSession?.assistant?.model || 'unknown';
+                const isResample = (model.startsWith('qwen') || model.startsWith('yandex'))
+                    && !currentSession.channelId.startsWith('playground-');
+                const inRate = model.startsWith('yandex') ? '24kHz' : '16kHz';
+                this.logger.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port} | model=${model} | audio=${isResample ? `PCM16 resample (alaw→${inRate})` : 'raw alaw passthrough'}`);
                 currentSession.init = 'true';
 
                 await this.openAi.updateRtAudioSession(currentSession)
@@ -62,10 +66,13 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             try {
                 const audioChunk = this.audioService.removeRTPHeader(msg, false);
 
-                if (currentSession?.assistant?.model?.startsWith('qwen') && !currentSession.channelId.startsWith('playground-')) {
+                if ((currentSession?.assistant?.model?.startsWith('qwen')
+                    || currentSession.assistant.model.startsWith('yandex'))
+                    && !currentSession.channelId.startsWith('playground-')) {
                     const pcm16_8k = this.audioService.alawToPcm16(audioChunk);
-                    const pcm16_16k = this.audioService.resampleLinear(pcm16_8k, 8000, 16000);
-                    this.server.emit('data', pcm16_16k, currentSession.channelId);
+                    const targetRate = currentSession.assistant.model.startsWith('yandex') ? 24000 : 16000;
+                    const pcm16_resampled = this.audioService.resampleLinear(pcm16_8k, 8000, targetRate);
+                    this.server.emit('data', pcm16_resampled, currentSession.channelId);
                 } else {
                     this.server.emit('data', audioChunk, currentSession.channelId);
                 }

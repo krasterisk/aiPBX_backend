@@ -103,7 +103,7 @@ export class PaymentsService {
         try {
             const offset = (page - 1) * limit;
             const payments = await this.paymentsRepository.findAndCountAll({
-                where: { userId },
+                where: { userId: String(userId) },
                 attributes: [
                     'id',
                     'amount',

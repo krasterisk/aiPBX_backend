@@ -584,7 +584,7 @@ export class UsersService {
     async getCandidateByTelegramId(telegramId: number) {
         try {
             const user = await this.usersRepository.findOne({
-                where: { telegramId },
+                where: { telegramId: String(telegramId) },
                 include: { all: true },
                 attributes: {
                     exclude: [

@@ -114,23 +114,3 @@ jobs:
             # ── Cleanup ──
             docker image prune -f
             echo "✅ Backend deployment to ${{ matrix.server }} successful!"
-
-      - name: Notify on failure
-        if: failure()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ job.status }}
-          text: "❌ Backend deploy to ${{ matrix.server }} failed!"
-          fields: repo,message,commit,author
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
-
-      - name: Notify on success
-        if: success()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ job.status }}
-          text: "✅ Backend deploy to ${{ matrix.server }} successful!"
-          fields: repo,message,commit,author
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

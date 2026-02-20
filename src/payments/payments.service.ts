@@ -120,7 +120,8 @@ export class PaymentsService {
             });
             return payments;
         } catch (e) {
-            throw new HttpException('Error fetching payments', HttpStatus.BAD_REQUEST);
+            console.error('[Payments] getUserPayments error:', e.message, e.sql || '');
+            throw new HttpException('Error fetching payments: ' + e.message, HttpStatus.BAD_REQUEST);
         }
     }
 

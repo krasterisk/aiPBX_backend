@@ -23,7 +23,7 @@ on:
 jobs:
   # ─── Step 1: Determine which servers to deploy ──
   prepare:
-    name: 📋 Prepare Deploy Matrix
+    name: Prepare Deploy Matrix
     runs-on: ubuntu-latest
     outputs:
       servers: ${{ steps.set-matrix.outputs.servers }}
@@ -45,25 +45,25 @@ jobs:
           MSG="${{ github.event.head_commit.message }}"
 
           if [[ "$MSG" == *"[skip deploy]"* ]]; then
-            echo "⏭️ Deploy skipped by commit message"
+            echo "Deploy skipped by commit message"
             echo 'servers=[]' >> $GITHUB_OUTPUT
           elif [[ "$MSG" == *"[deploy:1]"* ]]; then
-            echo "🎯 Deploy only to aipbxnet"
+            echo "Deploy only to aipbxnet"
             echo 'servers=["aipbxnet_production"]' >> $GITHUB_OUTPUT
           elif [[ "$MSG" == *"[deploy:2]"* ]]; then
-            echo "🎯 Deploy only to aipbxorg"
+            echo "Deploy only to aipbxorg"
             echo 'servers=["aipbxorg_production"]' >> $GITHUB_OUTPUT
           elif [[ "$MSG" == *"[deploy:3]"* ]]; then
-            echo "🎯 Deploy only to aipbxru"
+            echo "Deploy only to aipbxru"
             echo 'servers=["aipbxru_production"]' >> $GITHUB_OUTPUT
           else
-            echo "🌐 Deploy to all servers"
+            echo "Deploy to all servers"
             echo 'servers=["aipbxnet_production","aipbxorg_production","aipbxru_production"]' >> $GITHUB_OUTPUT
           fi
 
   # ─── Step 2: Deploy backend to servers ───────
   deploy:
-    name: 🚀 Deploy Backend (${{ matrix.server }})
+    name: Deploy Backend (${{ matrix.server }})
     needs: [prepare]
     runs-on: ubuntu-latest
     strategy:
@@ -78,34 +78,33 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script_stop: true
           script: |
             set -e
-            echo "🚀 Starting backend deployment to ${{ matrix.server }}..."
+            echo "Starting backend deployment to ${{ matrix.server }}..."
 
             # ── Pull latest backend code ──
-            echo "📥 Pulling backend..."
+            echo "Pulling backend..."
             cd /app/aiPBX_backend && git pull origin master
 
             cd /app
 
             # ── Rebuild & restart only backend ──
-            echo "🔨 Building and deploying backend..."
+            echo "Building and deploying backend..."
             docker compose -f docker-compose.production.yml --env-file .env.production up -d \
               --build \
               --force-recreate backend \
               --no-deps
 
             # ── Wait for health checks ──
-            echo "⏳ Waiting for backend to start..."
+            echo "Waiting for backend to start..."
             sleep 15
 
             # ── Verify deployment ──
-            echo "🏥 Checking health..."
+            echo "Checking health..."
             if curl -sf --max-time 10 http://localhost/api/health > /dev/null 2>&1; then
-              echo "✅ Health check passed!"
+              echo "Health check passed!"
             else
-              echo "⚠️ Health check failed, checking containers..."
+              echo "Health check failed, checking containers..."
               docker compose -f docker-compose.production.yml ps
               docker compose -f docker-compose.production.yml logs --tail=50 backend
               exit 1
@@ -113,4 +112,4 @@ jobs:
 
             # ── Cleanup ──
             docker image prune -f
-            echo "✅ Backend deployment to ${{ matrix.server }} successful!"
+            echo "Backend deployment to ${{ matrix.server }} successful!"

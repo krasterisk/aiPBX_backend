@@ -8,8 +8,15 @@ import sequelize, { Op } from "sequelize";
 @Injectable()
 export class LoggerService {
     private readonly logger = new Logger(LoggerService.name);
+    private readonly dialect: string;
 
-    constructor(@InjectModel(Logs) private LogsRepository: typeof Logs) { }
+    constructor(@InjectModel(Logs) private LogsRepository: typeof Logs) {
+        this.dialect = this.LogsRepository.sequelize.getDialect();
+    }
+
+    private sqlDate(col: string): string {
+        return this.dialect === 'postgres' ? `${col}::date` : `DATE(${col})`;
+    }
 
     /**
      * Create a log entry directly from DTO
@@ -101,11 +108,11 @@ export class LoggerService {
                 };
             } else if (query.startDate) {
                 whereClause.createdAt = {
-                    [Op.gte]: sequelize.literal(`DATE('${query.startDate}')`),
+                    [Op.gte]: sequelize.literal(this.sqlDate(`'${query.startDate}'`)),
                 };
             } else if (query.endDate) {
                 whereClause.createdAt = {
-                    [Op.lte]: sequelize.literal(`DATE('${query.endDate}')`),
+                    [Op.lte]: sequelize.literal(this.sqlDate(`'${query.endDate}'`)),
                 };
             }
 

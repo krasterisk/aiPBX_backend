@@ -202,7 +202,7 @@ Return ONLY valid JSON without markdown formatting.
 
             // Фильтр по userId
             if (userId) {
-                whereClause.userId = userId;
+                whereClause.userId = String(userId);
             }
 
             // Фильтр по assistantId (поддержка массива)

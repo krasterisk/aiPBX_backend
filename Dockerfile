@@ -25,8 +25,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 # Копируем билд и статику
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/static ./static 2>/dev/null || true
-COPY --from=builder /app/public ./public 2>/dev/null || true
+COPY --from=builder /app/static ./static
+COPY --from=builder /app/public ./public
 # Переменные окружения передаются через docker-compose (env_file),
 # НЕ копируем .production.env в образ!
 ENV NODE_ENV=production

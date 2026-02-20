@@ -62,9 +62,6 @@ async function migrate() {
                 continue;
             }
 
-            const columns = Object.keys(rows[0]);
-            const pgColumns = columns.map(c => `"${c}"`).join(', ');
-
             // Check if table exists in PostgreSQL
             const tableCheck = await pgClient.query(
                 `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)`,
@@ -76,31 +73,43 @@ async function migrate() {
                 continue;
             }
 
+            // Get PostgreSQL columns for this table
+            const pgColsResult = await pgClient.query(
+                `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+                [table]
+            );
+            const pgColNames = new Set(pgColsResult.rows.map(r => r.column_name));
+
+            // Only use columns that exist in BOTH MySQL and PostgreSQL
+            const mysqlColumns = Object.keys(rows[0]);
+            const columns = mysqlColumns.filter(c => pgColNames.has(c));
+            const skippedCols = mysqlColumns.filter(c => !pgColNames.has(c));
+
+            if (skippedCols.length > 0) {
+                console.log(`  ${table}: skipping columns not in PG: ${skippedCols.join(', ')}`);
+            }
+
+            const pgColumns = columns.map(c => `"${c}"`).join(', ');
+
             // Truncate target table first
             await pgClient.query(`TRUNCATE TABLE "${table}" CASCADE`);
 
             // Insert rows in batches
             let inserted = 0;
-            const batchSize = 100;
 
-            for (let i = 0; i < rows.length; i += batchSize) {
-                const batch = rows.slice(i, i + batchSize);
+            for (const row of rows) {
+                const values = columns.map(c => formatValue(row[c]));
+                const placeholders = values.map((_, idx) => `$${idx + 1}`).join(', ');
 
-                for (const row of batch) {
-                    const values = columns.map(c => formatValue(row[c]));
-                    const placeholders = values.map((_, idx) => `$${idx + 1}`).join(', ');
-
-                    try {
-                        await pgClient.query(
-                            `INSERT INTO "${table}" (${pgColumns}) VALUES (${placeholders})`,
-                            values
-                        );
-                        inserted++;
-                    } catch (err) {
-                        // Skip duplicate key errors, log others
-                        if (err.code !== '23505') {
-                            console.error(`    Row error in ${table}: ${err.message}`);
-                        }
+                try {
+                    await pgClient.query(
+                        `INSERT INTO "${table}" (${pgColumns}) VALUES (${placeholders})`,
+                        values
+                    );
+                    inserted++;
+                } catch (err) {
+                    if (err.code !== '23505') {
+                        console.error(`    Row error in ${table}: ${err.message}`);
                     }
                 }
             }

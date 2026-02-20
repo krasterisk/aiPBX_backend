@@ -1,44 +1,40 @@
-# ---------- STAGE 1: Build ----------
+# ============================================
+# Stage 1: Build
+# ============================================
 FROM node:22-slim AS builder
-
-WORKDIR /app/aiPBX_backend
-
-# Копируем только package.json и lock-файл — для кэширования зависимостей
-COPY package*.json ./
-
-# Устанавливаем все зависимости (включая dev для сборки)
-RUN npm install
-
-# Копируем исходный код
+WORKDIR /app
+# Для native-зависимостей (sharp, bcryptjs и т.д.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ && \
+    rm -rf /var/lib/apt/lists/*
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY . .
-
-# Собираем проект NestJS
 RUN npm run build
-
-
-# ---------- STAGE 2: Production ----------
+# ============================================
+# Stage 2: Production
+# ============================================
 FROM node:22-slim AS production
-
-WORKDIR /app/aiPBX_backend
-
-# Устанавливаем только необходимые пакеты для runtime
-RUN npm install -g pm2
-
-# Копируем package.json и lock-файл для установки prod-зависимостей
-COPY package*.json ./
-RUN npm install --omit=dev
-
-# Копируем собранные артефакты из билдера
-COPY --from=builder /app/aiPBX_backend/dist ./dist
-
-# (опционально) — копируем env-файл, если он есть
-COPY .production.env .production.env
-
-# Указываем переменную окружения
+WORKDIR /app
+# Для sharp в рантайме
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libvips-dev && \
+    rm -rf /var/lib/apt/lists/*
+# Production-зависимости
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+# Копируем билд и статику
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/static ./static 2>/dev/null || true
+COPY --from=builder /app/public ./public 2>/dev/null || true
+# Переменные окружения передаются через docker-compose (env_file),
+# НЕ копируем .production.env в образ!
 ENV NODE_ENV=production
-
-# Открываем порт
-EXPOSE 7002
-
-# Запуск через pm2-runtime
-CMD ["pm2-runtime", "dist/main.js"]
+# Non-root пользователь (node уже есть в образе node:22-slim)
+USER node
+# API:5005, UDP:3032 (Asterisk), WS:3033 (Socket.IO)
+EXPOSE 5005 3032/udp 3033
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:5005/api', (r) => { process.exit(r.statusCode < 500 ? 0 : 1) }).on('error', () => process.exit(1))"
+CMD ["node", "dist/main.js"]

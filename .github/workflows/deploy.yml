@@ -1,25 +1,136 @@
-name: Deploy aiPBX backend
+name: Deploy Backend to Production
 
 on:
   push:
-    branches:
-      - master
+    branches: [master]
+    paths-ignore:
+      - "*.md"
+      - ".docs/**"
+  # Ручной запуск с выбором сервера
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Deploy target"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - aipbxnet_production
+          - aipbxorg_production
+          - aipbxru_production
 
 jobs:
-  deploy:
+  # ─── Step 1: Determine which servers to deploy ──
+  prepare:
+    name: 📋 Prepare Deploy Matrix
     runs-on: ubuntu-latest
-
+    outputs:
+      servers: ${{ steps.set-matrix.outputs.servers }}
     steps:
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.9.1
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Deploy to Server
+      - name: Set server matrix
+        id: set-matrix
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
-            cd /var/www/aiPBX_backend
-            git pull
-            # docker compose down
-            # docker compose up --build -d
-          EOF
+          # Ручной запуск — используем выбранный target
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ "${{ github.event.inputs.target }}" == "all" ]]; then
+              echo 'servers=["aipbxnet_production","aipbxorg_production","aipbxru_production"]' >> $GITHUB_OUTPUT
+            else
+              echo 'servers=["${{ github.event.inputs.target }}"]' >> $GITHUB_OUTPUT
+            fi
+            exit 0
+          fi
+
+          # Push — парсим commit message
+          MSG="${{ github.event.head_commit.message }}"
+
+          if [[ "$MSG" == *"[skip deploy]"* ]]; then
+            echo "⏭️ Deploy skipped by commit message"
+            echo 'servers=[]' >> $GITHUB_OUTPUT
+          elif [[ "$MSG" == *"[deploy:1]"* ]]; then
+            echo "🎯 Deploy only to aipbxnet"
+            echo 'servers=["aipbxnet_production"]' >> $GITHUB_OUTPUT
+          elif [[ "$MSG" == *"[deploy:2]"* ]]; then
+            echo "🎯 Deploy only to aipbxorg"
+            echo 'servers=["aipbxorg_production"]' >> $GITHUB_OUTPUT
+          elif [[ "$MSG" == *"[deploy:3]"* ]]; then
+            echo "🎯 Deploy only to aipbxru"
+            echo 'servers=["aipbxru_production"]' >> $GITHUB_OUTPUT
+          else
+            echo "🌐 Deploy to all servers"
+            echo 'servers=["aipbxnet_production","aipbxorg_production","aipbxru_production"]' >> $GITHUB_OUTPUT
+          fi
+
+  # ─── Step 2: Deploy backend to servers ───────
+  deploy:
+    name: 🚀 Deploy Backend (${{ matrix.server }})
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        server: ${{ fromJSON(needs.prepare.outputs.servers) }}
+      fail-fast: false
+    environment: ${{ matrix.server }}
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            echo "🚀 Starting backend deployment to ${{ matrix.server }}..."
+
+            # ── Pull latest backend code ──
+            echo "📥 Pulling backend..."
+            cd /app/aiPBX_backend && git pull origin master
+
+            cd /app
+
+            # ── Rebuild & restart only backend ──
+            echo "🔨 Building and deploying backend..."
+            docker compose -f docker-compose.production.yml --env-file .env.production up -d \
+              --build \
+              --force-recreate backend \
+              --no-deps
+
+            # ── Wait for health checks ──
+            echo "⏳ Waiting for backend to start..."
+            sleep 15
+
+            # ── Verify deployment ──
+            echo "🏥 Checking health..."
+            if curl -sf --max-time 10 http://localhost/api/health > /dev/null 2>&1; then
+              echo "✅ Health check passed!"
+            else
+              echo "⚠️ Health check failed, checking containers..."
+              docker compose -f docker-compose.production.yml ps
+              docker compose -f docker-compose.production.yml logs --tail=50 backend
+              exit 1
+            fi
+
+            # ── Cleanup ──
+            docker image prune -f
+            echo "✅ Backend deployment to ${{ matrix.server }} successful!"
+
+      - name: Notify on failure
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: "❌ Backend deploy to ${{ matrix.server }} failed!"
+          fields: repo,message,commit,author
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+      - name: Notify on success
+        if: success()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: "✅ Backend deploy to ${{ matrix.server }} successful!"
+          fields: repo,message,commit,author
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

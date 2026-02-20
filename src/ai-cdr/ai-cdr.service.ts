@@ -322,13 +322,13 @@ export class AiCdrService {
             // Обработка случая, когда указан только startDate
             else if (startDate) {
                 whereClause.createdAt = {
-                    [sequelize.Op.gte]: sequelize.literal(`DATE('${startDate}')`)
+                    [sequelize.Op.gte]: sequelize.literal(this.sqlDate(`'${startDate}'`))
                 };
             }
             // Обработка случая, когда указан только endDate
             else if (endDate) {
                 whereClause.createdAt = {
-                    [sequelize.Op.lte]: sequelize.literal(`DATE('${endDate}')`)
+                    [sequelize.Op.lte]: sequelize.literal(this.sqlDate(`'${endDate}'`))
                 };
             }
 
@@ -375,9 +375,8 @@ export class AiCdrService {
                 offset,
                 limit,
                 distinct: true,
-                // subQuery: false needed when sorting/searching by JOINed fields,
-                // otherwise Sequelize puts conditions inside a subquery where the JOIN isn't available
-                subQuery: !needsFlatQuery,
+                // subQuery: false needed for PostgreSQL compatibility with distinct + includes
+                subQuery: false,
                 where: whereClause,
                 order: orderClause,
                 include: [

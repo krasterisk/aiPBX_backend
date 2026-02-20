@@ -336,7 +336,7 @@ export class AuthService {
 
     async signupWithTelegram(data: TelegramAuthDto) {
 
-        if (!this.checkTgHash) {
+        if (!this.checkTgHash(data)) {
             this.logger.error('Telegram Authorization Error')
             throw new UnauthorizedException('Invalid Telegram data');
         }
@@ -376,7 +376,7 @@ export class AuthService {
 
     async loginWithTelegram(data: TelegramAuthDto) {
 
-        if (!this.checkTgHash) {
+        if (!this.checkTgHash(data)) {
             this.logger.error('Telegram Authorization Error')
             throw new UnauthorizedException('Invalid Telegram data');
         }

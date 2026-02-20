@@ -102,10 +102,11 @@ jobs:
 
             # ── Verify deployment ──
             echo "Checking health..."
-            if curl -sf --max-time 10 http://localhost/api/health > /dev/null 2>&1; then
+            HEALTH=$(sudo docker inspect --format='{{.State.Health.Status}}' app-backend-1 2>/dev/null || echo "unknown")
+            if [ "$HEALTH" = "healthy" ]; then
               echo "Health check passed!"
             else
-              echo "Health check failed, checking containers..."
+              echo "Health check status: $HEALTH, checking containers..."
               sudo docker compose -f docker-compose.production.yml --env-file .env.production ps
               sudo docker compose -f docker-compose.production.yml --env-file .env.production logs --tail=50 backend
               exit 1

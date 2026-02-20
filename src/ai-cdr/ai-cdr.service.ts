@@ -464,8 +464,8 @@ export class AiCdrService {
             whereAddClause += `AND ${this.q('source')} = '${source}' `;
         }
 
-        const attrPeriodClause = `${dopAttr}, COUNT(*) as allCount, SUM(${this.q('tokens')}) as tokensCount, SUM(${this.q('duration')}) as durationCount, SUM(${this.q('cost')}) as amount`;
-        const attrTotalClause = `COUNT(*) as allCount, SUM(${this.q('tokens')}) as allTokensCount, SUM(${this.q('duration')}) as allDurationCount, SUM(${this.q('cost')}) as allCost`;
+        const attrPeriodClause = `${dopAttr}, COUNT(*) as "allCount", SUM(${this.q('tokens')}) as "tokensCount", SUM(${this.q('duration')}) as "durationCount", SUM(${this.q('cost')}) as "amount"`;
+        const attrTotalClause = `COUNT(*) as "allCount", SUM(${this.q('tokens')}) as "allTokensCount", SUM(${this.q('duration')}) as "allDurationCount", SUM(${this.q('cost')}) as "allCost"`;
 
         const requestPeriod = `SELECT ${attrPeriodClause} FROM ${tbl} ${whereClause} ${whereAddClause} ${groupByClause}`;
         const request = `SELECT ${attrTotalClause} FROM ${tbl} ${whereClause} ${whereAddClause}`;
@@ -480,11 +480,17 @@ export class AiCdrService {
             }) as GetDashboardAllData;
 
             const casksDashboardData: GetDashboardData = {
-                chartData,
-                allCount: totalData[0].allCount ?? 0,
-                allTokensCount: totalData[0].allTokensCount ?? 0,
-                allDurationCount: totalData[0].allDurationCount ?? 0,
-                allCost: totalData[0].allCost ?? 0
+                chartData: chartData.map(d => ({
+                    ...d,
+                    allCount: Number(d.allCount) || 0,
+                    tokensCount: Number(d.tokensCount) || 0,
+                    durationCount: Number(d.durationCount) || 0,
+                    amount: Number(d.amount) || 0,
+                })) as GetDashboardDoneData[],
+                allCount: Number(totalData[0]?.allCount) || 0,
+                allTokensCount: Number(totalData[0]?.allTokensCount) || 0,
+                allDurationCount: Number(totalData[0]?.allDurationCount) || 0,
+                allCost: Number(totalData[0]?.allCost) || 0
             };
 
             return casksDashboardData;

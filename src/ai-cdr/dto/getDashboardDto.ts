@@ -15,9 +15,10 @@ export class GetDashboardAllData {
 
 export class GetDashboardDoneData {
     label?: string
+    allCount?: number
     tokensCount?: number
+    durationCount?: number
     amount?: number
-
 }
 
 

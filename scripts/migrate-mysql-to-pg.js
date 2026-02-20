@@ -50,6 +50,10 @@ async function migrate() {
 
     console.log(`Found ${tableNames.length} tables: ${tableNames.join(', ')}\n`);
 
+    // Disable FK checks for the session
+    await pgClient.query(`SET session_replication_role = 'replica'`);
+    console.log('Foreign key checks disabled.\n');
+
     let totalRows = 0;
 
     for (const table of tableNames) {
@@ -134,7 +138,10 @@ async function migrate() {
         }
     }
 
-    console.log(`\nDone! Total: ${totalRows} rows migrated.`);
+    // Re-enable FK checks
+    await pgClient.query(`SET session_replication_role = 'origin'`);
+    console.log(`\nForeign key checks re-enabled.`);
+    console.log(`Done! Total: ${totalRows} rows migrated.`);
 
     await mysqlConn.end();
     await pgClient.end();

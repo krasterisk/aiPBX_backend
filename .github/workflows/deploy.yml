@@ -94,8 +94,7 @@ jobs:
             echo "Building and deploying backend..."
             sudo docker compose -f docker-compose.production.yml --env-file .env.production up -d \
               --build \
-              --force-recreate backend \
-              --no-deps
+              --force-recreate backend
 
             # ── Wait for health checks ──
             echo "Waiting for backend to start..."
@@ -107,8 +106,8 @@ jobs:
               echo "Health check passed!"
             else
               echo "Health check failed, checking containers..."
-              sudo docker compose -f docker-compose.production.yml ps
-              sudo docker compose -f docker-compose.production.yml logs --tail=50 backend
+              sudo docker compose -f docker-compose.production.yml --env-file .env.production ps
+              sudo docker compose -f docker-compose.production.yml --env-file .env.production logs --tail=50 backend
               exit 1
             fi
 

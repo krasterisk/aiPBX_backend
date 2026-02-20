@@ -85,6 +85,7 @@ jobs:
             # ── Pull latest backend code ──
             echo "Pulling backend..."
             git config --global --add safe.directory /app/aiPBX_backend
+            sudo chown -R $(whoami):$(whoami) /app/aiPBX_backend
             cd /app/aiPBX_backend && git pull origin master
 
             cd /app

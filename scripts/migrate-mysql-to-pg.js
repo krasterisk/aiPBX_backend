@@ -15,6 +15,9 @@ const { Client } = require('pg');
 
 const MYSQL_URL = process.env.MYSQL_URL;
 const PG_URL = process.env.PG_URL;
+// Optional: comma-separated list of tables to migrate
+// e.g. TABLES=users,roles,aiAssistants
+const TABLES_FILTER = process.env.TABLES ? process.env.TABLES.split(',').map(t => t.trim()) : null;
 
 if (!MYSQL_URL || !PG_URL) {
     console.error('Usage: MYSQL_URL=... PG_URL=... node scripts/migrate-mysql-to-pg.js');
@@ -46,9 +49,14 @@ async function migrate() {
     // Get all tables
     const [tables] = await mysqlConn.query('SHOW TABLES');
     const tableKey = Object.keys(tables[0])[0];
-    const tableNames = tables.map(t => t[tableKey]);
+    let tableNames = tables.map(t => t[tableKey]);
 
-    console.log(`Found ${tableNames.length} tables: ${tableNames.join(', ')}\n`);
+    if (TABLES_FILTER) {
+        tableNames = tableNames.filter(t => TABLES_FILTER.includes(t));
+        console.log(`Migrating selected tables: ${tableNames.join(', ')}\n`);
+    } else {
+        console.log(`Found ${tableNames.length} tables: ${tableNames.join(', ')}\n`);
+    }
 
     // Disable FK checks for the session
     await pgClient.query(`SET session_replication_role = 'replica'`);

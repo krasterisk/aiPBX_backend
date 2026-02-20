@@ -313,10 +313,15 @@ export class AuthService {
     private checkTgHash(data: TelegramAuthDto) {
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+        if (!BOT_TOKEN) {
+            this.logger.error('TELEGRAM_BOT_TOKEN is not set');
+            return false;
+        }
+
         // Проверяем подпись
         const checkHash = data.hash;
         const dataCheckString = Object.keys(data)
-            .filter((key) => key !== 'hash')
+            .filter((key) => key !== 'hash' && data[key] !== undefined && data[key] !== null)
             .sort()
             .map((key) => `${key}=${data[key]}`)
             .join('\n');
@@ -328,9 +333,10 @@ export class AuthService {
             .digest('hex');
 
         if (hmac !== checkHash) {
-            return false
+            this.logger.warn(`Telegram hash mismatch. Keys: ${Object.keys(data).filter(k => k !== 'hash' && data[k] !== undefined).sort().join(',')}`);
+            return false;
         }
-        return true
+        return true;
     }
 
 

@@ -32,7 +32,7 @@ export class User extends Model<User, UserCreationAttrs> {
     googleId: string
     @ApiProperty({ example: '123', description: "TelegramId for Telegram auth" })
     @Column({ type: DataType.STRING, unique: true, allowNull: true })
-    telegramId: number
+    telegramId: string
     @ApiProperty({ example: '12345', description: "Password. Required" })
     @Column({ type: DataType.STRING, unique: false, allowNull: true })
     password: string

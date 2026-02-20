@@ -80,7 +80,7 @@ export class BillingService {
             }
 
             const userId = aiCdr.userId;
-            const price = await this.pricesRepository.findOne({ where: { userId } });
+            const price = await this.pricesRepository.findOne({ where: { userId: Number(userId) } });
 
             if (!price) {
                 this.logger.warn(`Price not found for userId: ${userId}, skipping cost calculation`);
@@ -152,7 +152,7 @@ export class BillingService {
             }
 
             const userId = aiCdr.userId;
-            const price = await this.pricesRepository.findOne({ where: { userId } });
+            const price = await this.pricesRepository.findOne({ where: { userId: Number(userId) } });
 
             if (!price) {
                 this.logger.warn(`Price not found for userId: ${userId}, skipping analytics billing`);

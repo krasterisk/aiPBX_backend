@@ -1,49 +1,49 @@
-import {ApiProperty} from "@nestjs/swagger";
-import {IsBoolean, IsEmail, IsNumber, IsString, Length} from "class-validator";
-import {CreateRoleDto} from "../../roles/dto/create-role.dto";
-import {IsNumeric} from "sequelize-typescript";
+import { ApiProperty } from "@nestjs/swagger";
+import { IsBoolean, IsEmail, IsNumber, IsString, Length } from "class-validator";
+import { CreateRoleDto } from "../../roles/dto/create-role.dto";
+import { IsNumeric } from "sequelize-typescript";
 
 export class CreateUserDto {
-    @ApiProperty({example: 'name', description: "Customer name"})
+    @ApiProperty({ example: 'name', description: "Customer name" })
     // @IsString({message: 'Must be a string!'})
     // @Length(3,40, {message: 'The name must contain from 5 to 40 characters.'})
     readonly name?: string
-    @ApiProperty({example: 'Username', description: "Username"})
+    @ApiProperty({ example: 'Username', description: "Username" })
     // @IsString({message: 'Must be a string!'})
     // @Length(3,25, {message: 'The username must contain from 3 to 25 characters.'})
     readonly username?: string
-    @ApiProperty({example: 'user@domain.com', description: "E-mail address"})
-    @IsString({message: 'Must be a string'})
-    @IsEmail({},{message: 'Incorrect email'})
+    @ApiProperty({ example: 'user@domain.com', description: "E-mail address" })
+    @IsString({ message: 'Must be a string' })
+    @IsEmail({}, { message: 'Incorrect email' })
     readonly email?: string
-    @ApiProperty({example: 'avatar.png', description: "User avatar"})
-    @IsString({message: 'Must be a string'})
+    @ApiProperty({ example: 'avatar.png', description: "User avatar" })
+    @IsString({ message: 'Must be a string' })
     readonly avatar?: string
-    @ApiProperty({example: '123', description: "GoogleId for google auth"})
-    @IsString({message: 'Must be a string'})
+    @ApiProperty({ example: '123', description: "GoogleId for google auth" })
+    @IsString({ message: 'Must be a string' })
     readonly googleId?: string
-    @ApiProperty({example: 'google', description: "Authorization type"})
-    @IsString({message: 'Must be a string'})
+    @ApiProperty({ example: 'google', description: "Authorization type" })
+    @IsString({ message: 'Must be a string' })
     readonly authType?: string
-    @ApiProperty({example: '123', description: "TelegramId for telegram auth"})
+    @ApiProperty({ example: '123', description: "TelegramId for telegram auth" })
     @IsNumber()
-    readonly telegramId?: number
-    @ApiProperty({example: 'true', description: "Is Activated user"})
+    readonly telegramId?: string
+    @ApiProperty({ example: 'true', description: "Is Activated user" })
     @IsBoolean()
     readonly isActivated?: boolean
-    @ApiProperty({example: '1234-1234-1234-1234', description: "activation link"})
+    @ApiProperty({ example: '1234-1234-1234-1234', description: "activation link" })
     // @IsString({message: 'Must be a string'})
     readonly activationCode?: string
-    @ApiProperty({example: 'USD', description: "Currency"})
+    @ApiProperty({ example: 'USD', description: "Currency" })
     // @IsString({message: 'Must be a string'})
     readonly currency?: string
-    @ApiProperty({example: '178823233', description: "activation expires timestamp"})
+    @ApiProperty({ example: '178823233', description: "activation expires timestamp" })
     readonly activationExpires?: number
-    @ApiProperty({example: '12345', description: "Password"})
-    @IsString({message: 'Must be a string!'})
-    @Length(8, 50, {message: 'The password must contain from 8 to 50 characters.'})
+    @ApiProperty({ example: '12345', description: "Password" })
+    @IsString({ message: 'Must be a string!' })
+    @Length(8, 50, { message: 'The password must contain from 8 to 50 characters.' })
     readonly password?: string
-    @ApiProperty({example: 'USER', description: "Role"})
+    @ApiProperty({ example: 'USER', description: "Role" })
     // @IsString({message: 'Must be a array of Roles'})
     readonly roles?: CreateRoleDto[]
 }

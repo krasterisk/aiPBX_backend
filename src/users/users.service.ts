@@ -581,7 +581,7 @@ export class UsersService {
         return { message: "User deleted successfully", statusCode: HttpStatus.OK };
     }
 
-    async getCandidateByTelegramId(telegramId: number) {
+    async getCandidateByTelegramId(telegramId: number | string) {
         try {
             const user = await this.usersRepository.findOne({
                 where: { telegramId: String(telegramId) },

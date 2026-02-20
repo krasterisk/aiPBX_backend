@@ -333,7 +333,7 @@ export class AiCdrService {
             }
 
             if (userId !== undefined) {
-                whereClause.userId = userId;
+                whereClause.userId = String(userId);
             }
 
             const assistantIds = Array.isArray(query.assistantId)
@@ -453,7 +453,7 @@ export class AiCdrService {
         }
 
         if (userId) {
-            whereAddClause += `AND ${this.q('userId')} = ${userId} `;
+            whereAddClause += `AND ${this.q('userId')} = '${userId}' `;
         }
 
         if (assistantId) {

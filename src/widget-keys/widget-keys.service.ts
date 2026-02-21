@@ -151,8 +151,8 @@ export class WidgetKeysService {
         });
     }
 
-    async update(id: number, userId: number, updateWidgetKeyDto: UpdateWidgetKeyDto): Promise<WidgetKey> {
-        const widgetKey = await this.findOne(id, userId);
+    async update(id: number, userId: number, updateWidgetKeyDto: UpdateWidgetKeyDto, isAdmin?: boolean): Promise<WidgetKey> {
+        const widgetKey = await this.findOne(id, userId, isAdmin);
 
         const updateData: any = { ...updateWidgetKeyDto };
         if (updateData.allowedDomains) {
@@ -191,8 +191,8 @@ export class WidgetKeysService {
         return widgetKey;
     }
 
-    async remove(id: number, userId: number): Promise<void> {
-        const widgetKey = await this.findOne(id, userId);
+    async remove(id: number, userId: number, isAdmin?: boolean): Promise<void> {
+        const widgetKey = await this.findOne(id, userId, isAdmin);
         await widgetKey.destroy();
         this.logger.log(`Deleted widget key ${widgetKey.publicKey}`);
     }

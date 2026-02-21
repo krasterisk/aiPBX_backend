@@ -360,6 +360,12 @@ export class OpenAiService implements OnModuleInit {
         if (serverEvent.type === "error") {
             if (serverEvent.error?.code === 'response_cancel_not_active') {
                 this.logger.warn(`Cancel ignored (no active response): ${channelId}`)
+            } else if (serverEvent.error?.code === 'session_expired') {
+                // OpenAI forcibly closed the session (60-min limit or server-side expiry).
+                // Trigger hangup so CallSession.cleanup() tears everything down.
+                this.logger.warn(`[session_expired] ${channelId} — triggering hangup to clean up orphaned session`);
+                this.closeConnection(channelId);
+                this.eventEmitter.emit(`HangupCall.${channelId}`);
             } else {
                 this.logger.error(JSON.stringify(serverEvent))
                 await this.loggingEvents(channelId, callerId, e, assistant)

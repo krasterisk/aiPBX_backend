@@ -103,7 +103,10 @@ Field descriptions:
    - success: Overall conversation success
    - summary: Brief summary of the conversation
 
-All text fields (summary, sentiment, escalation_reason, etc.) MUST be in the same language as the conversation.
+IMPORTANT LANGUAGE RULES:
+- "summary" and "escalation_reason" MUST be written in the same language as the conversation (e.g. Russian if the call is in Russian).
+- "sentiment" MUST be one of these exact English values: "Positive", "Neutral", or "Negative" — do NOT translate it.
+- All numeric metric values are language-neutral.
 
 Return ONLY valid JSON without markdown formatting.
             `;

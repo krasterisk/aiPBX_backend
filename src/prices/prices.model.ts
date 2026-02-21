@@ -6,6 +6,7 @@ interface CreatePrice {
     userId: number;
     realtime: number;
     analytic: number;
+    stt?: number;
 }
 
 @Table({ tableName: "prices" })
@@ -19,6 +20,9 @@ export class Prices extends Model<Prices, CreatePrice> {
     @ApiProperty({ example: '123', description: "Analytic Price" })
     @Column({ type: DataType.FLOAT, allowNull: false, defaultValue: 0 })
     analytic: number
+    @ApiProperty({ example: '0.006', description: "STT price per minute of audio" })
+    @Column({ type: DataType.FLOAT, allowNull: false, defaultValue: 0 })
+    stt: number
     @ForeignKey(() => User)
     @Column({ type: DataType.INTEGER, unique: true })
     userId: number

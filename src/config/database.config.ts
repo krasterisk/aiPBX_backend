@@ -159,8 +159,7 @@ export const getDatabaseConfig = async (): Promise<SequelizeModuleOptions> => {
         logging: false,
         // logging: (...msg) => console.log(msg),
         autoLoadModels: true,
-        synchronize: true,
-        // sync: {alter: true}
+        // sync: { alter: true },  // auto-adds new columns; disable in production
 
     }
 }

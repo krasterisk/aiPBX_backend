@@ -120,6 +120,12 @@ export class OpenAiConnection {
     }
 
     send(data: any) {
+        // Don't reconnect if explicitly closed (call ended / session_expired cleanup)
+        if (this.isManualClose) {
+            this.logger.warn(`[Connection] send() called after close() — discarding for ${this.channelId}`);
+            return;
+        }
+
         if (!this.ws || this.ws.readyState === WebSocket.CLOSED || this.ws.readyState === WebSocket.CLOSING) {
             this.logger.warn(`[Connection] WebSocket closed/closing (state: ${this.ws?.readyState}). Reconnecting for ${this.channelId}...`);
             this.connect();

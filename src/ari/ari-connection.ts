@@ -28,6 +28,11 @@ export class AriConnection {
     private webSocket: WebSocket | null = null;
     private stasisBotName: string;
     private externalChannelToParentChannel = new Map<string, string>(); // externalChannelId -> primaryChannelId
+    private pingInterval: ReturnType<typeof setInterval> | null = null;
+    private pongTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    private static readonly PING_INTERVAL_MS = 30_000;  // send ping every 30s
+    private static readonly PONG_TIMEOUT_MS = 10_000;  // expect pong within 10s
 
     constructor(
         private readonly pbxServer: PbxServers,
@@ -94,13 +99,24 @@ export class AriConnection {
             this.webSocket.on('open', () => {
                 this.logger.log(`WebSocket connected bot ${this.stasisBotName} to ${this.pbxServer.name}(${this.pbxServer.location})`);
 
-                // Подписываемся на события для нашего приложения
+                // Subscribe to application events
                 this.webSocket?.send(JSON.stringify({
                     "operation": "subscribe",
                     "app": this.stasisBotName
                 }));
 
+                // Start heartbeat
+                this.startHeartbeat();
+
                 resolve();
+            });
+
+            this.webSocket.on('pong', () => {
+                // Pong received — cancel the dead-connection timeout
+                if (this.pongTimeout) {
+                    clearTimeout(this.pongTimeout);
+                    this.pongTimeout = null;
+                }
             });
 
             this.webSocket.on('message', (data: Buffer) => {
@@ -120,6 +136,8 @@ export class AriConnection {
             this.webSocket.on('close', () => {
                 this.logger.log(`WebSocket disconnected for ${this.pbxServer.name}`);
 
+                this.stopHeartbeat();
+
                 // Clean up old listeners before reconnect
                 if (this.webSocket) {
                     this.webSocket.removeAllListeners();
@@ -136,6 +154,38 @@ export class AriConnection {
                 }, 5000);
             });
         });
+    }
+
+    private startHeartbeat(): void {
+        this.stopHeartbeat(); // clear any existing interval
+
+        this.pingInterval = setInterval(() => {
+            if (!this.webSocket || this.webSocket.readyState !== WebSocket.OPEN) {
+                this.stopHeartbeat();
+                return;
+            }
+
+            // Set a pong timeout — if no pong arrives in time, terminate the socket
+            this.pongTimeout = setTimeout(() => {
+                this.logger.warn(
+                    `[${this.pbxServer.name}] No pong received within ${AriConnection.PONG_TIMEOUT_MS / 1000}s — terminating dead WebSocket`
+                );
+                this.webSocket?.terminate(); // triggers 'close' → auto-reconnect
+            }, AriConnection.PONG_TIMEOUT_MS);
+
+            this.webSocket.ping();
+        }, AriConnection.PING_INTERVAL_MS);
+    }
+
+    private stopHeartbeat(): void {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+        }
+        if (this.pongTimeout) {
+            clearTimeout(this.pongTimeout);
+            this.pongTimeout = null;
+        }
     }
 
     private async handleAriEvent(event: any): Promise<void> {
@@ -385,7 +435,10 @@ export class AriConnection {
     }
 
     async disconnect(): Promise<void> {
-        // Закрываем все активные сессии
+        // Stop heartbeat first
+        this.stopHeartbeat();
+
+        // Close all active sessions
         for (const [channelId, session] of this.sessions) {
             try {
                 await session.cleanup();
@@ -395,10 +448,11 @@ export class AriConnection {
         }
         this.sessions.clear();
 
-        // Закрываем WebSocket
+        // Close WebSocket (set null first to suppress reconnect)
         if (this.webSocket) {
-            this.webSocket.close();
-            this.webSocket = null;
+            const ws = this.webSocket;
+            this.webSocket = null;  // prevents reconnect in 'close' handler
+            ws.close();
         }
 
         this.logger.log(`Disconnected from ARI server: ${this.pbxServer.name}`);

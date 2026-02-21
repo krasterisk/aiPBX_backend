@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { RtpUdpServerService } from '../rtp-udp-server/rtp-udp-server.service';
 import { OpenAiService } from '../open-ai/open-ai.service';
 import { StreamAudioService } from '../audio/streamAudio.service';
@@ -41,6 +42,41 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
         }
 
         this.logger.log(`ARI service initialized with ${this.connections.length} connections`);
+    }
+
+    // ─── Watchdog: runs every 60 seconds ─────────────────────────────
+    @Cron(CronExpression.EVERY_MINUTE)
+    async watchdogCheck() {
+        try {
+            // 1. Check existing connections – reconnect dead ones
+            for (const connection of [...this.connections]) {
+                if (!connection.isOnline()) {
+                    const serverId = connection.getServerId();
+                    this.logger.warn(`[Watchdog] Connection ${serverId} is offline, reconnecting...`);
+                    await this.disconnectFromPbx(serverId);
+
+                    const servers = await this.pbxServers.getAll();
+                    const server = servers?.find(s => s.uniqueId === serverId);
+                    if (server) {
+                        await this.connectToPbx(server);
+                    }
+                }
+            }
+
+            // 2. Find servers in DB that have NO active connection (failed at startup or added later)
+            const allServers = await this.pbxServers.getAll();
+            if (!allServers) return;
+
+            const connectedIds = new Set(this.connections.map(c => c.getServerId()));
+            for (const server of allServers) {
+                if (!connectedIds.has(server.uniqueId)) {
+                    this.logger.log(`[Watchdog] Server ${server.name} (${server.uniqueId}) has no connection, attempting to connect...`);
+                    await this.connectToPbx(server);
+                }
+            }
+        } catch (err) {
+            this.logger.error('[Watchdog] Error during watchdog check:', err?.message || err);
+        }
     }
 
     async connectToPbx(server: PbxServers) {
@@ -114,8 +150,6 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
     getActiveSessionsCount(): number {
         let total = 0;
         for (const connection of this.connections) {
-            // Предполагаем, что у AriConnection есть метод getSessionsCount()
-            // или мы можем получить размер Map сессий
             // total += connection.getSessionsCount();
         }
         return total;

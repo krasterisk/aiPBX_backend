@@ -99,7 +99,7 @@ export class WidgetKeysController {
         @Param('id') id: string,
         @Body() updateWidgetKeyDto: UpdateWidgetKeyDto,
     ): Promise<WidgetKey> {
-        return this.widgetKeysService.update(+id, req.tokenUserId, updateWidgetKeyDto);
+        return this.widgetKeysService.update(+id, req.tokenUserId, updateWidgetKeyDto, req.isAdmin);
     }
 
     @Delete(':id')
@@ -108,7 +108,7 @@ export class WidgetKeysController {
     @ApiResponse({ status: 401, description: 'Unauthorized' })
     @ApiResponse({ status: 404, description: 'Widget key not found' })
     remove(@Request() req, @Param('id') id: string): Promise<void> {
-        return this.widgetKeysService.remove(+id, req.tokenUserId);
+        return this.widgetKeysService.remove(+id, req.tokenUserId, req.isAdmin);
     }
 
     @Get(':id/embed')

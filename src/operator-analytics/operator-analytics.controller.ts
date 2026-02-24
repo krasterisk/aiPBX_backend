@@ -1,5 +1,5 @@
 import {
-    Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, Req,
+    Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, Req, Sse,
     UseGuards, UseInterceptors, UploadedFile, UploadedFiles,
     HttpException, HttpStatus,
 } from '@nestjs/common';
@@ -10,7 +10,9 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles-auth.decorator';
 import { ApiTokenGuard } from './guards/api-token.guard';
 import { AnalyticsSource } from './operator-analytics.model';
-import { CustomMetricDef } from './interfaces/operator-metrics.interface';
+import { CustomMetricDef, MetricDefinition } from './interfaces/operator-metrics.interface';
+import { UpdateSchemaDto, UpdateWebhookDto, GenerateSchemaDto, ProjectChatDto, BulkMoveDto, CreateProjectDto } from './dto/project.dto';
+import { Observable } from 'rxjs';
 
 
 interface RequestWithUser extends Request {
@@ -251,13 +253,52 @@ export class OperatorAnalyticsController {
         return this.service.deleteApiToken(+id, req.tokenUserId);
     }
 
-    // ─── Projects (JWT Auth) ─────────────────────────────────────────
+    // ─── Projects — Static routes FIRST (before :id) ─────────────────
+
+    @Post('projects/chat')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Sse()
+    @ApiOperation({ summary: 'SSE AI interviewer for project setup (Step 1)' })
+    async projectChat(
+        @Req() req: RequestWithUser,
+        @Body() body: ProjectChatDto,
+    ): Promise<Observable<{ data: string }>> {
+        if (!req.tokenUserId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        return this.service.projectChat(body.message, body.history);
+    }
+
+    @Post('projects/generate-schema')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Generate custom metrics schema from chat context' })
+    @ApiResponse({ status: 200, description: 'MetricDefinition[]' })
+    async generateSchema(
+        @Req() req: RequestWithUser,
+        @Body() body: GenerateSchemaDto,
+    ) {
+        if (!req.tokenUserId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        return this.service.generateMetricsSchema(body.messages, body.systemPrompt);
+    }
+
+    @Get('projects/templates')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Get list of project templates' })
+    async getTemplates() {
+        return this.service.getProjectTemplates();
+    }
+
+    // ─── Projects — CRUD ─────────────────────────────────────────────
 
     @Get('projects')
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
-    @ApiOperation({ summary: 'List projects' })
+    @ApiOperation({ summary: 'List projects (with recordCount)' })
     async listProjects(@Req() req: RequestWithUser) {
         return this.service.getProjects(req.tokenUserId, req.isAdmin ?? false);
     }
@@ -266,12 +307,12 @@ export class OperatorAnalyticsController {
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
-    @ApiOperation({ summary: 'Create a project' })
+    @ApiOperation({ summary: 'Create a project (optionally from template)' })
     async createProject(
         @Req() req: RequestWithUser,
-        @Body() body: { name: string; description?: string },
+        @Body() body: CreateProjectDto,
     ) {
-        return this.service.createProject(req.tokenUserId, body.name, body.description);
+        return this.service.createProject(req.tokenUserId, body.name, body.description, body.templateId);
     }
 
     @Post('projects/:id')
@@ -318,7 +359,98 @@ export class OperatorAnalyticsController {
         return this.service.deleteProject(+id, req.tokenUserId);
     }
 
+    // ─── Projects — Schema & Config (must be BEFORE :id catch-all) ───
+
+    @Patch('projects/:id/schema')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Update project schema + increment version' })
+    async updateSchema(
+        @Req() req: RequestWithUser,
+        @Param('id') id: string,
+        @Body() body: UpdateSchemaDto,
+    ) {
+        return this.service.updateProjectSchema(
+            +id,
+            req.tokenUserId,
+            body.customMetricsSchema as MetricDefinition[],
+            body.systemPrompt,
+            body.visibleDefaultMetrics as any,
+        );
+    }
+
+    @Get('projects/:id/dashboard')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Get project-specific dashboard data' })
+    async getProjectDashboard(
+        @Req() req: RequestWithUser,
+        @Param('id') id: string,
+        @Query() query: { startDate?: string; endDate?: string; operatorName?: string },
+    ) {
+        return this.service.getProjectDashboard(
+            +id, req.tokenUserId, req.isAdmin ?? false, query,
+        );
+    }
+
+    @Post('projects/:id/preview')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Preview a metric on a mock call' })
+    async previewMetric(
+        @Req() req: RequestWithUser,
+        @Param('id') id: string,
+        @Body() body: MetricDefinition,
+    ) {
+        return this.service.previewMetric(+id, req.tokenUserId, body);
+    }
+
+    @Get('projects/:id/insights')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Get AI-generated insights for project' })
+    async getInsights(
+        @Req() req: RequestWithUser,
+        @Param('id') id: string,
+        @Query() query: { startDate?: string; endDate?: string },
+    ) {
+        return this.service.getProjectInsights(
+            +id, req.tokenUserId, req.isAdmin ?? false, query,
+        );
+    }
+
+    @Patch('projects/:id/webhook')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Update project webhook URL and events' })
+    async updateWebhook(
+        @Req() req: RequestWithUser,
+        @Param('id') id: string,
+        @Body() body: UpdateWebhookDto,
+    ) {
+        return this.service.updateWebhook(
+            +id, req.tokenUserId, body.webhookUrl, body.webhookEvents as any,
+        );
+    }
+
     // ─── CDR List (JWT Auth) ─────────────────────────────────────────
+
+    @Patch('cdrs/bulk-move')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Bulk move CDRs to another project' })
+    async bulkMoveCdrs(
+        @Req() req: RequestWithUser,
+        @Body() body: BulkMoveDto,
+    ) {
+        return this.service.bulkMoveCdrs(req.tokenUserId, body.ids, body.targetProjectId);
+    }
 
     @Get('cdrs')
     @ApiBearerAuth()
@@ -335,6 +467,9 @@ export class OperatorAnalyticsController {
             projectId?: number;
             page?: number;
             limit?: number;
+            search?: string;
+            sortField?: string;
+            sortOrder?: string;
         },
     ) {
         const isAdmin = req.isAdmin ?? false;

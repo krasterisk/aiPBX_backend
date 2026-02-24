@@ -24,6 +24,9 @@ interface OperatorAnalyticsCreationAttrs {
     llmCost?: number;
     sttCost?: number;
     projectId?: number;
+    recordUrl?: string;
+    schemaVersion?: number;
+    sttProvider?: string;
 }
 
 @Table({ tableName: 'operator_analytics' })
@@ -104,4 +107,16 @@ export class OperatorAnalytics extends Model<OperatorAnalytics, OperatorAnalytic
     @ApiProperty({ description: 'Error message if status=error' })
     @Column({ type: DataType.TEXT, allowNull: true })
     errorMessage: string;
+
+    @ApiProperty({ description: 'URL to the audio recording if provided via API' })
+    @Column({ type: DataType.STRING, allowNull: true })
+    recordUrl: string;
+
+    @ApiProperty({ example: 1, description: 'Schema version used for this analysis' })
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    schemaVersion: number;
+
+    @ApiProperty({ example: 'external', description: 'STT provider used (external / openai)' })
+    @Column({ type: DataType.STRING, allowNull: true })
+    sttProvider: string;
 }

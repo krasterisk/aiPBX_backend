@@ -8,12 +8,18 @@ import { ExternalSttProvider } from './providers/external-stt.provider';
 import { Prices } from '../prices/prices.model';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/users.model';
-import { OperatorMetrics, CustomMetricDef, ITranscriptionProvider, TranscriptionResult } from './interfaces/operator-metrics.interface';
-import { Op } from 'sequelize';
+import {
+    OperatorMetrics, CustomMetricDef, ITranscriptionProvider, TranscriptionResult,
+    MetricDefinition, DefaultMetricKey, ALL_DEFAULT_METRIC_KEYS, WebhookEvent,
+    ProjectTemplate,
+} from './interfaces/operator-metrics.interface';
+import { PROJECT_TEMPLATES } from './project-templates';
+import { Op, Sequelize } from 'sequelize';
 import OpenAI from 'openai';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
+import { Observable, Subject } from 'rxjs';
 
 @Injectable()
 export class OperatorAnalyticsService {
@@ -40,6 +46,21 @@ export class OperatorAnalyticsService {
         this.sttProviders.set('external', this.externalSttProvider);
     }
 
+    // ─── Dialect-aware SQL helpers ───
+    private q(name: string): string {
+        const dialect = this.analyticsRepository.sequelize.getDialect();
+        return dialect === 'postgres' ? `"${name}"` : `\`${name}\``;
+    }
+
+    private sqlJsonExtract(column: string, jsonPath: string, pgPath: string): string {
+        const dialect = this.analyticsRepository.sequelize.getDialect();
+        // Assuming table alias in query is OperatorAnalytics
+        const table = 'OperatorAnalytics';
+        return dialect === 'postgres'
+            ? `(${this.q(table)}.${this.q(column)}::jsonb${pgPath})`
+            : `JSON_EXTRACT(${this.q(table)}.${this.q(column)}, '${jsonPath}')`;
+    }
+
     /**
      * Runs STT with automatic fallback to OpenAI Whisper if the primary provider fails.
      * If STT_API_URL is not set, goes straight to OpenAI.
@@ -49,27 +70,18 @@ export class OperatorAnalyticsService {
         filename: string,
         language: string,
         preferredProvider?: string,
-    ): Promise<TranscriptionResult> {
-        // Determine primary provider
-        const primaryName = preferredProvider || 'external';
-        const primary = this.sttProviders.get(primaryName);
+    ): Promise<TranscriptionResult & { provider: string }> {
+        const providerName = preferredProvider || 'openai';
+        const provider = this.sttProviders.get(providerName);
 
-        if (primary && primaryName !== 'openai') {
-            try {
-                this.logger.log(`[STT] Trying primary provider: ${primaryName}`);
-                const result = await primary.transcribe(buffer, filename, language);
-                this.logger.log(`[STT] Primary provider "${primaryName}" succeeded`);
-                return result;
-            } catch (err) {
-                this.logger.warn(
-                    `[STT] Primary provider "${primaryName}" failed: ${err.message}. Falling back to OpenAI Whisper.`,
-                );
-            }
+        if (!provider) {
+            throw new Error(`STT provider "${providerName}" is not registered`);
         }
 
-        // Fallback to OpenAI Whisper
-        this.logger.log('[STT] Using OpenAI Whisper (fallback)');
-        return this.openAiSttProvider.transcribe(buffer, filename, language);
+        this.logger.log(`[STT] Using provider: ${providerName}`);
+        const result = await provider.transcribe(buffer, filename, language);
+        this.logger.log(`[STT] Provider "${providerName}" succeeded`);
+        return { ...result, provider: providerName };
     }
 
     // ─── Core Analysis Pipeline ──────────────────────────────────────
@@ -86,6 +98,7 @@ export class OperatorAnalyticsService {
             customMetrics?: CustomMetricDef[];
             provider?: string;
             projectId?: number;
+            recordUrl?: string;
         } = {},
     ): Promise<OperatorAnalytics> {
         // 1. Pre-check balance
@@ -101,6 +114,7 @@ export class OperatorAnalyticsService {
             clientPhone: options.clientPhone,
             language: options.language || 'auto',
             projectId: options.projectId || null,
+            recordUrl: options.recordUrl || null,
         });
 
         if (options.customMetrics?.length) {
@@ -108,6 +122,17 @@ export class OperatorAnalyticsService {
         }
 
         try {
+            // Resolve project for context-aware analysis
+            let project: OperatorProject | null = null;
+            if (options.projectId) {
+                project = await this.projectRepository.findByPk(options.projectId);
+            }
+
+            // Set schemaVersion from project
+            if (project?.currentSchemaVersion) {
+                await record.update({ schemaVersion: project.currentSchemaVersion });
+            }
+
             // 3. Transcribe (external first, fallback to OpenAI Whisper)
             const sttResult = await this.transcribeWithFallback(
                 buffer,
@@ -119,12 +144,14 @@ export class OperatorAnalyticsService {
             await record.update({
                 transcription: sttResult.text,
                 duration: sttResult.duration,
+                sttProvider: sttResult.provider,
             });
 
-            // 4. Analyze metrics via LLM
+            // 4. Analyze metrics via LLM (with project context if available)
             const { metrics, customMetricsResult, usage } = await this.analyzeTranscription(
                 sttResult.text,
                 options.customMetrics,
+                project,
             );
 
             // 5. Calculate cost and charge (LLM tokens + STT duration)
@@ -143,6 +170,14 @@ export class OperatorAnalyticsService {
             });
 
             this.logger.log(`Analysis completed for "${filename}" (id=${record.id}), cost=${totalCost} (llm=${llmCost}, stt=${sttCost}), tokens=${totalTokens}`);
+
+            // 7. Call webhook if configured
+            if (project) {
+                this.callWebhook(project, 'analysis.completed', {
+                    recordId: record.id, filename, metrics, customMetrics: customMetricsResult,
+                }).catch(err => this.logger.warn(`Webhook error: ${err.message}`));
+            }
+
             return record.reload();
         } catch (e) {
             this.logger.error(`Analysis failed for "${filename}" (id=${record.id}): ${e.message}`);
@@ -177,7 +212,10 @@ export class OperatorAnalyticsService {
         const buffer = Buffer.from(response.data);
         const filename = this.extractFilenameFromUrl(url);
 
-        return this.analyzeFile(buffer, filename, userId, AnalyticsSource.API, options);
+        return this.analyzeFile(buffer, filename, userId, AnalyticsSource.API, {
+            ...options,
+            recordUrl: url,
+        });
     }
 
     // ─── Background Processing (Batch) ───────────────────────────────
@@ -192,6 +230,7 @@ export class OperatorAnalyticsService {
             language?: string;
             customMetrics?: CustomMetricDef[];
             projectId?: number;
+            recordUrl?: string;
         } = {},
     ): Promise<OperatorAnalytics> {
         return this.analyticsRepository.create({
@@ -204,6 +243,7 @@ export class OperatorAnalyticsService {
             language: options.language || 'auto',
             customMetricsDef: options.customMetrics?.length ? options.customMetrics : null,
             projectId: options.projectId || null,
+            recordUrl: options.recordUrl || null,
         });
     }
 
@@ -214,6 +254,15 @@ export class OperatorAnalyticsService {
 
             await this.checkBalance(record.userId);
 
+            // Resolve project
+            let project: OperatorProject | null = null;
+            if (record.projectId) {
+                project = await this.projectRepository.findByPk(record.projectId);
+                if (project?.currentSchemaVersion) {
+                    await record.update({ schemaVersion: project.currentSchemaVersion });
+                }
+            }
+
             const sttResult = await this.transcribeWithFallback(
                 buffer,
                 record.filename,
@@ -221,11 +270,12 @@ export class OperatorAnalyticsService {
                 provider,
             );
 
-            await record.update({ transcription: sttResult.text, duration: sttResult.duration });
+            await record.update({ transcription: sttResult.text, duration: sttResult.duration, sttProvider: sttResult.provider });
 
             const { metrics, customMetricsResult, usage } = await this.analyzeTranscription(
                 sttResult.text,
                 record.customMetricsDef,
+                project,
             );
 
             const totalTokens = usage?.total_tokens || 0;
@@ -242,11 +292,28 @@ export class OperatorAnalyticsService {
             });
 
             this.logger.log(`Background analysis completed for record #${recordId}`);
+
+            // Webhook
+            if (project) {
+                this.callWebhook(project, 'analysis.completed', {
+                    recordId, filename: record.filename, metrics, customMetrics: customMetricsResult,
+                }).catch(err => this.logger.warn(`Webhook error: ${err.message}`));
+            }
         } catch (e) {
             this.logger.error(`Background analysis failed for record #${recordId}: ${e.message}`);
             const record = await this.analyticsRepository.findByPk(recordId);
             if (record) {
                 await record.update({ status: AnalyticsStatus.ERROR, errorMessage: e.message });
+
+                // Webhook for error
+                if (record.projectId) {
+                    const project = await this.projectRepository.findByPk(record.projectId);
+                    if (project) {
+                        this.callWebhook(project, 'analysis.error', {
+                            recordId, error: e.message,
+                        }).catch(() => { });
+                    }
+                }
             }
         }
     }
@@ -272,6 +339,9 @@ export class OperatorAnalyticsService {
         projectId?: number;
         page?: number;
         limit?: number;
+        search?: string;
+        sortField?: string;
+        sortOrder?: string;
     }, isAdmin: boolean, realUserId: string) {
         const where: any = {};
 
@@ -296,7 +366,7 @@ export class OperatorAnalyticsService {
         }
 
         if (query.operatorName) {
-            where.operatorName = { [Op.iLike]: `%${query.operatorName}%` };
+            where.operatorName = { [Op.iLike || Op.like]: `%${query.operatorName}%` };
         }
 
         if (query.projectId) {
@@ -306,13 +376,50 @@ export class OperatorAnalyticsService {
         // Only completed records
         where.status = AnalyticsStatus.COMPLETED;
 
+        // Search logic
+        if (query.search && query.search.trim() !== '') {
+            const searchStr = `%${query.search.trim()}%`;
+            where[Op.or] = [
+                { operatorName: { [Op.iLike || Op.like]: searchStr } },
+                { clientPhone: { [Op.iLike || Op.like]: searchStr } },
+                { filename: { [Op.iLike || Op.like]: searchStr } },
+                // JSON text search on metrics.summary
+                this.analyticsRepository.sequelize.where(
+                    this.analyticsRepository.sequelize.literal(this.sqlJsonExtract('metrics', '$.summary', "->>'summary'")),
+                    { [Op.iLike || Op.like]: searchStr }
+                )
+            ];
+        }
+
+        // Sorting logic
+        const sortField = query.sortField || 'createdAt';
+        const sortOrder = query.sortOrder || 'DESC';
+
+        let orderClause: any[];
+        const metricFields = [
+            'greeting_quality', 'script_compliance', 'politeness_empathy',
+            'active_listening', 'objection_handling', 'product_knowledge',
+            'problem_resolution', 'speech_clarity_pace', 'closing_quality',
+            'customer_sentiment', 'success'
+        ];
+
+        if (metricFields.includes(sortField)) {
+            // Sort by JSON field
+            orderClause = [
+                [this.analyticsRepository.sequelize.literal(`${this.sqlJsonExtract('metrics', `$.${sortField}`, `->>'${sortField}'`)} ${sortOrder}`)]
+            ];
+        } else {
+            // Regular column sort
+            orderClause = [[sortField, sortOrder]];
+        }
+
         const page = Number(query.page) || 1;
         const limit = Number(query.limit) || 20;
         const offset = (page - 1) * limit;
 
         const { rows: data, count: total } = await this.analyticsRepository.findAndCountAll({
             where,
-            order: [['createdAt', 'DESC']],
+            order: orderClause,
             limit,
             offset,
             attributes: { exclude: ['transcription'] }, // Exclude heavy field from list
@@ -432,23 +539,65 @@ export class OperatorAnalyticsService {
     // ─── Projects ────────────────────────────────────────────────────
 
     async getProjects(userId: string, isAdmin: boolean) {
+        // Ensure default project exists for this user
+        if (!isAdmin) {
+            await this.resolveDefaultProject(userId);
+        }
+
         const where = isAdmin ? {} : { userId };
-        return this.projectRepository.findAll({
+        const projects = await this.projectRepository.findAll({
             where,
             order: [['createdAt', 'DESC']],
         });
+
+        // Enrich with recordCount
+        const projectIds = projects.map(p => p.id);
+        let countMap: Record<number, number> = {};
+        if (projectIds.length) {
+            const counts = await this.analyticsRepository.findAll({
+                attributes: [
+                    'projectId',
+                    [Sequelize.fn('COUNT', Sequelize.col('id')), 'count'],
+                ],
+                where: { projectId: projectIds },
+                group: ['projectId'],
+                raw: true,
+            }) as any[];
+            countMap = Object.fromEntries(counts.map(c => [c.projectId, Number(c.count)]));
+        }
+
+        return projects.map(p => ({
+            ...p.toJSON(),
+            recordCount: countMap[p.id] || 0,
+        }));
     }
 
-    async createProject(userId: string, name: string, description?: string): Promise<OperatorProject> {
+    async createProject(userId: string, name: string, description?: string, templateId?: string): Promise<OperatorProject> {
         if (!name?.trim()) {
             throw new HttpException('Project name is required', HttpStatus.BAD_REQUEST);
         }
-        return this.projectRepository.create({ name: name.trim(), description, userId });
+
+        const createData: any = { name: name.trim(), description, userId };
+
+        // Apply template if provided
+        if (templateId) {
+            const template = PROJECT_TEMPLATES.find(t => t.id === templateId);
+            if (template) {
+                createData.systemPrompt = template.systemPrompt;
+                createData.customMetricsSchema = template.customMetricsSchema;
+                createData.visibleDefaultMetrics = template.visibleDefaultMetrics;
+            }
+        }
+
+        return this.projectRepository.create(createData);
     }
 
     async updateProject(id: number, userId: string, name?: string, description?: string): Promise<OperatorProject> {
         const project = await this.projectRepository.findOne({ where: { id, userId } });
         if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+        if (project.isDefault && name !== undefined) {
+            throw new HttpException('Cannot rename default project', HttpStatus.BAD_REQUEST);
+        }
         if (name !== undefined) project.name = name.trim();
         if (description !== undefined) project.description = description;
         await project.save();
@@ -458,8 +607,418 @@ export class OperatorAnalyticsService {
     async deleteProject(id: number, userId: string) {
         const project = await this.projectRepository.findOne({ where: { id, userId } });
         if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+        if (project.isDefault) {
+            throw new HttpException('Cannot delete default project', HttpStatus.BAD_REQUEST);
+        }
         await project.destroy();
         return { success: true };
+    }
+
+    // ─── Default Project ─────────────────────────────────────────────
+
+    async resolveDefaultProject(userId: string): Promise<OperatorProject> {
+        let defaultProject = await this.projectRepository.findOne({
+            where: { userId, isDefault: true },
+        });
+
+        if (!defaultProject) {
+            defaultProject = await this.projectRepository.create({
+                name: 'Default',
+                description: 'Auto-created default project',
+                userId,
+                isDefault: true,
+            });
+            this.logger.log(`Created default project for user ${userId}`);
+
+            // Migrate orphaned records
+            await this.migrateOrphanedRecords(userId, defaultProject.id);
+        }
+
+        return defaultProject;
+    }
+
+    private async migrateOrphanedRecords(userId: string, defaultProjectId: number): Promise<void> {
+        const [affectedCount] = await this.analyticsRepository.update(
+            { projectId: defaultProjectId },
+            { where: { userId, projectId: null } },
+        );
+        if (affectedCount > 0) {
+            this.logger.log(`Migrated ${affectedCount} orphaned records to default project ${defaultProjectId} for user ${userId}`);
+        }
+    }
+
+    // ─── Templates ───────────────────────────────────────────────────
+
+    getProjectTemplates(): ProjectTemplate[] {
+        return PROJECT_TEMPLATES;
+    }
+
+    // ─── Schema Management ───────────────────────────────────────────
+
+    async generateMetricsSchema(
+        messages: { role: string; content: string }[],
+        systemPrompt?: string,
+    ): Promise<MetricDefinition[]> {
+        const llmMessages: any[] = [
+            {
+                role: 'system',
+                content: `You are a call center analytics expert. Based on the business context provided in the conversation, generate a list of custom metrics for call quality evaluation.
+
+Return a JSON object with a "metrics" array. Each metric must have:
+- "id": snake_case identifier
+- "name": human-readable name (in the same language as the conversation)
+- "type": one of "boolean", "number", "enum", "string"
+- "description": clear instruction for LLM evaluator (in the same language as the conversation, max 200 chars)
+- "enumValues": array of strings (only if type is "enum")
+
+Generate 3-6 metrics most relevant to the described business. Focus on actionable, measurable aspects.
+${systemPrompt ? `\nBusiness context: ${systemPrompt}` : ''}`,
+            },
+            ...messages.map(m => ({ role: m.role, content: m.content })),
+            {
+                role: 'user',
+                content: 'Based on our conversation, generate the custom metrics schema. Return only valid JSON.',
+            },
+        ];
+
+        const completion = await this.openAiClient.chat.completions.create({
+            messages: llmMessages,
+            model: 'gpt-4o',
+            response_format: { type: 'json_object' },
+        });
+
+        const content = completion.choices[0]?.message?.content || '{}';
+        const parsed = JSON.parse(this.sanitizeJsonResponse(content));
+        return parsed.metrics || [];
+    }
+
+    async updateProjectSchema(
+        projectId: number,
+        userId: string,
+        schema: MetricDefinition[],
+        systemPrompt?: string,
+        visibleDefaultMetrics?: DefaultMetricKey[],
+    ): Promise<OperatorProject> {
+        const project = await this.projectRepository.findOne({ where: { id: projectId, userId } });
+        if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+
+        project.customMetricsSchema = schema;
+        project.currentSchemaVersion = (project.currentSchemaVersion || 1) + 1;
+
+        if (systemPrompt !== undefined) {
+            project.systemPrompt = systemPrompt;
+        }
+        if (visibleDefaultMetrics) {
+            project.visibleDefaultMetrics = visibleDefaultMetrics;
+        }
+
+        await project.save();
+        this.logger.log(`Updated schema for project ${projectId} to version ${project.currentSchemaVersion}`);
+        return project;
+    }
+
+    // ─── SSE Chat ────────────────────────────────────────────────────
+
+    projectChat(
+        message: string,
+        history?: { role: string; content: string }[],
+    ): Observable<{ data: string }> {
+        const subject = new Subject<{ data: string }>();
+
+        const messages: any[] = [
+            {
+                role: 'system',
+                content: `You are an AI assistant helping a user set up call analysis metrics for their business. Ask questions to understand:
+1. What industry/business type they have
+2. What kind of calls they handle
+3. What specific quality aspects they want to measure
+4. Any compliance or regulatory requirements
+
+Be conversational, ask one question at a time. Respond in the same language as the user.
+When you have enough context (usually after 2-4 exchanges), suggest that they can now generate metrics.
+Keep responses concise — max 2-3 sentences.`,
+            },
+        ];
+
+        if (history?.length) {
+            messages.push(...history.map(m => ({ role: m.role, content: m.content })));
+        }
+        messages.push({ role: 'user', content: message });
+
+        // Start streaming in background
+        (async () => {
+            try {
+                const stream = await this.openAiClient.chat.completions.create({
+                    messages,
+                    model: 'gpt-4o',
+                    stream: true,
+                });
+
+                for await (const chunk of stream) {
+                    const delta = chunk.choices[0]?.delta?.content;
+                    if (delta) {
+                        subject.next({ data: JSON.stringify({ content: delta }) });
+                    }
+                }
+                subject.next({ data: JSON.stringify({ done: true }) });
+                subject.complete();
+            } catch (err) {
+                subject.next({ data: JSON.stringify({ error: err.message }) });
+                subject.complete();
+            }
+        })();
+
+        return subject.asObservable();
+    }
+
+    // ─── Project Dashboard ───────────────────────────────────────────
+
+    async getProjectDashboard(
+        projectId: number,
+        userId: string,
+        isAdmin: boolean,
+        query: { startDate?: string; endDate?: string; operatorName?: string },
+    ) {
+        const project = await this.projectRepository.findOne({
+            where: isAdmin ? { id: projectId } : { id: projectId, userId },
+        });
+        if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+
+        // Reuse existing getDashboard with forced projectId
+        const dashboard = await this.getDashboard(
+            { ...query, projectId },
+            isAdmin,
+            userId,
+        );
+
+        return {
+            ...dashboard,
+            project: {
+                id: project.id,
+                name: project.name,
+                dashboardConfig: project.dashboardConfig,
+                visibleDefaultMetrics: project.visibleDefaultMetrics,
+                customMetricsSchema: project.customMetricsSchema,
+            },
+        };
+    }
+
+    // ─── Preview Metric ──────────────────────────────────────────────
+
+    async previewMetric(
+        projectId: number,
+        userId: string,
+        metricDef: MetricDefinition,
+    ): Promise<{ metricId: string; result: any; explanation: string }> {
+        const project = await this.projectRepository.findOne({ where: { id: projectId, userId } });
+        if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+
+        const mockTranscription = `Оператор: Добрый день! Компания "Тест", меня зовут Анна, чем могу помочь?
+Клиент: Здравствуйте, я хотел бы узнать о ваших услугах.
+Оператор: Конечно! Расскажите, что именно вас интересует?
+Клиент: Меня интересует подключение нового тарифа.
+Оператор: Отлично, у нас есть несколько вариантов. Давайте подберём оптимальный для ваших нужд.
+Клиент: Хорошо, какие есть варианты?
+Оператор: Есть базовый за 500 рублей и премиум за 1200. Премиум включает дополнительные возможности. Рекомендую попробовать премиум — многие клиенты довольны.
+Клиент: Спасибо, я подумаю.
+Оператор: Конечно! Я могу перезвонить вам завтра, чтобы уточнить решение. Хорошего дня!`;
+
+        const prompt = `Analyze this call transcription and evaluate ONLY this specific metric:
+
+Metric: "${metricDef.name}" (id: ${metricDef.id})
+Type: ${metricDef.type}
+Description: ${metricDef.description}
+${metricDef.enumValues ? `Possible values: ${metricDef.enumValues.join(', ')}` : ''}
+${project.systemPrompt ? `Business context: ${project.systemPrompt}` : ''}
+
+TRANSCRIPTION:
+${mockTranscription}
+
+Return JSON: { "result": <value>, "explanation": "<brief explanation in the conversation language>" }`;
+
+        const completion = await this.openAiClient.chat.completions.create({
+            messages: [
+                { role: 'system', content: 'You are a call center quality analysis system. Respond only in JSON format.' },
+                { role: 'user', content: prompt },
+            ],
+            model: 'gpt-4o',
+            response_format: { type: 'json_object' },
+        });
+
+        const content = completion.choices[0]?.message?.content || '{}';
+        const parsed = JSON.parse(this.sanitizeJsonResponse(content));
+
+        return {
+            metricId: metricDef.id,
+            result: parsed.result,
+            explanation: parsed.explanation || '',
+        };
+    }
+
+    // ─── AI Insights ─────────────────────────────────────────────────
+
+    private insightsCache: Map<string, { data: any; expiry: number }> = new Map();
+    private readonly INSIGHTS_TTL = 60 * 60 * 1000; // 1 hour
+
+    async getProjectInsights(
+        projectId: number,
+        userId: string,
+        isAdmin: boolean,
+        query: { startDate?: string; endDate?: string },
+    ): Promise<{ insights: string[]; generatedAt: string }> {
+        const cacheKey = `${projectId}:${query.startDate || ''}:${query.endDate || ''}`;
+        const cached = this.insightsCache.get(cacheKey);
+        if (cached && Date.now() < cached.expiry) {
+            return cached.data;
+        }
+
+        const project = await this.projectRepository.findOne({
+            where: isAdmin ? { id: projectId } : { id: projectId, userId },
+        });
+        if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+
+        const dashboard = await this.getDashboard(
+            { ...query, projectId },
+            isAdmin,
+            userId,
+        );
+
+        if (dashboard.totalAnalyzed === 0) {
+            return { insights: [], generatedAt: new Date().toISOString() };
+        }
+
+        const prompt = `You are a call center analytics expert. Based on the following aggregated data, generate 3-5 actionable insights.
+
+Project: ${project.name}
+${project.systemPrompt ? `Business context: ${project.systemPrompt}` : ''}
+Period: ${query.startDate || 'all time'} — ${query.endDate || 'now'}
+
+Data:
+- Total calls analyzed: ${dashboard.totalAnalyzed}
+- Average score: ${dashboard.averageScore}
+- Success rate: ${dashboard.successRate}%
+- Sentiment: ${JSON.stringify(dashboard.sentimentDistribution)}
+- Metrics breakdown: ${JSON.stringify(dashboard.aggregatedMetrics)}
+
+Return JSON: { "insights": ["insight1", "insight2", ...] }
+Write insights in Russian. Be specific and actionable.`;
+
+        const completion = await this.openAiClient.chat.completions.create({
+            messages: [
+                { role: 'system', content: 'You are a call center analytics AI. Respond only in JSON.' },
+                { role: 'user', content: prompt },
+            ],
+            model: 'gpt-4o',
+            response_format: { type: 'json_object' },
+        });
+
+        const content = completion.choices[0]?.message?.content || '{}';
+        const parsed = JSON.parse(this.sanitizeJsonResponse(content));
+
+        const result = {
+            insights: parsed.insights || [],
+            generatedAt: new Date().toISOString(),
+        };
+
+        this.insightsCache.set(cacheKey, { data: result, expiry: Date.now() + this.INSIGHTS_TTL });
+        return result;
+    }
+
+    // ─── Webhook Management ──────────────────────────────────────────
+
+    async updateWebhook(
+        projectId: number,
+        userId: string,
+        webhookUrl?: string,
+        webhookEvents?: WebhookEvent[],
+    ): Promise<OperatorProject> {
+        const project = await this.projectRepository.findOne({ where: { id: projectId, userId } });
+        if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+
+        if (webhookUrl !== undefined) project.webhookUrl = webhookUrl;
+        if (webhookEvents !== undefined) project.webhookEvents = webhookEvents;
+
+        await project.save();
+        return project;
+    }
+
+    async callWebhook(
+        project: OperatorProject,
+        event: WebhookEvent,
+        payload: any,
+    ): Promise<void> {
+        if (!project.webhookUrl || !project.webhookEvents?.includes(event)) {
+            return;
+        }
+
+        const body = {
+            event,
+            projectId: project.id,
+            timestamp: new Date().toISOString(),
+            data: payload,
+        };
+
+        const maxRetries = 3;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                await axios.post(project.webhookUrl, body, {
+                    timeout: 10_000,
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                this.logger.log(`Webhook delivered: ${event} → ${project.webhookUrl}`);
+                return;
+            } catch (err) {
+                this.logger.warn(`Webhook attempt ${attempt}/${maxRetries} failed for ${project.webhookUrl}: ${err.message}`);
+                if (attempt < maxRetries) {
+                    await new Promise(r => setTimeout(r, attempt * 1000));
+                }
+            }
+        }
+        this.logger.error(`Webhook delivery failed after ${maxRetries} retries: ${project.webhookUrl}`);
+    }
+
+    // ─── Bulk Move CDRs ──────────────────────────────────────────────
+
+    async bulkMoveCdrs(
+        userId: string,
+        ids: number[],
+        targetProjectId: number,
+    ): Promise<{ moved: number; skipped: number }> {
+        const targetProject = await this.projectRepository.findOne({
+            where: { id: targetProjectId, userId },
+        });
+        if (!targetProject) throw new HttpException('Target project not found', HttpStatus.NOT_FOUND);
+
+        // Find records owned by this user
+        const records = await this.analyticsRepository.findAll({
+            where: { id: ids, userId },
+        });
+
+        let moved = 0;
+        let skipped = 0;
+
+        for (const record of records) {
+            // Skip records with custom metrics if target has a different schema
+            if (
+                record.customMetrics &&
+                Object.keys(record.customMetrics).length > 0 &&
+                targetProject.customMetricsSchema?.length > 0
+            ) {
+                // Check basic compatibility — custom metric keys should match
+                const recordKeys = Object.keys(record.customMetrics);
+                const schemaKeys = targetProject.customMetricsSchema.map(m => m.id);
+                const compatible = recordKeys.every(k => schemaKeys.includes(k));
+                if (!compatible) {
+                    skipped++;
+                    continue;
+                }
+            }
+
+            await record.update({ projectId: targetProjectId });
+            moved++;
+        }
+
+        return { moved, skipped };
     }
 
     // ─── API Tokens ──────────────────────────────────────────────────
@@ -577,13 +1136,24 @@ export class OperatorAnalyticsService {
     private async analyzeTranscription(
         transcription: string,
         customMetricsDef?: CustomMetricDef[],
+        project?: OperatorProject,
     ): Promise<{ metrics: OperatorMetrics; customMetricsResult: any; usage: any }> {
 
+        // Build custom metrics block: prefer project schema, fall back to ad-hoc defs
+        const effectiveMetrics: { name: string; id?: string; type: string; description: string; enumValues?: string[] }[] =
+            project?.customMetricsSchema?.length
+                ? project.customMetricsSchema
+                : (customMetricsDef || []).map(m => ({ ...m, id: m.name }));
+
         let customMetricsPromptBlock = '';
-        if (customMetricsDef?.length) {
-            const customDefs = customMetricsDef.map(m =>
-                `  "${m.name}": <${m.type}> — ${m.description}`
-            ).join('\n');
+        if (effectiveMetrics.length) {
+            const customDefs = effectiveMetrics.map(m => {
+                let typeDef = `<${m.type}>`;
+                if (m.type === 'enum' && (m as any).enumValues?.length) {
+                    typeDef = `one of: ${(m as any).enumValues.join(', ')}`;
+                }
+                return `  "${m.id || m.name}": ${typeDef} — ${m.description}`;
+            }).join('\n');
             customMetricsPromptBlock = `
 
 Additionally, analyze these CUSTOM metrics and include them in the "custom_metrics" field:
@@ -592,9 +1162,14 @@ ${customDefs}
 }`;
         }
 
+        // System prompt from project
+        const businessContext = project?.systemPrompt
+            ? `\nBUSINESS CONTEXT: ${project.systemPrompt}\n`
+            : '';
+
         const prompt = `
 You are a senior call center quality assurance analyst. Analyze the following transcription of a call between a LIVE HUMAN OPERATOR and a customer. Generate a JSON report with metrics.
-
+${businessContext}
 TRANSCRIPTION:
 ${transcription}
 
@@ -612,7 +1187,7 @@ Analyze the dialogue and return a JSON object with EXACTLY this structure:
   "closing_quality": <0-100>,
   "customer_sentiment": "<Positive|Neutral|Negative>",
   "summary": "<string>",
-  "success": <boolean>${customMetricsDef?.length ? ',\n  "custom_metrics": { ... }' : ''}
+  "success": <boolean>${effectiveMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}
 }
 
 Metric descriptions:

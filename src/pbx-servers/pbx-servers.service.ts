@@ -264,6 +264,7 @@ export class PbxServersService {
                 records: records || false,
                 tls: tls || false,
                 active: active !== undefined ? active : true,
+                sipTechnology: pbx.sipTechnology || 'pjsip',
                 context: pbx.context || '',
                 moh: pbx.moh || 'default',
                 recordFormat: pbx.recordFormat || 'wav'

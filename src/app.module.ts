@@ -30,6 +30,7 @@ import { AiAnalyticsModule } from "./ai-analytics/ai-analytics.module";
 import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { McpClientModule } from './mcp-client/mcp-client.module';
 import { OperatorAnalyticsModule } from './operator-analytics/operator-analytics.module';
+import { SipTrunksModule } from './sip-trunks/sip-trunks.module';
 
 @Module({
     imports: [
@@ -73,6 +74,7 @@ import { OperatorAnalyticsModule } from './operator-analytics/operator-analytics
         AiAnalyticsModule,
         McpClientModule,
         OperatorAnalyticsModule,
+        SipTrunksModule,
         ThrottlerModule.forRoot([{
             ttl: 60000,
             limit: 30,

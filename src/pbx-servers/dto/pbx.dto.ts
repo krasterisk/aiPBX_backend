@@ -1,4 +1,4 @@
-import { IsString, IsUrl, IsOptional } from "class-validator";
+import { IsString, IsUrl, IsOptional, IsIn } from "class-validator";
 
 export class PbxDto {
     @IsString({ message: 'name: Must be a string' })
@@ -31,4 +31,8 @@ export class PbxDto {
     @IsOptional()
     @IsString()
     readonly recordFormat?: string;
+
+    @IsOptional()
+    @IsIn(['sip', 'pjsip'])
+    readonly sipTechnology?: 'sip' | 'pjsip';
 }

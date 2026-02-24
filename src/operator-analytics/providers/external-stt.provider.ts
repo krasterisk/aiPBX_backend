@@ -2,7 +2,7 @@ import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ITranscriptionProvider, TranscriptionResult } from '../interfaces/operator-metrics.interface';
 import axios from 'axios';
-import * as FormData from 'form-data';
+import FormData = require('form-data');
 
 /**
  * External HTTP STT provider.
@@ -24,7 +24,8 @@ export class ExternalSttProvider implements ITranscriptionProvider {
 
     constructor(private readonly configService: ConfigService) {
         this.apiUrl = this.configService.get<string>('STT_API_URL') || process.env.STT_API_URL;
-        this.apiToken = this.configService.get<string>('STT_API_TOKEN') || process.env.STT_API_TOKEN;
+        this.apiToken = this.configService.get<string>('STT_TOKEN') || process.env.STT_TOKEN
+            || this.configService.get<string>('STT_API_TOKEN') || process.env.STT_API_TOKEN;
 
         if (!this.apiUrl) {
             this.logger.warn('STT_API_URL is not set — external STT provider will fail at runtime');
@@ -59,12 +60,20 @@ export class ExternalSttProvider implements ITranscriptionProvider {
             headers['Authorization'] = `Bearer ${this.apiToken}`;
         }
 
-        const response = await axios.post(this.apiUrl, form, {
-            headers,
-            timeout: 300_000, // 5 min max
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-        });
+        let response;
+        try {
+            response = await axios.post(this.apiUrl, form, {
+                headers,
+                timeout: 300_000, // 5 min max
+                maxContentLength: Infinity,
+                maxBodyLength: Infinity,
+            });
+        } catch (err) {
+            const status = err.response?.status || 502;
+            const body = err.response?.data;
+            const msg = typeof body === 'object' ? (body.error || body.message || JSON.stringify(body)) : (body || err.message);
+            throw new HttpException(`External STT error: ${msg}`, status);
+        }
 
         const data = response.data;
 

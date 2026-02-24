@@ -57,6 +57,10 @@ export class PbxServers extends Model<PbxServers, CreatePbxServer> {
     @Column({ type: DataType.STRING, defaultValue: 'wav' })
     recordFormat: string;
 
+    @ApiProperty({ example: 'pjsip', description: "SIP technology: sip (chan_sip) or pjsip (chan_pjsip)" })
+    @Column({ type: DataType.STRING, allowNull: false, defaultValue: 'pjsip' })
+    sipTechnology: 'sip' | 'pjsip';
+
     @ApiProperty({ example: 'any comment', description: "comment" })
     @Column({ type: DataType.STRING, allowNull: true })
     comment: string;

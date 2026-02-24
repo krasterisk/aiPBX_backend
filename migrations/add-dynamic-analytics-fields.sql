@@ -90,19 +90,34 @@ CREATE TABLE operator_api_tokens (
 CREATE INDEX idx_operator_api_tokens_userId ON operator_api_tokens ("userId");
 CREATE INDEX idx_operator_api_tokens_token ON operator_api_tokens (token);
 
--- ─── SipTrunks: new columns ─────────────────────────────────────────────────
+-- ─── SipTrunks: new columns (skip if table doesn't exist yet) ───────────────
 
-ALTER TABLE "SipTrunks"
-    ADD COLUMN IF NOT EXISTS "trunkType" VARCHAR(20) NOT NULL DEFAULT 'registration',
-    ADD COLUMN IF NOT EXISTS "transport" VARCHAR(10) NOT NULL DEFAULT 'udp',
-    ADD COLUMN IF NOT EXISTS "domain" VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS "callerId" VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS "providerIp" VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS "records" BOOLEAN NOT NULL DEFAULT FALSE;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'SipTrunks') THEN
+        ALTER TABLE "SipTrunks"
+            ADD COLUMN IF NOT EXISTS "trunkType" VARCHAR(20) NOT NULL DEFAULT 'registration',
+            ADD COLUMN IF NOT EXISTS "transport" VARCHAR(10) NOT NULL DEFAULT 'udp',
+            ADD COLUMN IF NOT EXISTS "domain" VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS "callerId" VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS "providerIp" VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS "records" BOOLEAN NOT NULL DEFAULT FALSE;
 
-ALTER TABLE "SipTrunks" DROP COLUMN IF EXISTS "requireAuth";
+        ALTER TABLE "SipTrunks" DROP COLUMN IF EXISTS "requireAuth";
+    END IF;
+END $$;
 
 -- ─── prices: new stt column ─────────────────────────────────────────────────
 
 ALTER TABLE prices
     ADD COLUMN IF NOT EXISTS stt FLOAT NOT NULL DEFAULT 0;
+
+-- ─── PbxServers: new sipTechnology column (skip if table doesn't exist) ─────
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'PbxServers') THEN
+        ALTER TABLE "PbxServers"
+            ADD COLUMN IF NOT EXISTS "sipTechnology" VARCHAR(10) NOT NULL DEFAULT 'pjsip';
+    END IF;
+END $$;

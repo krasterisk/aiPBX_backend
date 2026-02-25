@@ -119,7 +119,7 @@ export class AssistantsService {
             }
 
             // Prepare the where clause
-            let whereClause: any = {
+            const whereClause: any = {
                 [sequelize.Op.or]: [
                     {
                         name: {

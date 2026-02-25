@@ -1,10 +1,10 @@
 import {
-    Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, Req, Sse,
-    UseGuards, UseInterceptors, UploadedFile, UploadedFiles,
+    Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, Sse,
+    UseGuards, UseInterceptors, UploadedFiles,
     HttpException, HttpStatus,
 } from '@nestjs/common';
-import { AnyFilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
-import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
+import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { OperatorAnalyticsService } from './operator-analytics.service';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles-auth.decorator';

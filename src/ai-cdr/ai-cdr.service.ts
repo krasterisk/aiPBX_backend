@@ -307,7 +307,7 @@ export class AiCdrService {
                 });
             }
 
-            let whereClause: any = {
+            const whereClause: any = {
                 [sequelize.Op.or]: searchConditions
             };
 
@@ -350,6 +350,10 @@ export class AiCdrService {
 
             if (query.source) {
                 whereClause.source = query.source;
+            }
+
+            if (query.projectId !== undefined && query.projectId !== '') {
+                whereClause.projectId = Number(query.projectId);
             }
 
             const sortField = query.sortField || 'createdAt';
@@ -412,6 +416,7 @@ export class AiCdrService {
         const endDate = query.endDate || "";
         const tab = query.tab || "";
         const source = query.source || "";
+        const projectId = query.projectId;
 
         const userId = !query.userId && isAdmin ? undefined : Number(query.userId);
 
@@ -433,7 +438,7 @@ export class AiCdrService {
         const tbl = this.q('aiCdr');
         const col = this.q('createdAt');
         const colDate = this.sqlDate(col);
-        let whereClause: string = `WHERE (${colDate} BETWEEN ${this.sqlDate(`'${startDate}'`)} AND ${this.sqlDate(`'${endDate}'`)})`;
+        const whereClause: string = `WHERE (${colDate} BETWEEN ${this.sqlDate(`'${startDate}'`)} AND ${this.sqlDate(`'${endDate}'`)})`;
         let whereAddClause: string = "";
         let groupByClause = "";
         let dopAttr = "";
@@ -462,6 +467,10 @@ export class AiCdrService {
 
         if (source) {
             whereAddClause += `AND ${this.q('source')} = '${source}' `;
+        }
+
+        if (projectId !== undefined && projectId !== "") {
+            whereAddClause += `AND ${this.q('projectId')} = ${Number(projectId)} `;
         }
 
         const attrPeriodClause = `${dopAttr}, COUNT(*) as "allCount", SUM(${this.q('tokens')}) as "tokensCount", SUM(${this.q('duration')}) as "durationCount", SUM(${this.q('cost')}) as "amount"`;

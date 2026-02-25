@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsString, Length } from "class-validator";
+import { IsString } from "class-validator";
 
 export class CreateOrganizationDto {
     @ApiProperty({ example: 'My Corp', description: 'Organization Name' })

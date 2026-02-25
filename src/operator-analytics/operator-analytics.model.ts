@@ -20,12 +20,8 @@ interface OperatorAnalyticsCreationAttrs {
     operatorName?: string;
     clientPhone?: string;
     language?: string;
-    customMetricsDef?: any;
-    llmCost?: number;
-    sttCost?: number;
     projectId?: number;
     recordUrl?: string;
-    schemaVersion?: number;
     sttProvider?: string;
 }
 
@@ -72,37 +68,9 @@ export class OperatorAnalytics extends Model<OperatorAnalytics, OperatorAnalytic
     @Column({ type: DataType.TEXT, allowNull: true })
     transcription: string;
 
-    @ApiProperty({ description: 'Base 10 metrics JSON' })
-    @Column({ type: DataType.JSON, allowNull: true })
-    metrics: any;
-
-    @ApiProperty({ description: 'Custom metrics results' })
-    @Column({ type: DataType.JSON, allowNull: true })
-    customMetrics: any;
-
-    @ApiProperty({ description: 'Custom metric definitions used' })
-    @Column({ type: DataType.JSON, allowNull: true })
-    customMetricsDef: any;
-
     @ApiProperty({ example: 125.5, description: 'Audio duration in seconds' })
     @Column({ type: DataType.FLOAT, allowNull: true })
     duration: number;
-
-    @ApiProperty({ example: 0.05, description: 'Total cost (STT + LLM)' })
-    @Column({ type: DataType.FLOAT, allowNull: true, defaultValue: 0 })
-    cost: number;
-
-    @ApiProperty({ example: 0.03, description: 'LLM (GPT) cost' })
-    @Column({ type: DataType.FLOAT, allowNull: true, defaultValue: 0 })
-    llmCost: number;
-
-    @ApiProperty({ example: 0.02, description: 'STT (transcription) cost' })
-    @Column({ type: DataType.FLOAT, allowNull: true, defaultValue: 0 })
-    sttCost: number;
-
-    @ApiProperty({ example: 1500, description: 'Total tokens consumed' })
-    @Column({ type: DataType.INTEGER, allowNull: true, defaultValue: 0 })
-    tokens: number;
 
     @ApiProperty({ description: 'Error message if status=error' })
     @Column({ type: DataType.TEXT, allowNull: true })
@@ -111,10 +79,6 @@ export class OperatorAnalytics extends Model<OperatorAnalytics, OperatorAnalytic
     @ApiProperty({ description: 'URL to the audio recording if provided via API' })
     @Column({ type: DataType.STRING, allowNull: true })
     recordUrl: string;
-
-    @ApiProperty({ example: 1, description: 'Schema version used for this analysis' })
-    @Column({ type: DataType.INTEGER, allowNull: true })
-    schemaVersion: number;
 
     @ApiProperty({ example: 'external', description: 'STT provider used (external / openai)' })
     @Column({ type: DataType.STRING, allowNull: true })

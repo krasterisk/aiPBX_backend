@@ -1,4 +1,4 @@
-import { IsString, IsIP, IsOptional, IsNotEmpty, IsBoolean } from 'class-validator';
+import { IsIP, IsOptional, IsNotEmpty, IsBoolean } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class SipAccountDto {

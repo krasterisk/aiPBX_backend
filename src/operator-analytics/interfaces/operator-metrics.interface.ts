@@ -13,6 +13,7 @@ export interface OperatorMetrics {
     speech_clarity_pace: number;    // 0-100
     closing_quality: number;        // 0-100
     customer_sentiment: string;     // "Positive" | "Neutral" | "Negative"
+    csat?: number;
     summary: string;
     success: boolean;
 }

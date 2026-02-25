@@ -89,6 +89,9 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: 'comment', description: "Any comments" })
     @Column({ type: DataType.STRING, allowNull: true })
     comment: string
+    @ApiProperty({ example: 1, description: "Project ID" })
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    projectId: number
     @ForeignKey(() => User)
     @Column({ type: DataType.INTEGER })
     userId: number

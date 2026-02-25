@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards, Req, Headers, HttpException, HttpStatus, RawBodyRequest, Get, Param, Query } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards, Req, Headers, HttpException, HttpStatus, RawBodyRequest, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiResponse } from "@nestjs/swagger";
 import { Payments } from "./payments.model";
 import { PaymentsDto } from "./dto/payments.dto";

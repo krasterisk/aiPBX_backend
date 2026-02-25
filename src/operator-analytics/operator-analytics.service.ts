@@ -8,9 +8,12 @@ import { ExternalSttProvider } from './providers/external-stt.provider';
 import { Prices } from '../prices/prices.model';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/users.model';
+import { AiCdr } from '../ai-cdr/ai-cdr.model';
+import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
+import { BillingRecord } from '../billing/billing-record.model';
 import {
     OperatorMetrics, CustomMetricDef, ITranscriptionProvider, TranscriptionResult,
-    MetricDefinition, DefaultMetricKey, ALL_DEFAULT_METRIC_KEYS, WebhookEvent,
+    MetricDefinition, DefaultMetricKey, WebhookEvent,
     ProjectTemplate,
 } from './interfaces/operator-metrics.interface';
 import { PROJECT_TEMPLATES } from './project-templates';
@@ -29,6 +32,9 @@ export class OperatorAnalyticsService {
 
     constructor(
         @InjectModel(OperatorAnalytics) private readonly analyticsRepository: typeof OperatorAnalytics,
+        @InjectModel(AiCdr) private readonly aiCdrRepository: typeof AiCdr,
+        @InjectModel(AiAnalytics) private readonly aiAnalyticsRepository: typeof AiAnalytics,
+        @InjectModel(BillingRecord) private readonly billingRecordRepository: typeof BillingRecord,
         @InjectModel(OperatorApiToken) private readonly apiTokenRepository: typeof OperatorApiToken,
         @InjectModel(OperatorProject) private readonly projectRepository: typeof OperatorProject,
         @InjectModel(Prices) private readonly pricesRepository: typeof Prices,
@@ -118,7 +124,7 @@ export class OperatorAnalyticsService {
         });
 
         if (options.customMetrics?.length) {
-            await record.update({ customMetricsDef: options.customMetrics });
+            // customMetricsDef is removed from OperatorAnalytics model
         }
 
         try {
@@ -128,9 +134,9 @@ export class OperatorAnalyticsService {
                 project = await this.projectRepository.findByPk(options.projectId);
             }
 
-            // Set schemaVersion from project
+            // schemaVersion from project removed
             if (project?.currentSchemaVersion) {
-                await record.update({ schemaVersion: project.currentSchemaVersion });
+                // not updating record with schemaVersion anymore
             }
 
             // 3. Transcribe (external first, fallback to OpenAI Whisper)
@@ -158,15 +164,48 @@ export class OperatorAnalyticsService {
             const totalTokens = usage?.total_tokens || 0;
             const { totalCost, llmCost, sttCost } = await this.chargeCost(userId, totalTokens, sttResult.duration);
 
-            // 6. Save results
+            // 6. Save results locally
             await record.update({
-                metrics,
-                customMetrics: customMetricsResult || null,
-                tokens: totalTokens,
-                cost: totalCost,
-                llmCost,
-                sttCost,
                 status: AnalyticsStatus.COMPLETED,
+            });
+
+            const channelId = record.id.toString();
+            const cdrSource = source === AnalyticsSource.API ? 'external-api' : 'external-front';
+            const assistantName = options.operatorName || 'Unknown Operator';
+            const mergedMetrics = customMetricsResult ? { ...metrics, metrics: customMetricsResult } : metrics;
+
+            await this.aiCdrRepository.create({
+                channelId,
+                projectId: record.projectId,
+                duration: sttResult.duration,
+                userId: record.userId,
+                cost: totalCost,
+                tokens: totalTokens,
+                assistantName: assistantName,
+                callerId: options.clientPhone || '',
+                source: cdrSource,
+                recordUrl: record.recordUrl || '',
+            });
+
+            await this.aiAnalyticsRepository.create({
+                channelId,
+                metrics: mergedMetrics,
+                summary: metrics.summary || '',
+                sentiment: metrics.customer_sentiment || '',
+                csat: metrics.csat || null,
+                cost: totalCost,
+                tokens: totalTokens,
+            });
+
+            await this.billingRecordRepository.create({
+                channelId,
+                type: 'analytic',
+                totalTokens: totalTokens,
+                textTokens: totalTokens,
+                audioTokens: 0,
+                totalCost: totalCost,
+                sttCost: sttCost,
+                textCost: llmCost,
             });
 
             this.logger.log(`Analysis completed for "${filename}" (id=${record.id}), cost=${totalCost} (llm=${llmCost}, stt=${sttCost}), tokens=${totalTokens}`);
@@ -241,7 +280,6 @@ export class OperatorAnalyticsService {
             operatorName: options.operatorName,
             clientPhone: options.clientPhone,
             language: options.language || 'auto',
-            customMetricsDef: options.customMetrics?.length ? options.customMetrics : null,
             projectId: options.projectId || null,
             recordUrl: options.recordUrl || null,
         });
@@ -259,7 +297,7 @@ export class OperatorAnalyticsService {
             if (record.projectId) {
                 project = await this.projectRepository.findByPk(record.projectId);
                 if (project?.currentSchemaVersion) {
-                    await record.update({ schemaVersion: project.currentSchemaVersion });
+                    // not updating record with schemaVersion anymore
                 }
             }
 
@@ -274,7 +312,7 @@ export class OperatorAnalyticsService {
 
             const { metrics, customMetricsResult, usage } = await this.analyzeTranscription(
                 sttResult.text,
-                record.customMetricsDef,
+                undefined,
                 project,
             );
 
@@ -282,13 +320,47 @@ export class OperatorAnalyticsService {
             const { totalCost, llmCost, sttCost } = await this.chargeCost(record.userId, totalTokens, sttResult.duration);
 
             await record.update({
-                metrics,
-                customMetrics: customMetricsResult || null,
-                tokens: totalTokens,
-                cost: totalCost,
-                llmCost,
-                sttCost,
                 status: AnalyticsStatus.COMPLETED,
+            });
+
+            const channelId = record.id.toString();
+            // Source is frontend or api depending on what's set
+            const cdrSource = record.source === AnalyticsSource.API ? 'external-api' : 'external-front';
+            const assistantName = record.operatorName || 'Unknown Operator';
+            const mergedMetrics = customMetricsResult ? { ...metrics, metrics: customMetricsResult } : metrics;
+
+            await this.aiCdrRepository.create({
+                channelId,
+                projectId: record.projectId,
+                duration: sttResult.duration,
+                userId: record.userId,
+                cost: totalCost,
+                tokens: totalTokens,
+                assistantName: assistantName,
+                callerId: record.clientPhone || '',
+                source: cdrSource,
+                recordUrl: record.recordUrl || '',
+            });
+
+            await this.aiAnalyticsRepository.create({
+                channelId,
+                metrics: mergedMetrics,
+                summary: metrics.summary || '',
+                sentiment: metrics.customer_sentiment || '',
+                csat: metrics.csat || null,
+                cost: totalCost,
+                tokens: totalTokens,
+            });
+
+            await this.billingRecordRepository.create({
+                channelId,
+                type: 'analytic',
+                totalTokens: totalTokens,
+                textTokens: totalTokens,
+                audioTokens: 0,
+                totalCost: totalCost,
+                sttCost: sttCost,
+                textCost: llmCost,
             });
 
             this.logger.log(`Background analysis completed for record #${recordId}`);
@@ -320,11 +392,17 @@ export class OperatorAnalyticsService {
 
     // ─── Read Endpoints ──────────────────────────────────────────────
 
-    async getById(id: number, userId?: string): Promise<OperatorAnalytics> {
-        const where: any = { id };
+    async getById(id: number, userId?: string): Promise<AiCdr> {
+        const where: any = { channelId: String(id) };
         if (userId) where.userId = userId;
 
-        const record = await this.analyticsRepository.findOne({ where });
+        const record = await this.aiCdrRepository.findOne({
+            where,
+            include: [
+                { model: AiAnalytics, as: 'analytics' },
+                { model: BillingRecord, as: 'billingRecords' }
+            ]
+        });
         if (!record) {
             throw new HttpException('Analysis not found', HttpStatus.NOT_FOUND);
         }
@@ -366,63 +444,39 @@ export class OperatorAnalyticsService {
         }
 
         if (query.operatorName) {
-            where.operatorName = { [Op.iLike || Op.like]: `%${query.operatorName}%` };
+            where.assistantName = { [Op.iLike || Op.like]: `%${query.operatorName}%` };
         }
 
         if (query.projectId) {
             where.projectId = query.projectId;
         }
 
-        // Only completed records
-        where.status = AnalyticsStatus.COMPLETED;
-
         // Search logic
         if (query.search && query.search.trim() !== '') {
             const searchStr = `%${query.search.trim()}%`;
-            where[Op.or] = [
-                { operatorName: { [Op.iLike || Op.like]: searchStr } },
-                { clientPhone: { [Op.iLike || Op.like]: searchStr } },
-                { filename: { [Op.iLike || Op.like]: searchStr } },
-                // JSON text search on metrics.summary
-                this.analyticsRepository.sequelize.where(
-                    this.analyticsRepository.sequelize.literal(this.sqlJsonExtract('metrics', '$.summary', "->>'summary'")),
-                    { [Op.iLike || Op.like]: searchStr }
-                )
+            const searchConditions = [
+                { assistantName: { [Op.iLike || Op.like]: searchStr } },
+                { callerId: { [Op.iLike || Op.like]: searchStr } },
             ];
+            // subquery issues in sqlite/postgres generally require true JSON query or left join. 
+            // We just let the search logic from aiCdrService apply here.
+            where[Op.or] = searchConditions;
         }
 
-        // Sorting logic
         const sortField = query.sortField || 'createdAt';
         const sortOrder = query.sortOrder || 'DESC';
-
-        let orderClause: any[];
-        const metricFields = [
-            'greeting_quality', 'script_compliance', 'politeness_empathy',
-            'active_listening', 'objection_handling', 'product_knowledge',
-            'problem_resolution', 'speech_clarity_pace', 'closing_quality',
-            'customer_sentiment', 'success'
-        ];
-
-        if (metricFields.includes(sortField)) {
-            // Sort by JSON field
-            orderClause = [
-                [this.analyticsRepository.sequelize.literal(`${this.sqlJsonExtract('metrics', `$.${sortField}`, `->>'${sortField}'`)} ${sortOrder}`)]
-            ];
-        } else {
-            // Regular column sort
-            orderClause = [[sortField, sortOrder]];
-        }
+        const orderClause: any[] = [[sortField, sortOrder]];
 
         const page = Number(query.page) || 1;
         const limit = Number(query.limit) || 20;
         const offset = (page - 1) * limit;
 
-        const { rows: data, count: total } = await this.analyticsRepository.findAndCountAll({
+        const { rows: data, count: total } = await this.aiCdrRepository.findAndCountAll({
             where,
             order: orderClause,
             limit,
             offset,
-            attributes: { exclude: ['transcription'] }, // Exclude heavy field from list
+            include: [{ model: AiAnalytics, as: 'analytics' }]
         });
 
         return { data, total, page, limit };
@@ -434,10 +488,10 @@ export class OperatorAnalyticsService {
         operatorName?: string;
         projectId?: number;
     }, isAdmin: boolean, realUserId: string) {
-        const where: any = { status: AnalyticsStatus.COMPLETED };
+        const where: any = {};
 
         if (!isAdmin) {
-            where.userId = realUserId;
+            where.userId = String(realUserId);
         }
 
         if (query.startDate && query.endDate) {
@@ -454,15 +508,16 @@ export class OperatorAnalyticsService {
         }
 
         if (query.operatorName) {
-            where.operatorName = { [Op.iLike]: `%${query.operatorName}%` };
+            where.assistantName = { [Op.iLike || Op.like]: `%${query.operatorName}%` };
         }
 
         if (query.projectId) {
             where.projectId = query.projectId;
         }
 
-        const records = await this.analyticsRepository.findAll({
+        const records = await this.aiCdrRepository.findAll({
             where,
+            include: [{ model: AiAnalytics, as: 'analytics' }],
             order: [['createdAt', 'ASC']],
             limit: 50000,
         });
@@ -494,11 +549,11 @@ export class OperatorAnalyticsService {
         let positiveCount = 0, neutralCount = 0, negativeCount = 0;
 
         records.forEach(r => {
-            const m = r.metrics;
+            const m = r.analytics?.metrics;
             if (!m) return;
             numericKeys.forEach(k => { sums[k] += (m[k] || 0); });
             if (m.success) successCount++;
-            const sentiment = (m.customer_sentiment || '').toLowerCase();
+            const sentiment = (r.analytics?.sentiment || '').toLowerCase();
             if (sentiment === 'positive') positiveCount++;
             else if (sentiment === 'neutral') neutralCount++;
             else if (sentiment === 'negative') negativeCount++;
@@ -554,7 +609,7 @@ export class OperatorAnalyticsService {
         const projectIds = projects.map(p => p.id);
         let countMap: Record<number, number> = {};
         if (projectIds.length) {
-            const counts = await this.analyticsRepository.findAll({
+            const counts = await this.aiCdrRepository.findAll({
                 attributes: [
                     'projectId',
                     [Sequelize.fn('COUNT', Sequelize.col('id')), 'count'],
@@ -638,9 +693,9 @@ export class OperatorAnalyticsService {
     }
 
     private async migrateOrphanedRecords(userId: string, defaultProjectId: number): Promise<void> {
-        const [affectedCount] = await this.analyticsRepository.update(
+        const [affectedCount] = await this.aiCdrRepository.update(
             { projectId: defaultProjectId },
-            { where: { userId, projectId: null } },
+            { where: { userId: String(userId), projectId: null } },
         );
         if (affectedCount > 0) {
             this.logger.log(`Migrated ${affectedCount} orphaned records to default project ${defaultProjectId} for user ${userId}`);
@@ -674,7 +729,7 @@ Return a JSON object with a "metrics" array. Each metric must have:
 Generate 3-6 metrics most relevant to the described business. Focus on actionable, measurable aspects.
 ${systemPrompt ? `\nBusiness context: ${systemPrompt}` : ''}`,
             },
-            ...messages.map(m => ({ role: m.role, content: m.content })),
+            ...messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : m.role, content: m.content || (m as any).text || '' })),
             {
                 role: 'user',
                 content: 'Based on our conversation, generate the custom metrics schema. Return only valid JSON.',
@@ -990,8 +1045,9 @@ Write insights in Russian. Be specific and actionable.`;
         if (!targetProject) throw new HttpException('Target project not found', HttpStatus.NOT_FOUND);
 
         // Find records owned by this user
-        const records = await this.analyticsRepository.findAll({
-            where: { id: ids, userId },
+        const records = await this.aiCdrRepository.findAll({
+            where: { id: ids, userId: String(userId) },
+            include: [{ model: AiAnalytics, as: 'analytics' }]
         });
 
         let moved = 0;
@@ -1000,12 +1056,12 @@ Write insights in Russian. Be specific and actionable.`;
         for (const record of records) {
             // Skip records with custom metrics if target has a different schema
             if (
-                record.customMetrics &&
-                Object.keys(record.customMetrics).length > 0 &&
+                record.analytics?.metrics?.custom_metrics &&
+                Object.keys(record.analytics.metrics.custom_metrics).length > 0 &&
                 targetProject.customMetricsSchema?.length > 0
             ) {
                 // Check basic compatibility — custom metric keys should match
-                const recordKeys = Object.keys(record.customMetrics);
+                const recordKeys = Object.keys(record.analytics.metrics.custom_metrics);
                 const schemaKeys = targetProject.customMetricsSchema.map(m => m.id);
                 const compatible = recordKeys.every(k => schemaKeys.includes(k));
                 if (!compatible) {
@@ -1186,6 +1242,7 @@ Analyze the dialogue and return a JSON object with EXACTLY this structure:
   "speech_clarity_pace": <0-100>,
   "closing_quality": <0-100>,
   "customer_sentiment": "<Positive|Neutral|Negative>",
+  "csat": <1-5 integer>,
   "summary": "<string>",
   "success": <boolean>${effectiveMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}
 }
@@ -1201,6 +1258,7 @@ Metric descriptions:
 8. speech_clarity_pace: Was the operator's speech clear, well-paced, and professional?
 9. closing_quality: Did the operator properly close the call with next steps and farewell?
 10. customer_sentiment: Overall customer sentiment at the end of the call.
+11. csat: Customer Satisfaction Score from 1 to 5 based on the customer's apparent satisfaction during the call.
 - summary: Brief summary of what the call was about and its outcome.
 - success: Was the customer's question or problem resolved?
 ${customMetricsPromptBlock}
@@ -1267,7 +1325,7 @@ Return ONLY valid JSON without markdown formatting.
         };
     }
 
-    private buildTimeSeries(records: OperatorAnalytics[], startDate?: string, endDate?: string) {
+    private buildTimeSeries(records: AiCdr[], startDate?: string, endDate?: string) {
         if (!records.length) return [];
 
         const start = startDate ? new Date(startDate) : new Date(records[0].createdAt);
@@ -1300,8 +1358,8 @@ Return ONLY valid JSON without markdown formatting.
             groups[label].calls++;
             groups[label].totalDuration += r.duration || 0;
 
-            if (r.metrics) {
-                const avg = numericKeys.reduce((s, k) => s + (r.metrics[k] || 0), 0) / numericKeys.length;
+            if (r.analytics?.metrics) {
+                const avg = numericKeys.reduce((s, k) => s + (r.analytics.metrics[k] || 0), 0) / numericKeys.length;
                 groups[label].totalScore += avg;
             }
         });

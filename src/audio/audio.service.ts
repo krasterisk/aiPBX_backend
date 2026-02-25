@@ -1,7 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import * as wav from 'wav';
-import { alaw } from 'x-law';
-import * as fs from "fs";
 
 export interface ResampleOptions {
     bitDepth?: number;
@@ -81,7 +78,7 @@ export class AudioService {
     }
 
     private encodeAlaw(sample: number): number {
-        let sign = (sample >> 8) & 0x80;
+        const sign = (sample >> 8) & 0x80;
         if (sign) sample = -sample;
         if (sample > 32635) sample = 32635;
 
@@ -90,7 +87,7 @@ export class AudioService {
             exponent--;
         }
 
-        let mantissa = (sample >> ((exponent === 0) ? 4 : (exponent + 3))) & 0x0f;
+        const mantissa = (sample >> ((exponent === 0) ? 4 : (exponent + 3))) & 0x0f;
 
         return (sign | (exponent << 4) | mantissa) ^ 0x55;
     }

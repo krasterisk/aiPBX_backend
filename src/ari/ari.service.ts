@@ -148,7 +148,7 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
     }
 
     getActiveSessionsCount(): number {
-        let total = 0;
+        const total = 0;
         for (const connection of this.connections) {
             // total += connection.getSessionsCount();
         }

@@ -11,16 +11,14 @@ export class GetAiCdrDto {
     page: number | string = 1
     limit: number | string = 10
 
+    projectId?: number | string
+
     @IsOptional()
-    @IsIn(['call', 'widget', 'playground'], {
-        message: 'source must be one of: call, widget, playground'
-    })
+    @IsString()
     source?: string
 
     @IsOptional()
-    @IsIn(['createdAt', 'callerId', 'assistantName', 'tokens', 'cost', 'duration', 'source', 'csat', 'scenarioSuccess'], {
-        message: 'sortField must be one of: createdAt, callerId, assistantName, tokens, cost, duration, source, csat, scenarioSuccess'
-    })
+    @IsString()
     sortField?: string
 
     @IsOptional()

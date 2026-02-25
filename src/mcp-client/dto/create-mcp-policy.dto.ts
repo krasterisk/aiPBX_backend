@@ -1,4 +1,4 @@
-import { IsEnum, IsObject, IsOptional, IsNumber } from 'class-validator';
+import { IsEnum, IsObject, IsNumber } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateMcpPolicyDto {

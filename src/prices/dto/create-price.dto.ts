@@ -21,4 +21,8 @@ export class CreatePriceDto {
     @IsNotEmpty()
     @IsNumber()
     readonly text: number;
+
+    @ApiProperty({ example: 0.1, description: 'STT price per minute of audio' })
+    @IsNumber()
+    readonly stt?: number;
 }

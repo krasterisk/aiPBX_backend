@@ -13,7 +13,7 @@ import { AudioService } from "../audio/audio.service";
 import { PbxServers } from "../pbx-servers/pbx-servers.model";
 import { ToolGatewayService } from "../mcp-client/services/tool-gateway.service";
 import { McpToolRegistryService } from "../mcp-client/services/mcp-tool-registry.service";
-import { getModelAdapter, RealtimeModelAdapter } from './realtime-model.adapter';
+import { getModelAdapter } from './realtime-model.adapter';
 
 export interface sessionData {
     channelId?: string

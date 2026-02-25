@@ -1,4 +1,4 @@
-import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStream, RTCRtpReceiver, MediaStreamTrack, RtpPacket, RtpHeader } from 'werift';
+import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack, RtpPacket, RtpHeader } from 'werift';
 import { WidgetService } from './widget.service';
 import { OpenAiService, sessionData } from '../open-ai/open-ai.service';
 import { AiCdrService } from '../ai-cdr/ai-cdr.service';

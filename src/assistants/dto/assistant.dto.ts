@@ -1,4 +1,4 @@
-import { IsArray, IsNumber, IsObject, IsString } from "class-validator";
+import { IsArray, IsString } from "class-validator";
 import { AiTool } from "../../ai-tools/ai-tool.model";
 
 export class AssistantDto {

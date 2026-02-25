@@ -1,4 +1,4 @@
-import {Controller, Get} from '@nestjs/common';
+import {Controller} from '@nestjs/common';
 import {AriService} from "./ari.service";
 import {ApiTags} from "@nestjs/swagger";
 

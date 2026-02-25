@@ -10,6 +10,7 @@ interface CreateBillingRecord {
     totalTokens?: number;
     audioCost?: number;
     textCost?: number;
+    sttCost?: number;
     totalCost?: number;
 }
 
@@ -47,6 +48,10 @@ export class BillingRecord extends Model<BillingRecord, CreateBillingRecord> {
     @ApiProperty({ example: 0.059, description: 'Total cost for this record' })
     @Column({ type: DataType.FLOAT, allowNull: false, defaultValue: 0 })
     totalCost: number;
+
+    @ApiProperty({ example: 0.010, description: 'STT cost' })
+    @Column({ type: DataType.FLOAT, allowNull: false, defaultValue: 0 })
+    sttCost: number;
 
     @BelongsTo(() => AiCdr, { foreignKey: 'channelId', targetKey: 'channelId' })
     aiCdr: AiCdr;

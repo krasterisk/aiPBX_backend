@@ -66,7 +66,7 @@ export class AiToolsService {
 
 
             // Prepare the where clause
-            let whereClause: any = {
+            const whereClause: any = {
                 [sequelize.Op.or]: [
                     {
                         name: {

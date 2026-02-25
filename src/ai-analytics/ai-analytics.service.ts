@@ -59,7 +59,7 @@ Analyze the dialogue according to the following criteria and return a JSON objec
     "cost_savings_estimated": <float>
   },
   "user_satisfaction": {
-    "csat": <1-5>,
+    "csat": <1-100>,
     "sentiment": "<Positive|Neutral|Negative>",
     "frustration_detected": <boolean>,
     "bail_out_rate": <boolean>
@@ -92,7 +92,7 @@ Field descriptions:
    - cost_savings_estimated: 1.0 for successful automated call, 0.0 otherwise
 
 4. user_satisfaction:
-   - csat: Predicted Customer Satisfaction Score (1-5)
+   - csat: Predicted Customer Satisfaction Score (1-100)
    - sentiment: "Positive", "Neutral", or "Negative"
    - frustration_detected: Whether irritation was detected
    - bail_out_rate: Whether user dropped the call or refused to engage

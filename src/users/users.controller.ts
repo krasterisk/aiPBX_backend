@@ -2,12 +2,12 @@ import {
     Body,
     Controller,
     Delete,
-    Get, HttpException, HttpStatus, Logger,
+    Get, HttpException, HttpStatus,
     Param,
     Patch,
     Post,
     Put,
-    Query, Redirect,
+    Query,
     Req,
     UploadedFile,
     UseGuards,
@@ -24,9 +24,6 @@ import { AuthService } from "../auth/auth.service";
 import { GetUsersDto } from "./dto/getUsers.dto";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ValidationPipe } from "../pipes/validation.pipe";
-import { ResetPasswordDto } from "./dto/resetPassword.dto";
-import { UpdatePasswordDto } from "./dto/updatePassword.dto";
-import { ActivationDto } from "./dto/activation.dto";
 import { CreateUserLimitDto } from "./dto/create-user-limit.dto";
 import { UserLimits } from "./user-limits.model";
 import { AdminTopUpDto } from "./dto/admin-top-up.dto";

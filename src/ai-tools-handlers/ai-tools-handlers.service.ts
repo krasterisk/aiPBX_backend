@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Assistant } from "../assistants/assistants.model";
 import { AiToolsService } from "../ai-tools/ai-tools.service";
 import { HttpService } from "@nestjs/axios";

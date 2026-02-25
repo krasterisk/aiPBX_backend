@@ -1,4 +1,4 @@
-import {Controller, Get, UseGuards} from '@nestjs/common';
+import {Controller, Get} from '@nestjs/common';
 import {ApiOperation, ApiResponse} from "@nestjs/swagger";
 import {Payments} from "../payments/payments.model";
 import {CurrencyService} from "./currency.service";

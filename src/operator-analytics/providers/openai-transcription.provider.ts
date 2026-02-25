@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { ITranscriptionProvider, TranscriptionResult } from '../interfaces/operator-metrics.interface';
-import { Readable } from 'stream';
 
 @Injectable()
 export class OpenAiTranscriptionProvider implements ITranscriptionProvider {

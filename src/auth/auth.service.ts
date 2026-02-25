@@ -5,9 +5,7 @@ import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from 'bcryptjs'
 import { User } from "../users/users.model";
 import { MailerService } from "../mailer/mailer.service";
-import { v4 as uuidv4 } from 'uuid';
 import { CreateRoleDto } from "../roles/dto/create-role.dto";
-import { ResetPasswordDto } from "../users/dto/resetPassword.dto";
 import { OAuth2Client } from 'google-auth-library';
 import * as crypto from 'crypto';
 import { TelegramAuthDto } from "./dto/telegram.auth.dto";

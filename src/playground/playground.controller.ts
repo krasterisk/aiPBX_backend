@@ -1,5 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common';
-import { PlaygroundSdpDto, PlaygroundSdpResponse } from './playground.dto';
+import { Controller } from '@nestjs/common';
 import { PlaygroundService } from './playground.service';
 
 @Controller('assistants/playground')

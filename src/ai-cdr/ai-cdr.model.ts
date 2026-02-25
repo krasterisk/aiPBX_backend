@@ -13,7 +13,15 @@ interface CreateAiCdr {
     channelId: string
     callerId: string
     tokens?: number
-    source?: CdrSource
+    duration?: number
+    cost?: number
+    userId?: string
+    vPbxUserId?: string
+    recordUrl?: string
+    assistantName?: string
+    assistantId?: string
+    source?: CdrSource | string
+    projectId?: number
 }
 
 @Table({ tableName: "aiCdr" })
@@ -51,6 +59,10 @@ export class AiCdr extends Model<AiCdr, CreateAiCdr> {
     @ApiProperty({ example: 'https://server.com/records/assistantId/channelId.mp3', description: "Record URL" })
     @Column({ type: DataType.STRING, allowNull: true })
     recordUrl: string
+
+    @ApiProperty({ example: 1, description: "Project id" })
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    projectId: number
 
     @HasOne(() => AiAnalytics, { foreignKey: 'channelId', sourceKey: 'channelId' })
     analytics: AiAnalytics

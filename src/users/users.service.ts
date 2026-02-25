@@ -59,7 +59,8 @@ export class UsersService {
                 userId: user.id,
                 realtime: 35,
                 analytic: 5,
-                text: 1
+                text: 1,
+                stt: 0.1
             }
             await this.priceService.create(price)
 

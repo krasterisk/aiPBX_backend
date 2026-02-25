@@ -1,7 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { IsBoolean, IsEmail, IsNumber, IsString, Length } from "class-validator";
 import { CreateRoleDto } from "../../roles/dto/create-role.dto";
-import { IsNumeric } from "sequelize-typescript";
 
 export class CreateUserDto {
     @ApiProperty({ example: 'name', description: "Customer name" })

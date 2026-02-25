@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsOptional } from "class-validator";
 
 export class GetPaymentsDto {
     @IsOptional()

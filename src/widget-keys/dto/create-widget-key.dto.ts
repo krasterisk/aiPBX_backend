@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsString, IsNumber, IsArray, IsOptional, IsBoolean, Min, Max, IsFQDN } from "class-validator";
+import { IsString, IsNumber, IsArray, IsOptional, Min, Max, IsFQDN } from "class-validator";
 import { Transform } from "class-transformer";
 
 export class CreateWidgetKeyDto {

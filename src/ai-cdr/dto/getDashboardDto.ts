@@ -5,6 +5,7 @@ export class GetDashboardDto {
     endDate?: string
     userId?: string
     source?: string
+    projectId?: number | string
 }
 
 export class GetDashboardAllData {

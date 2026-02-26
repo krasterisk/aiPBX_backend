@@ -1,5 +1,5 @@
 import {
-    Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, Sse,
+    Controller, Get, Post, Patch, Delete, Body, Param, Query, Req,
     UseGuards, UseInterceptors, UploadedFiles,
     HttpException, HttpStatus,
 } from '@nestjs/common';
@@ -11,8 +11,8 @@ import { Roles } from '../auth/roles-auth.decorator';
 import { ApiTokenGuard } from './guards/api-token.guard';
 import { AnalyticsSource } from './operator-analytics.model';
 import { CustomMetricDef, MetricDefinition } from './interfaces/operator-metrics.interface';
-import { UpdateSchemaDto, UpdateWebhookDto, GenerateSchemaDto, ProjectChatDto, BulkMoveDto, CreateProjectDto } from './dto/project.dto';
-import { Observable } from 'rxjs';
+import { GenerateSchemaDto, BulkMoveDto, CreateProjectDto } from './dto/project.dto';
+
 
 
 interface RequestWithUser extends Request {
@@ -105,15 +105,15 @@ export class OperatorAnalyticsController {
         return { items };
     }
 
-    // ─── External API Upload (API Token Auth) ────────────────────────
+    // ─── External API: Upload file (API Token Auth) ───────────────────
 
-    @Post('api/analyze')
+    @Post('analyze-file')
     @UseGuards(ApiTokenGuard)
     @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: MAX_FILE_SIZE } }))
     @ApiOperation({ summary: 'Upload audio file(s) for analysis (External API)' })
     @ApiConsumes('multipart/form-data')
     @ApiResponse({ status: 200, description: 'Analysis result or batch status' })
-    async analyzeFromApi(
+    async uploadFromApi(
         @UploadedFiles() files: any[],
         @Req() req: RequestWithUser,
         @Body() body: {
@@ -166,14 +166,15 @@ export class OperatorAnalyticsController {
 
     // ─── External API: Analyze by URL (API Token Auth) ───────────────
 
-    @Post('api/analyze-url')
+    @Post('analyze-url')
     @UseGuards(ApiTokenGuard)
-    @ApiOperation({ summary: 'Analyze audio by URL (External API)' })
-    @ApiResponse({ status: 200, description: 'Full analysis result' })
+    @ApiOperation({ summary: 'Analyze audio by URL — single or batch (External API)' })
+    @ApiResponse({ status: 200, description: 'Analysis result (single) or batch status (multiple)' })
     async analyzeFromUrl(
         @Req() req: RequestWithUser,
         @Body() body: {
-            url: string;
+            url?: string;
+            urls?: string[];
             operatorName?: string;
             clientPhone?: string;
             language?: string;
@@ -184,21 +185,84 @@ export class OperatorAnalyticsController {
         const userId = req.tokenUserId;
         if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
 
-        if (!body.url) {
-            throw new HttpException('URL is required', HttpStatus.BAD_REQUEST);
-        }
-
         const projectId = (body as any).projectId
             ? +(body as any).projectId
             : (req as any).apiToken?.projectId ?? undefined;
-        return this.service.analyzeUrl(body.url, userId, {
+
+        const options = {
             operatorName: body.operatorName,
             clientPhone: body.clientPhone,
             language: body.language,
             customMetrics: body.customMetrics,
             provider: body.provider,
             projectId,
-        });
+        };
+
+        // Single URL → sync
+        if (body.url && !body.urls?.length) {
+            return this.service.analyzeUrl(body.url, userId, options);
+        }
+
+        // Batch URLs → async
+        const urlList = body.urls?.length ? body.urls : body.url ? [body.url] : [];
+        if (urlList.length === 0) {
+            throw new HttpException('url or urls is required', HttpStatus.BAD_REQUEST);
+        }
+
+        const items = [];
+        for (const url of urlList) {
+            const filename = url.split('/').pop()?.split('?')[0] || 'download.mp3';
+            const record = await this.service.createProcessingRecord(
+                filename, userId, AnalyticsSource.API, options,
+            );
+            await record.update({ recordUrl: url });
+            items.push({ id: record.id, filename, url, status: 'processing' });
+            this.service.processUrlInBackground(record.id, url, body.provider);
+        }
+
+        return { items };
+    }
+
+    // ─── External API: Results list (API Token Auth) ─────────────────
+
+    @Get('results')
+    @UseGuards(ApiTokenGuard)
+    @ApiOperation({ summary: 'List analysis results for token project' })
+    @ApiResponse({ status: 200, description: 'Paginated list of results' })
+    async getResults(
+        @Req() req: RequestWithUser,
+        @Query() query: {
+            page?: number;
+            limit?: number;
+            startDate?: string;
+            endDate?: string;
+        },
+    ) {
+        const userId = req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+
+        const projectId = (req as any).apiToken?.projectId;
+        return this.service.getCdrs(
+            { ...query, projectId },
+            false,
+            userId,
+        );
+    }
+
+    // ─── External API: Result by ID (API Token Auth) ─────────────────
+
+    @Get('results/:id')
+    @UseGuards(ApiTokenGuard)
+    @ApiOperation({ summary: 'Get analysis result by ID' })
+    @ApiResponse({ status: 200, description: 'Full analysis result with transcript and metrics' })
+    @ApiResponse({ status: 404, description: 'Not found' })
+    async getResultById(
+        @Param('id') id: string,
+        @Req() req: RequestWithUser,
+    ) {
+        const userId = req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        return this.service.getById(+id, userId);
     }
 
     // ─── API Token Management (JWT Auth) ─────────────────────────────
@@ -255,20 +319,6 @@ export class OperatorAnalyticsController {
 
     // ─── Projects — Static routes FIRST (before :id) ─────────────────
 
-    @Post('projects/chat')
-    @ApiBearerAuth()
-    @Roles('ADMIN', 'USER')
-    @UseGuards(RolesGuard)
-    @Sse()
-    @ApiOperation({ summary: 'SSE AI interviewer for project setup (Step 1)' })
-    async projectChat(
-        @Req() req: RequestWithUser,
-        @Body() body: ProjectChatDto,
-    ): Promise<Observable<{ data: string }>> {
-        if (!req.tokenUserId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-        return this.service.projectChat(body.message, body.history);
-    }
-
     @Post('projects/generate-schema')
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
@@ -281,15 +331,6 @@ export class OperatorAnalyticsController {
     ) {
         if (!req.tokenUserId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
         return this.service.generateMetricsSchema(body.messages, body.systemPrompt);
-    }
-
-    @Get('projects/templates')
-    @ApiBearerAuth()
-    @Roles('ADMIN', 'USER')
-    @UseGuards(RolesGuard)
-    @ApiOperation({ summary: 'Get list of project templates' })
-    async getTemplates() {
-        return this.service.getProjectTemplates();
     }
 
     // ─── Projects — CRUD ─────────────────────────────────────────────
@@ -312,7 +353,7 @@ export class OperatorAnalyticsController {
         @Req() req: RequestWithUser,
         @Body() body: CreateProjectDto,
     ) {
-        return this.service.createProject(req.tokenUserId, body.name, body.description, body.templateId);
+        return this.service.createProject(req.tokenUserId, body);
     }
 
     @Post('projects/:id')
@@ -323,22 +364,40 @@ export class OperatorAnalyticsController {
     async updateProjectPost(
         @Req() req: RequestWithUser,
         @Param('id') id: string,
-        @Body() body: { name?: string; description?: string },
+        @Body() body: {
+            name?: string;
+            description?: string;
+            systemPrompt?: string;
+            customMetricsSchema?: MetricDefinition[];
+            visibleDefaultMetrics?: string[];
+            webhookUrl?: string;
+            webhookEvents?: string[];
+            webhookHeaders?: Record<string, string>;
+        },
     ) {
-        return this.service.updateProject(+id, req.tokenUserId, body.name, body.description);
+        return this.service.updateProject(+id, req.tokenUserId, body);
     }
 
     @Patch('projects/:id')
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
-    @ApiOperation({ summary: 'Update a project (name/description)' })
+    @ApiOperation({ summary: 'Update a project' })
     async updateProject(
         @Req() req: RequestWithUser,
         @Param('id') id: string,
-        @Body() body: { name?: string; description?: string },
+        @Body() body: {
+            name?: string;
+            description?: string;
+            systemPrompt?: string;
+            customMetricsSchema?: MetricDefinition[];
+            visibleDefaultMetrics?: string[];
+            webhookUrl?: string;
+            webhookEvents?: string[];
+            webhookHeaders?: Record<string, string>;
+        },
     ) {
-        return this.service.updateProject(+id, req.tokenUserId, body.name, body.description);
+        return this.service.updateProject(+id, req.tokenUserId, body);
     }
 
     @Post('projects/:id/delete')
@@ -359,26 +418,7 @@ export class OperatorAnalyticsController {
         return this.service.deleteProject(+id, req.tokenUserId);
     }
 
-    // ─── Projects — Schema & Config (must be BEFORE :id catch-all) ───
 
-    @Patch('projects/:id/schema')
-    @ApiBearerAuth()
-    @Roles('ADMIN', 'USER')
-    @UseGuards(RolesGuard)
-    @ApiOperation({ summary: 'Update project schema + increment version' })
-    async updateSchema(
-        @Req() req: RequestWithUser,
-        @Param('id') id: string,
-        @Body() body: UpdateSchemaDto,
-    ) {
-        return this.service.updateProjectSchema(
-            +id,
-            req.tokenUserId,
-            body.customMetricsSchema as MetricDefinition[],
-            body.systemPrompt,
-            body.visibleDefaultMetrics as any,
-        );
-    }
 
     @Get('projects/:id/dashboard')
     @ApiBearerAuth()
@@ -423,20 +463,6 @@ export class OperatorAnalyticsController {
         );
     }
 
-    @Patch('projects/:id/webhook')
-    @ApiBearerAuth()
-    @Roles('ADMIN', 'USER')
-    @UseGuards(RolesGuard)
-    @ApiOperation({ summary: 'Update project webhook URL and events' })
-    async updateWebhook(
-        @Req() req: RequestWithUser,
-        @Param('id') id: string,
-        @Body() body: UpdateWebhookDto,
-    ) {
-        return this.service.updateWebhook(
-            +id, req.tokenUserId, body.webhookUrl, body.webhookEvents as any,
-        );
-    }
 
     // ─── CDR List (JWT Auth) ─────────────────────────────────────────
 

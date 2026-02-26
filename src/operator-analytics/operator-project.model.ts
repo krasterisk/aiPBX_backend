@@ -1,6 +1,6 @@
 import { Column, DataType, Model, Table, Index } from 'sequelize-typescript';
 import { ApiProperty } from '@nestjs/swagger';
-import { MetricDefinition, DefaultMetricKey, DashboardConfig, WebhookEvent, ALL_DEFAULT_METRIC_KEYS } from './interfaces/operator-metrics.interface';
+import { MetricDefinition, DefaultMetricKey, DashboardConfig, WebhookEvent, WebhookHeaders, ALL_DEFAULT_METRIC_KEYS } from './interfaces/operator-metrics.interface';
 
 export interface OperatorProjectCreationAttrs {
     name: string;
@@ -13,6 +13,7 @@ export interface OperatorProjectCreationAttrs {
     dashboardConfig?: DashboardConfig;
     webhookUrl?: string;
     webhookEvents?: WebhookEvent[];
+    webhookHeaders?: WebhookHeaders;
 }
 
 @Table({ tableName: 'operator_projects' })
@@ -68,4 +69,8 @@ export class OperatorProject extends Model<OperatorProject, OperatorProjectCreat
     @ApiProperty({ description: 'Webhook event types to send' })
     @Column({ type: DataType.JSON, allowNull: false, defaultValue: [] })
     webhookEvents: WebhookEvent[];
+
+    @ApiProperty({ description: 'Custom headers for webhook requests (e.g. Authorization)' })
+    @Column({ type: DataType.JSON, allowNull: false, defaultValue: {} })
+    webhookHeaders: WebhookHeaders;
 }

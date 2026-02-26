@@ -67,6 +67,9 @@ export interface DashboardConfig {
 
 export type WebhookEvent = 'analysis.completed' | 'analysis.error';
 
+/** Custom headers sent with webhook requests (e.g. Authorization) */
+export type WebhookHeaders = Record<string, string>;
+
 /** Project template preset */
 export interface ProjectTemplate {
     id: string;

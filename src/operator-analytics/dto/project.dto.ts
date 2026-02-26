@@ -1,4 +1,4 @@
-import { IsString, IsArray, IsOptional, IsNumber, MaxLength, IsEnum, ValidateNested, ArrayMaxSize } from 'class-validator';
+import { IsString, IsArray, IsOptional, IsNumber, IsObject, MaxLength, IsEnum, ValidateNested, ArrayMaxSize } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -142,4 +142,41 @@ export class CreateProjectDto {
     @IsOptional()
     @IsString()
     templateId?: string;
+
+    @ApiPropertyOptional({ description: 'Business context prompt for LLM (max 1000 chars)' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(1000)
+    systemPrompt?: string;
+
+    @ApiPropertyOptional({ type: [MetricDefinitionDto], description: 'Custom metrics definitions' })
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => MetricDefinitionDto)
+    @ArrayMaxSize(20)
+    customMetricsSchema?: MetricDefinitionDto[];
+
+    @ApiPropertyOptional({ description: 'Which default metrics to show' })
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    visibleDefaultMetrics?: string[];
+
+    @ApiPropertyOptional({ example: 'https://example.com/webhook' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    webhookUrl?: string;
+
+    @ApiPropertyOptional({ example: ['analysis.completed', 'analysis.error'] })
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    webhookEvents?: string[];
+
+    @ApiPropertyOptional({ example: { Authorization: 'Bearer xxx' }, description: 'Custom headers for webhook requests' })
+    @IsOptional()
+    @IsObject()
+    webhookHeaders?: Record<string, string>;
 }

@@ -14,7 +14,6 @@ import { BillingRecord } from '../billing/billing-record.model';
 import {
     OperatorMetrics, CustomMetricDef, ITranscriptionProvider, TranscriptionResult,
     MetricDefinition, DefaultMetricKey, WebhookEvent,
-    ProjectTemplate,
 } from './interfaces/operator-metrics.interface';
 import { PROJECT_TEMPLATES } from './project-templates';
 import { Op, Sequelize } from 'sequelize';
@@ -22,7 +21,6 @@ import OpenAI from 'openai';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
-import { Observable, Subject } from 'rxjs';
 
 @Injectable()
 export class OperatorAnalyticsService {
@@ -255,6 +253,34 @@ export class OperatorAnalyticsService {
             ...options,
             recordUrl: url,
         });
+    }
+
+    async processUrlInBackground(recordId: number, url: string, provider?: string): Promise<void> {
+        try {
+            this.logger.log(`Background: downloading file from URL: ${url}`);
+            const response = await axios.get(url, {
+                responseType: 'arraybuffer',
+                timeout: 120_000,
+                maxContentLength: 50 * 1024 * 1024,
+            });
+            const buffer = Buffer.from(response.data);
+            await this.processInBackground(recordId, buffer, provider);
+        } catch (e) {
+            this.logger.error(`Background URL download failed for record #${recordId}: ${e.message}`);
+            const record = await this.analyticsRepository.findByPk(recordId);
+            if (record) {
+                await record.update({ status: AnalyticsStatus.ERROR, errorMessage: e.message });
+
+                if (record.projectId) {
+                    const project = await this.projectRepository.findByPk(record.projectId);
+                    if (project) {
+                        this.callWebhook(project, 'analysis.error', {
+                            recordId, error: e.message,
+                        }).catch(() => { });
+                    }
+                }
+            }
+        }
     }
 
     // ─── Background Processing (Batch) ───────────────────────────────
@@ -605,38 +631,32 @@ export class OperatorAnalyticsService {
             order: [['createdAt', 'DESC']],
         });
 
-        // Enrich with recordCount
-        const projectIds = projects.map(p => p.id);
-        let countMap: Record<number, number> = {};
-        if (projectIds.length) {
-            const counts = await this.aiCdrRepository.findAll({
-                attributes: [
-                    'projectId',
-                    [Sequelize.fn('COUNT', Sequelize.col('id')), 'count'],
-                ],
-                where: { projectId: projectIds },
-                group: ['projectId'],
-                raw: true,
-            }) as any[];
-            countMap = Object.fromEntries(counts.map(c => [c.projectId, Number(c.count)]));
-        }
-
-        return projects.map(p => ({
-            ...p.toJSON(),
-            recordCount: countMap[p.id] || 0,
-        }));
+        return projects;
     }
 
-    async createProject(userId: string, name: string, description?: string, templateId?: string): Promise<OperatorProject> {
-        if (!name?.trim()) {
+    async createProject(
+        userId: string,
+        data: {
+            name: string;
+            description?: string;
+            templateId?: string;
+            systemPrompt?: string;
+            customMetricsSchema?: MetricDefinition[];
+            visibleDefaultMetrics?: string[];
+            webhookUrl?: string;
+            webhookEvents?: string[];
+            webhookHeaders?: Record<string, string>;
+        },
+    ): Promise<OperatorProject> {
+        if (!data.name?.trim()) {
             throw new HttpException('Project name is required', HttpStatus.BAD_REQUEST);
         }
 
-        const createData: any = { name: name.trim(), description, userId };
+        const createData: any = { name: data.name.trim(), description: data.description, userId };
 
-        // Apply template if provided
-        if (templateId) {
-            const template = PROJECT_TEMPLATES.find(t => t.id === templateId);
+        // Apply template as a base if provided
+        if (data.templateId) {
+            const template = PROJECT_TEMPLATES.find(t => t.id === data.templateId);
             if (template) {
                 createData.systemPrompt = template.systemPrompt;
                 createData.customMetricsSchema = template.customMetricsSchema;
@@ -644,17 +664,47 @@ export class OperatorAnalyticsService {
             }
         }
 
+        // Explicit body values override template values
+        if (data.systemPrompt !== undefined) createData.systemPrompt = data.systemPrompt || null;
+        if (data.customMetricsSchema !== undefined) createData.customMetricsSchema = data.customMetricsSchema;
+        if (data.visibleDefaultMetrics !== undefined) createData.visibleDefaultMetrics = data.visibleDefaultMetrics;
+        if (data.webhookUrl !== undefined) createData.webhookUrl = data.webhookUrl || null;
+        if (data.webhookEvents !== undefined) createData.webhookEvents = data.webhookEvents;
+        if (data.webhookHeaders !== undefined) createData.webhookHeaders = data.webhookHeaders;
+
         return this.projectRepository.create(createData);
     }
 
-    async updateProject(id: number, userId: string, name?: string, description?: string): Promise<OperatorProject> {
+    async updateProject(
+        id: number,
+        userId: string,
+        data: {
+            name?: string;
+            description?: string;
+            systemPrompt?: string;
+            customMetricsSchema?: MetricDefinition[];
+            visibleDefaultMetrics?: string[];
+            webhookUrl?: string;
+            webhookEvents?: string[];
+            webhookHeaders?: Record<string, string>;
+        },
+    ): Promise<OperatorProject> {
         const project = await this.projectRepository.findOne({ where: { id, userId } });
         if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
-        if (project.isDefault && name !== undefined) {
+        if (project.isDefault && data.name !== undefined) {
             throw new HttpException('Cannot rename default project', HttpStatus.BAD_REQUEST);
         }
-        if (name !== undefined) project.name = name.trim();
-        if (description !== undefined) project.description = description;
+        if (data.name !== undefined) project.name = data.name.trim();
+        if (data.description !== undefined) project.description = data.description;
+        if (data.systemPrompt !== undefined) project.systemPrompt = data.systemPrompt || null;
+        if (data.customMetricsSchema !== undefined) {
+            project.customMetricsSchema = data.customMetricsSchema;
+            project.currentSchemaVersion = (project.currentSchemaVersion || 1) + 1;
+        }
+        if (data.visibleDefaultMetrics !== undefined) project.visibleDefaultMetrics = data.visibleDefaultMetrics as DefaultMetricKey[];
+        if (data.webhookUrl !== undefined) project.webhookUrl = data.webhookUrl || null;
+        if (data.webhookEvents !== undefined) project.webhookEvents = data.webhookEvents as WebhookEvent[];
+        if (data.webhookHeaders !== undefined) project.webhookHeaders = data.webhookHeaders;
         await project.save();
         return project;
     }
@@ -702,11 +752,7 @@ export class OperatorAnalyticsService {
         }
     }
 
-    // ─── Templates ───────────────────────────────────────────────────
 
-    getProjectTemplates(): ProjectTemplate[] {
-        return PROJECT_TEMPLATES;
-    }
 
     // ─── Schema Management ───────────────────────────────────────────
 
@@ -747,84 +793,6 @@ ${systemPrompt ? `\nBusiness context: ${systemPrompt}` : ''}`,
         return parsed.metrics || [];
     }
 
-    async updateProjectSchema(
-        projectId: number,
-        userId: string,
-        schema: MetricDefinition[],
-        systemPrompt?: string,
-        visibleDefaultMetrics?: DefaultMetricKey[],
-    ): Promise<OperatorProject> {
-        const project = await this.projectRepository.findOne({ where: { id: projectId, userId } });
-        if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
-
-        project.customMetricsSchema = schema;
-        project.currentSchemaVersion = (project.currentSchemaVersion || 1) + 1;
-
-        if (systemPrompt !== undefined) {
-            project.systemPrompt = systemPrompt;
-        }
-        if (visibleDefaultMetrics) {
-            project.visibleDefaultMetrics = visibleDefaultMetrics;
-        }
-
-        await project.save();
-        this.logger.log(`Updated schema for project ${projectId} to version ${project.currentSchemaVersion}`);
-        return project;
-    }
-
-    // ─── SSE Chat ────────────────────────────────────────────────────
-
-    projectChat(
-        message: string,
-        history?: { role: string; content: string }[],
-    ): Observable<{ data: string }> {
-        const subject = new Subject<{ data: string }>();
-
-        const messages: any[] = [
-            {
-                role: 'system',
-                content: `You are an AI assistant helping a user set up call analysis metrics for their business. Ask questions to understand:
-1. What industry/business type they have
-2. What kind of calls they handle
-3. What specific quality aspects they want to measure
-4. Any compliance or regulatory requirements
-
-Be conversational, ask one question at a time. Respond in the same language as the user.
-When you have enough context (usually after 2-4 exchanges), suggest that they can now generate metrics.
-Keep responses concise — max 2-3 sentences.`,
-            },
-        ];
-
-        if (history?.length) {
-            messages.push(...history.map(m => ({ role: m.role, content: m.content })));
-        }
-        messages.push({ role: 'user', content: message });
-
-        // Start streaming in background
-        (async () => {
-            try {
-                const stream = await this.openAiClient.chat.completions.create({
-                    messages,
-                    model: 'gpt-4o',
-                    stream: true,
-                });
-
-                for await (const chunk of stream) {
-                    const delta = chunk.choices[0]?.delta?.content;
-                    if (delta) {
-                        subject.next({ data: JSON.stringify({ content: delta }) });
-                    }
-                }
-                subject.next({ data: JSON.stringify({ done: true }) });
-                subject.complete();
-            } catch (err) {
-                subject.next({ data: JSON.stringify({ error: err.message }) });
-                subject.complete();
-            }
-        })();
-
-        return subject.asObservable();
-    }
 
     // ─── Project Dashboard ───────────────────────────────────────────
 
@@ -979,23 +947,7 @@ Write insights in Russian. Be specific and actionable.`;
         return result;
     }
 
-    // ─── Webhook Management ──────────────────────────────────────────
-
-    async updateWebhook(
-        projectId: number,
-        userId: string,
-        webhookUrl?: string,
-        webhookEvents?: WebhookEvent[],
-    ): Promise<OperatorProject> {
-        const project = await this.projectRepository.findOne({ where: { id: projectId, userId } });
-        if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
-
-        if (webhookUrl !== undefined) project.webhookUrl = webhookUrl;
-        if (webhookEvents !== undefined) project.webhookEvents = webhookEvents;
-
-        await project.save();
-        return project;
-    }
+    // ─── Webhook ─────────────────────────────────────────────────────
 
     async callWebhook(
         project: OperatorProject,
@@ -1018,7 +970,10 @@ Write insights in Russian. Be specific and actionable.`;
             try {
                 await axios.post(project.webhookUrl, body, {
                     timeout: 10_000,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(project.webhookHeaders || {}),
+                    },
                 });
                 this.logger.log(`Webhook delivered: ${event} → ${project.webhookUrl}`);
                 return;
@@ -1163,7 +1118,7 @@ Write insights in Russian. Be specific and actionable.`;
         }
 
         // LLM cost: tokens × (analytic price per 1M tokens)
-        const llmCost = totalTokens > 0 ? parseFloat((totalTokens * (price.analytic / 1_000_000)).toFixed(6)) : 0;
+        const llmCost = totalTokens > 0 ? parseFloat((totalTokens * ((price.analytic || 0) / 1_000_000)).toFixed(6)) : 0;
 
         // STT cost: duration in minutes × stt price per minute
         const durationMinutes = durationSeconds / 60;

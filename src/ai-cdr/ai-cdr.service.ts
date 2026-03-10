@@ -397,16 +397,32 @@ export class AiCdrService {
                 ]
             });
 
+            // Build a sum-specific where clause that strips $analytics.*$ conditions
+            // so that no JOIN is required and the 'cost' column is unambiguous.
+            const sumWhereClause: any = Object.fromEntries(
+                Object.entries(whereClause).filter(([key]) => !String(key).startsWith('$analytics'))
+            );
+            // Also strip from Op.or array
+            if (sumWhereClause[sequelize.Op.or]) {
+                sumWhereClause[sequelize.Op.or] = (sumWhereClause[sequelize.Op.or] as any[]).filter(
+                    (cond: any) => !Object.keys(cond).some(k => String(k).startsWith('$analytics'))
+                );
+            }
+
             const totalCostRaw = await this.aiCdrRepository.sum('cost', {
-                where: whereClause
-            });
+                where: sumWhereClause,
+            } as any);
             const totalCost = parseFloat((totalCostRaw || 0).toFixed(2));
 
 
             return { count, totalCost, rows }
 
         } catch (e) {
-            throw new HttpException({ message: "[AiCdr]: Request error", error: e }, HttpStatus.BAD_REQUEST);
+            this.logger.error('[AiCdr]: get() error', e instanceof Error ? e.stack : e);
+            throw new HttpException(
+                { message: "[AiCdr]: Request error", error: e instanceof Error ? e.message : String(e) },
+                HttpStatus.BAD_REQUEST
+            );
         }
     }
 

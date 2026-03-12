@@ -389,7 +389,7 @@ export class UsersService {
         return {
             balance: user.balance,
             currency: user.currency,
-            rate: currencyRate.rate
+            rate: currencyRate?.rate ?? 1
         }
     }
 

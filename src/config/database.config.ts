@@ -97,11 +97,11 @@ async function seedDefaultRoles(
                 )
             `);
             await sequelize.query(`
-                INSERT INTO roles (value, description) VALUES ('ADMIN', 'Admin')
+                INSERT INTO roles (value, description, "createdAt", "updatedAt") VALUES ('ADMIN', 'Admin', NOW(), NOW())
                 ON CONFLICT (value) DO NOTHING
             `);
             await sequelize.query(`
-                INSERT INTO roles (value, description) VALUES ('USER', 'Customer')
+                INSERT INTO roles (value, description, "createdAt", "updatedAt") VALUES ('USER', 'Customer', NOW(), NOW())
                 ON CONFLICT (value) DO NOTHING
             `);
         } else {

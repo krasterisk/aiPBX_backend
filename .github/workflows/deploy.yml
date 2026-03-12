@@ -85,7 +85,18 @@ jobs:
             # ── Pull latest backend code ──
             echo "Pulling backend..."
             git config --global --add safe.directory /app/aiPBX_backend
-            sudo chown -R $(whoami):$(whoami) /app/aiPBX_backend
+
+            # Clone if the directory doesn't exist yet (first deploy on a new server)
+            if [ ! -d "/app/aiPBX_backend" ]; then
+              echo "Backend directory not found, cloning repository..."
+              sudo mkdir -p /app
+              cd /app
+              sudo git clone https://github.com/${{ github.repository }}.git aiPBX_backend
+              sudo chown -R $(whoami):$(whoami) /app/aiPBX_backend
+            else
+              sudo chown -R $(whoami):$(whoami) /app/aiPBX_backend
+            fi
+
             cd /app/aiPBX_backend && git pull origin master
 
             cd /app

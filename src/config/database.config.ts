@@ -140,9 +140,8 @@ export const getDatabaseConfig = async (): Promise<SequelizeModuleOptions> => {
 
     const isNewDatabase = await ensureDatabaseExists(dialect, host, port, username, password, database);
 
-    if (isNewDatabase) {
-        await seedDefaultRoles(dialect, host, port, username, password, database);
-    }
+    // Always seed default roles — INSERT is idempotent (ON CONFLICT DO NOTHING / INSERT IGNORE)
+    await seedDefaultRoles(dialect, host, port, username, password, database);
 
     return {
         dialect,

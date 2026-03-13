@@ -34,6 +34,15 @@ async function start() {
         crossOriginResourcePolicy: { policy: 'cross-origin' },
     }))
 
+    // Disable browser caching for all API responses
+    app.use((req, res, next) => {
+        if (!req.path.startsWith('/static/')) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+        }
+        next();
+    });
+
     // Enable Cors
     app.enableCors()
 

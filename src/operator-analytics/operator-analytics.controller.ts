@@ -34,6 +34,28 @@ const ALLOWED_MIMES = [
 export class OperatorAnalyticsController {
     constructor(private readonly service: OperatorAnalyticsService) { }
 
+    // ─── Batch Progress (JWT Auth) ───────────────────────────
+
+    @Get('batch/:batchId')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Get batch processing progress' })
+    @ApiResponse({ status: 200, description: 'Batch progress with per-file status' })
+    @ApiResponse({ status: 404, description: 'Batch not found' })
+    async getBatchStatus(
+        @Param('batchId') batchId: string,
+    ) {
+        const batch = this.service.getBatchStatus(batchId);
+        if (!batch) {
+            throw new HttpException('Batch not found', HttpStatus.NOT_FOUND);
+        }
+        return {
+            ...batch,
+            progress: Math.round(((batch.completed + batch.failed) / batch.total) * 100),
+        };
+    }
+
     // ─── Frontend Upload (JWT Auth) ──────────────────────────────────
 
     @Post('upload')
@@ -90,19 +112,22 @@ export class OperatorAnalyticsController {
             );
         }
 
-        // Multiple files → batch
-        const items = [];
+        // Multiple files → batch with sequential processing
+        const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const batchItems = [];
+        const responseItems = [];
         for (const file of files) {
             const record = await this.service.createProcessingRecord(
                 file.originalname, userId, AnalyticsSource.FRONTEND, options,
             );
-            items.push({ id: record.id, filename: file.originalname, status: 'processing' });
-
-            // Fire and forget background processing
-            this.service.processInBackground(record.id, file.buffer, body.provider);
+            batchItems.push({ recordId: record.id, buffer: file.buffer, filename: file.originalname });
+            responseItems.push({ id: record.id, filename: file.originalname, status: 'pending' });
         }
 
-        return { items };
+        // Start sequential background processing
+        this.service.startBatch(batchId, batchItems, body.provider);
+
+        return { batchId, total: files.length, items: responseItems };
     }
 
     // ─── External API: Upload file (API Token Auth) ───────────────────
@@ -152,16 +177,20 @@ export class OperatorAnalyticsController {
             );
         }
 
-        const items = [];
+        const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const batchItems = [];
+        const responseItems = [];
         for (const file of files) {
             const record = await this.service.createProcessingRecord(
                 file.originalname, userId, AnalyticsSource.API, options,
             );
-            items.push({ id: record.id, filename: file.originalname, status: 'processing' });
-            this.service.processInBackground(record.id, file.buffer, body.provider);
+            batchItems.push({ recordId: record.id, buffer: file.buffer, filename: file.originalname });
+            responseItems.push({ id: record.id, filename: file.originalname, status: 'pending' });
         }
 
-        return { items };
+        this.service.startBatch(batchId, batchItems, body.provider);
+
+        return { batchId, total: files.length, items: responseItems };
     }
 
     // ─── External API: Analyze by URL (API Token Auth) ───────────────

@@ -42,7 +42,7 @@ export class WhisperService implements ITranscriptionProvider {
         // Whisper ASR webservice query params
         const params: Record<string, string> = {
             task: 'transcribe',
-            output: 'json',
+            output: 'verbose_json',  // verbose_json returns { text, segments, duration, language }
         };
 
         if (language && language !== 'auto') {

@@ -188,12 +188,13 @@ describe('OperatorAnalyticsService', () => {
         it('should proceed when balance is positive', async () => {
             mockUserRepo.findByPk.mockResolvedValue({ balance: 50 });
             // Will fail at transcription stage but won't throw 402
+            mockWhisperService.transcribe.mockRejectedValue(new Error('Whisper STT error'));
             mockExternalStt.transcribe.mockRejectedValue(new Error('STT error'));
             mockOpenAiStt.transcribe.mockRejectedValue(new Error('STT fallback error'));
 
             await expect(
                 service.analyzeFile(Buffer.from('audio'), 'test.mp3', '1', AnalyticsSource.FRONTEND),
-            ).rejects.toThrow('STT fallback error');
+            ).rejects.toThrow('Whisper STT error');
         });
     });
 

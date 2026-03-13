@@ -14,7 +14,7 @@ import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
 import { BillingRecord } from '../billing/billing-record.model';
 import {
     OperatorMetrics, CustomMetricDef, ITranscriptionProvider, TranscriptionResult,
-    MetricDefinition, DefaultMetricKey, WebhookEvent,
+    MetricDefinition, DefaultMetricKey, WebhookEvent, BatchStatus,
 } from './interfaces/operator-metrics.interface';
 import { PROJECT_TEMPLATES } from './project-templates';
 import { Op, Sequelize } from 'sequelize';
@@ -28,6 +28,10 @@ export class OperatorAnalyticsService {
     private readonly logger = new Logger(OperatorAnalyticsService.name);
     private readonly openAiClient: OpenAI;
     private readonly sttProviders: Map<string, ITranscriptionProvider> = new Map();
+
+    // ─── Batch Processing Tracker ─────────────────────────────────────
+    private readonly batches = new Map<string, BatchStatus>();
+    private readonly BATCH_TTL = 60 * 60 * 1000; // 1 hour
 
     constructor(
         @InjectModel(OperatorAnalytics) private readonly analyticsRepository: typeof OperatorAnalytics,
@@ -48,7 +52,13 @@ export class OperatorAnalyticsService {
         this.openAiClient = new OpenAI({ apiKey });
 
         // Register STT providers
-        this.sttProviders.set('openai', this.openAiSttProvider);
+        const openaiSttEnabled = (this.configService.get<string>('OPENAI_STT_ENABLED') || process.env.OPENAI_STT_ENABLED || 'false').toLowerCase() === 'true';
+        if (openaiSttEnabled) {
+            this.sttProviders.set('openai', this.openAiSttProvider);
+            this.logger.log('OpenAI STT provider: ENABLED');
+        } else {
+            this.logger.log('OpenAI STT provider: DISABLED (set OPENAI_STT_ENABLED=true to enable)');
+        }
         this.sttProviders.set('external', this.externalSttProvider);
         this.sttProviders.set('whisper', this.whisperService);
     }
@@ -288,6 +298,76 @@ export class OperatorAnalyticsService {
 
     // ─── Background Processing (Batch) ───────────────────────────────
 
+    /**
+     * Start a batch: process files sequentially (concurrency=1) with progress tracking.
+     * Returns batchId immediately; processing runs in background.
+     */
+    startBatch(
+        batchId: string,
+        items: { recordId: number; buffer: Buffer; filename: string }[],
+        provider?: string,
+    ): void {
+        const batch: BatchStatus = {
+            batchId,
+            total: items.length,
+            completed: 0,
+            failed: 0,
+            items: items.map(i => ({
+                id: i.recordId,
+                filename: i.filename,
+                status: 'pending' as const,
+            })),
+            startedAt: new Date(),
+        };
+        this.batches.set(batchId, batch);
+        this.cleanupOldBatches();
+
+        // Fire-and-forget sequential processing
+        this.processBatchSequentially(batch, items, provider)
+            .catch(e => this.logger.error(`Batch ${batchId} fatal error: ${e.message}`));
+    }
+
+    getBatchStatus(batchId: string): BatchStatus | null {
+        return this.batches.get(batchId) || null;
+    }
+
+    private async processBatchSequentially(
+        batch: BatchStatus,
+        items: { recordId: number; buffer: Buffer; filename: string }[],
+        provider?: string,
+    ): Promise<void> {
+        this.logger.log(`Batch ${batch.batchId}: starting ${items.length} files sequentially`);
+
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            batch.items[i].status = 'processing';
+
+            try {
+                await this.processInBackground(item.recordId, item.buffer, provider);
+                batch.items[i].status = 'completed';
+                batch.completed++;
+            } catch (e) {
+                batch.items[i].status = 'error';
+                batch.failed++;
+                this.logger.error(`Batch ${batch.batchId} item #${item.recordId} failed: ${e.message}`);
+            }
+
+            this.logger.log(`Batch ${batch.batchId}: ${batch.completed + batch.failed}/${batch.total} done`);
+        }
+
+        batch.finishedAt = new Date();
+        this.logger.log(`Batch ${batch.batchId}: finished (${batch.completed} ok, ${batch.failed} failed)`);
+    }
+
+    private cleanupOldBatches(): void {
+        const now = Date.now();
+        for (const [id, batch] of this.batches) {
+            if (batch.finishedAt && now - batch.finishedAt.getTime() > this.BATCH_TTL) {
+                this.batches.delete(id);
+            }
+        }
+    }
+
     async createProcessingRecord(
         filename: string,
         userId: string,
@@ -508,7 +588,23 @@ export class OperatorAnalyticsService {
             include: [{ model: AiAnalytics, as: 'analytics' }]
         });
 
-        return { data, total, page, limit };
+        // Attach transcription from operator_analytics records
+        const analyticsIds = data.map(d => Number(d.channelId)).filter(id => !isNaN(id));
+        const oaRecords = analyticsIds.length > 0
+            ? await this.analyticsRepository.findAll({
+                where: { id: { [Op.in]: analyticsIds } },
+                attributes: ['id', 'transcription'],
+            })
+            : [];
+        const transcriptionMap = new Map(oaRecords.map(r => [String(r.id), r.transcription]));
+
+        const enrichedData = data.map(row => {
+            const json = row.toJSON() as any;
+            json.transcription = transcriptionMap.get(row.channelId) || null;
+            return json;
+        });
+
+        return { data: enrichedData, total, page, limit };
     }
 
     async getDashboard(query: {

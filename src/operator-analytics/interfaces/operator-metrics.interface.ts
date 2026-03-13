@@ -67,6 +67,20 @@ export interface DashboardConfig {
 
 export type WebhookEvent = 'analysis.completed' | 'analysis.error';
 
+// ─── Batch Processing Types ──────────────────────────────────────
+
+export type BatchItemStatus = 'pending' | 'processing' | 'completed' | 'error';
+
+export interface BatchStatus {
+    batchId: string;
+    total: number;
+    completed: number;
+    failed: number;
+    items: { id: number; filename: string; status: BatchItemStatus }[];
+    startedAt: Date;
+    finishedAt?: Date;
+}
+
 /** Custom headers sent with webhook requests (e.g. Authorization) */
 export type WebhookHeaders = Record<string, string>;
 

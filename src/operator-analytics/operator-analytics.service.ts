@@ -5,6 +5,7 @@ import { OperatorApiToken } from './operator-api-token.model';
 import { OperatorProject } from './operator-project.model';
 import { OpenAiTranscriptionProvider } from './providers/openai-transcription.provider';
 import { ExternalSttProvider } from './providers/external-stt.provider';
+import { WhisperService } from '../whisper/whisper.service';
 import { Prices } from '../prices/prices.model';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/users.model';
@@ -41,13 +42,15 @@ export class OperatorAnalyticsService {
         private readonly configService: ConfigService,
         private readonly openAiSttProvider: OpenAiTranscriptionProvider,
         private readonly externalSttProvider: ExternalSttProvider,
+        private readonly whisperService: WhisperService,
     ) {
         const apiKey = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
         this.openAiClient = new OpenAI({ apiKey });
 
-        // Register STT providers — 'external' is default, 'openai' is fallback
+        // Register STT providers
         this.sttProviders.set('openai', this.openAiSttProvider);
         this.sttProviders.set('external', this.externalSttProvider);
+        this.sttProviders.set('whisper', this.whisperService);
     }
 
     // ─── Dialect-aware SQL helpers ───
@@ -75,7 +78,7 @@ export class OperatorAnalyticsService {
         language: string,
         preferredProvider?: string,
     ): Promise<TranscriptionResult & { provider: string }> {
-        const providerName = preferredProvider || 'openai';
+        const providerName = preferredProvider || 'whisper';
         const provider = this.sttProviders.get(providerName);
 
         if (!provider) {
@@ -175,7 +178,7 @@ export class OperatorAnalyticsService {
             await this.aiCdrRepository.create({
                 channelId,
                 projectId: record.projectId,
-                duration: sttResult.duration,
+                duration: Math.round(sttResult.duration),
                 userId: record.userId,
                 cost: totalCost,
                 tokens: totalTokens,
@@ -358,7 +361,7 @@ export class OperatorAnalyticsService {
             await this.aiCdrRepository.create({
                 channelId,
                 projectId: record.projectId,
-                duration: sttResult.duration,
+                duration: Math.round(sttResult.duration),
                 userId: record.userId,
                 cost: totalCost,
                 tokens: totalTokens,

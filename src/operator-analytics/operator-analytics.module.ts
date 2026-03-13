@@ -13,6 +13,7 @@ import { Prices } from '../prices/prices.model';
 import { User } from '../users/users.model';
 import { UsersModule } from '../users/users.module';
 import { AuthModule } from '../auth/auth.module';
+import { WhisperModule } from '../whisper/whisper.module';
 import { AiCdr } from '../ai-cdr/ai-cdr.model';
 import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
 import { BillingRecord } from '../billing/billing-record.model';
@@ -23,6 +24,7 @@ import { BillingRecord } from '../billing/billing-record.model';
         ConfigModule,
         UsersModule,
         AuthModule,
+        WhisperModule,
     ],
     controllers: [OperatorAnalyticsController],
     providers: [

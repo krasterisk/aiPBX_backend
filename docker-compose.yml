@@ -14,6 +14,31 @@ services:
       - "3032:3032"
       - "3033:3033"
 
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest-gpu
+    restart: unless-stopped
+    profiles:
+      - gpu
+    networks:
+      - app-network
+    environment:
+      - ASR_MODEL=large-v3
+      - ASR_ENGINE=faster_whisper
+      - ASR_QUANTIZATION=int8
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
 #  nginx:
 #    image: nginx:alpine
 #    restart: unless-stopped
@@ -33,3 +58,4 @@ volumes:
 networks:
   app-network:
     driver: bridge
+

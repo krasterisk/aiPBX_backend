@@ -31,6 +31,7 @@ import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { McpClientModule } from './mcp-client/mcp-client.module';
 import { OperatorAnalyticsModule } from './operator-analytics/operator-analytics.module';
 import { SipTrunksModule } from './sip-trunks/sip-trunks.module';
+import { WhisperModule } from './whisper/whisper.module';
 
 @Module({
     imports: [
@@ -75,6 +76,7 @@ import { SipTrunksModule } from './sip-trunks/sip-trunks.module';
         McpClientModule,
         OperatorAnalyticsModule,
         SipTrunksModule,
+        WhisperModule,
         ThrottlerModule.forRoot([{
             ttl: 60000,
             limit: 30,

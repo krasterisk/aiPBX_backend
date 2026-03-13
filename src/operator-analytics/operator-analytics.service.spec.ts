@@ -14,6 +14,7 @@ import { User } from '../users/users.model';
 import { UsersService } from '../users/users.service';
 import { OpenAiTranscriptionProvider } from './providers/openai-transcription.provider';
 import { ExternalSttProvider } from './providers/external-stt.provider';
+import { WhisperService } from '../whisper/whisper.service';
 
 describe('OperatorAnalyticsService', () => {
     let service: OperatorAnalyticsService;
@@ -31,6 +32,7 @@ describe('OperatorAnalyticsService', () => {
     let mockConfigService: any;
     let mockOpenAiStt: any;
     let mockExternalStt: any;
+    let mockWhisperService: any;
 
     // ─── Reusable mock data ──────────────────────────────────────────
     const mockUser = { balance: 100, update: jest.fn() };
@@ -129,6 +131,11 @@ describe('OperatorAnalyticsService', () => {
             transcribe: jest.fn().mockResolvedValue({ text: 'Hello world', duration: 60 }),
         };
 
+        mockWhisperService = {
+            transcribe: jest.fn().mockResolvedValue({ text: 'Hello world', duration: 60 }),
+            healthCheck: jest.fn().mockResolvedValue({ status: 'ok', url: 'http://whisper:9000/asr' }),
+        };
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 OperatorAnalyticsService,
@@ -144,6 +151,7 @@ describe('OperatorAnalyticsService', () => {
                 { provide: ConfigService, useValue: mockConfigService },
                 { provide: OpenAiTranscriptionProvider, useValue: mockOpenAiStt },
                 { provide: ExternalSttProvider, useValue: mockExternalStt },
+                { provide: WhisperService, useValue: mockWhisperService },
             ],
         }).compile();
 

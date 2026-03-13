@@ -88,7 +88,10 @@ export class OperatorAnalyticsService {
         language: string,
         preferredProvider?: string,
     ): Promise<TranscriptionResult & { provider: string }> {
-        const providerName = preferredProvider || 'whisper';
+        const providerName = preferredProvider
+            || this.configService.get<string>('DEFAULT_STT_PROVIDER')
+            || process.env.DEFAULT_STT_PROVIDER
+            || 'whisper';
         const provider = this.sttProviders.get(providerName);
 
         if (!provider) {

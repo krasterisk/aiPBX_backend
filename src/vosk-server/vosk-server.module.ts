@@ -5,4 +5,4 @@ import { VoskServerService } from './vosk-server.service';
   providers: [VoskServerService],
   exports: [VoskServerService]
 })
-export class VoskServerModule {}
+export class VoskServerModule { }

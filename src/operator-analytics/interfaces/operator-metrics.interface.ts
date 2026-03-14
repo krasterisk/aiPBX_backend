@@ -73,6 +73,7 @@ export type BatchItemStatus = 'pending' | 'processing' | 'completed' | 'error';
 
 export interface BatchStatus {
     batchId: string;
+    userId: string;
     total: number;
     completed: number;
     failed: number;

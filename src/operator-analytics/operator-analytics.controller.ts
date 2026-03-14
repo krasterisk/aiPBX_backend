@@ -36,6 +36,22 @@ export class OperatorAnalyticsController {
 
     // ─── Batch Progress (JWT Auth) ───────────────────────────
 
+    @Get('batches')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'List all active batch processes for current user' })
+    @ApiResponse({ status: 200, description: 'Array of active batches with progress' })
+    async getActiveBatches(@Req() req: RequestWithUser) {
+        const userId = req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        const batches = this.service.getActiveBatches(userId);
+        return batches.map(batch => ({
+            ...batch,
+            progress: Math.round(((batch.completed + batch.failed) / batch.total) * 100),
+        }));
+    }
+
     @Get('batch/:batchId')
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
@@ -125,7 +141,7 @@ export class OperatorAnalyticsController {
         }
 
         // Start sequential background processing
-        this.service.startBatch(batchId, batchItems, body.provider);
+        this.service.startBatch(batchId, userId, batchItems, body.provider);
 
         return { batchId, total: files.length, items: responseItems };
     }
@@ -188,7 +204,7 @@ export class OperatorAnalyticsController {
             responseItems.push({ id: record.id, filename: file.originalname, status: 'pending' });
         }
 
-        this.service.startBatch(batchId, batchItems, body.provider);
+        this.service.startBatch(batchId, userId, batchItems, body.provider);
 
         return { batchId, total: files.length, items: responseItems };
     }

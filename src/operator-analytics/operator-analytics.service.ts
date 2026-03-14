@@ -307,11 +307,13 @@ export class OperatorAnalyticsService {
      */
     startBatch(
         batchId: string,
+        userId: string,
         items: { recordId: number; buffer: Buffer; filename: string }[],
         provider?: string,
     ): void {
         const batch: BatchStatus = {
             batchId,
+            userId,
             total: items.length,
             completed: 0,
             failed: 0,
@@ -332,6 +334,17 @@ export class OperatorAnalyticsService {
 
     getBatchStatus(batchId: string): BatchStatus | null {
         return this.batches.get(batchId) || null;
+    }
+
+    getActiveBatches(userId: string): BatchStatus[] {
+        this.cleanupOldBatches();
+        const result: BatchStatus[] = [];
+        for (const batch of this.batches.values()) {
+            if (batch.userId === userId) {
+                result.push(batch);
+            }
+        }
+        return result;
     }
 
     private async processBatchSequentially(

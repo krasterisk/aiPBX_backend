@@ -73,6 +73,7 @@ export class WhisperService implements ITranscriptionProvider {
         }
 
         const data = response.data;
+        this.logger.debug(`[Whisper] Response keys: ${typeof data === 'object' ? Object.keys(data).join(', ') : typeof data}`);
 
         let text: string;
         let duration = 0;
@@ -81,8 +82,16 @@ export class WhisperService implements ITranscriptionProvider {
             text = data;
         } else if (typeof data === 'object') {
             // Whisper ASR webservice returns { text: "..." } for output=json
+            // verbose_json adds: { text, segments, language, duration }
             text = data.text || '';
             duration = data.duration || data.duration_seconds || 0;
+
+            // Fallback: calculate duration from segments if top-level duration is missing
+            if (!duration && Array.isArray(data.segments) && data.segments.length > 0) {
+                const lastSegment = data.segments[data.segments.length - 1];
+                duration = lastSegment.end || 0;
+                this.logger.log(`[Whisper] Duration extracted from segments: ${duration}s`);
+            }
         } else {
             throw new HttpException(
                 `Whisper returned unexpected response format: ${typeof data}`,

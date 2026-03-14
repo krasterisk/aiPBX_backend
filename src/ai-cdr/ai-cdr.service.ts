@@ -14,6 +14,7 @@ import { AiAnalytics } from "../ai-analytics/ai-analytics.model";
 import { BillingRecord } from "../billing/billing-record.model";
 import { AiAnalyticsService } from "../ai-analytics/ai-analytics.service";
 import { forwardRef } from "@nestjs/common";
+import { OperatorAnalytics } from "../operator-analytics/operator-analytics.model";
 
 interface AudioTranscriptionEvent {
     type: 'conversation.item.input_audio_transcription.completed';
@@ -40,6 +41,7 @@ export class AiCdrService {
         @InjectModel(AiCdr) private aiCdrRepository: typeof AiCdr,
         @InjectModel(AiEvents) private aiEventsRepository: typeof AiEvents,
         @InjectModel(Assistant) private readonly assistantRepository: typeof Assistant,
+        @InjectModel(OperatorAnalytics) private readonly operatorAnalyticsRepository: typeof OperatorAnalytics,
         private readonly billingService: BillingService,
         @Inject(forwardRef(() => AiAnalyticsService)) private readonly aiAnalyticsService: AiAnalyticsService
     ) {
@@ -414,8 +416,29 @@ export class AiCdrService {
             } as any);
             const totalCost = parseFloat((totalCostRaw || 0).toFixed(2));
 
+            // Enrich rows with transcription from OperatorAnalytics
+            // For records created via operator-analytics, channelId = OperatorAnalytics.id
+            const analyticsIds = rows
+                .filter(r => r.source === 'external-front' || r.source === 'external-api')
+                .map(r => Number(r.channelId))
+                .filter(id => !isNaN(id));
 
-            return { count, totalCost, rows }
+            let transcriptionMap = new Map<string, string>();
+            if (analyticsIds.length > 0) {
+                const oaRecords = await this.operatorAnalyticsRepository.findAll({
+                    where: { id: { [Op.in]: analyticsIds } },
+                    attributes: ['id', 'transcription'],
+                });
+                transcriptionMap = new Map(oaRecords.map(r => [String(r.id), r.transcription]));
+            }
+
+            const enrichedRows = rows.map(row => {
+                const json = row.toJSON() as any;
+                json.transcription = transcriptionMap.get(row.channelId) || null;
+                return json;
+            });
+
+            return { count, totalCost, rows: enrichedRows }
 
         } catch (e) {
             this.logger.error('[AiCdr]: get() error', e instanceof Error ? e.stack : e);

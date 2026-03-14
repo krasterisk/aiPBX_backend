@@ -9,12 +9,13 @@ import { BillingModule } from "../billing/billing.module";
 import { Assistant } from '../assistants/assistants.model';
 import { SipAccounts } from '../pbx-servers/sip-accounts.model';
 import { AiAnalyticsModule } from "../ai-analytics/ai-analytics.module";
+import { OperatorAnalytics } from "../operator-analytics/operator-analytics.model";
 
 @Module({
   controllers: [AiCdrController],
   providers: [AiCdrService],
   imports: [
-    SequelizeModule.forFeature([AiCdr, AiEvents, Assistant, SipAccounts]),
+    SequelizeModule.forFeature([AiCdr, AiEvents, Assistant, SipAccounts, OperatorAnalytics]),
     forwardRef(() => AuthModule),
     forwardRef(() => AiAnalyticsModule),
     BillingModule

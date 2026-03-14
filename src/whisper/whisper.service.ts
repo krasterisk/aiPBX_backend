@@ -72,29 +72,41 @@ export class WhisperService implements ITranscriptionProvider {
             throw new HttpException(`Whisper STT error: ${msg}`, status);
         }
 
-        const data = response.data;
-        this.logger.debug(`[Whisper] Response keys: ${typeof data === 'object' ? Object.keys(data).join(', ') : typeof data}`);
+        let parsed: any = response.data;
+
+        // Whisper may return JSON with Content-Type: text/plain, so axios won't auto-parse
+        if (typeof parsed === 'string') {
+            try {
+                parsed = JSON.parse(parsed);
+                this.logger.debug(`[Whisper] Parsed string response as JSON, keys: ${Object.keys(parsed).join(', ')}`);
+            } catch {
+                // genuinely plain text — keep as-is
+                this.logger.debug(`[Whisper] Response is plain text (${parsed.length} chars)`);
+            }
+        } else {
+            this.logger.debug(`[Whisper] Response keys: ${typeof parsed === 'object' ? Object.keys(parsed).join(', ') : typeof parsed}`);
+        }
 
         let text: string;
         let duration = 0;
 
-        if (typeof data === 'string') {
-            text = data;
-        } else if (typeof data === 'object') {
+        if (typeof parsed === 'string') {
+            text = parsed;
+        } else if (typeof parsed === 'object') {
             // Whisper ASR webservice returns { text: "..." } for output=json
             // verbose_json adds: { text, segments, language, duration }
-            text = data.text || '';
-            duration = data.duration || data.duration_seconds || 0;
+            text = parsed.text || '';
+            duration = parsed.duration || parsed.duration_seconds || 0;
 
             // Fallback: calculate duration from segments if top-level duration is missing
-            if (!duration && Array.isArray(data.segments) && data.segments.length > 0) {
-                const lastSegment = data.segments[data.segments.length - 1];
+            if (!duration && Array.isArray(parsed.segments) && parsed.segments.length > 0) {
+                const lastSegment = parsed.segments[parsed.segments.length - 1];
                 duration = lastSegment.end || 0;
                 this.logger.log(`[Whisper] Duration extracted from segments: ${duration}s`);
             }
         } else {
             throw new HttpException(
-                `Whisper returned unexpected response format: ${typeof data}`,
+                `Whisper returned unexpected response format: ${typeof parsed}`,
                 HttpStatus.BAD_GATEWAY,
             );
         }

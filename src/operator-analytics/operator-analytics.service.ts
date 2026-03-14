@@ -176,7 +176,7 @@ export class OperatorAnalyticsService {
 
             // 5. Calculate cost and charge (LLM tokens + STT duration)
             const totalTokens = usage?.total_tokens || 0;
-            const { totalCost, llmCost, sttCost } = await this.chargeCost(userId, totalTokens, sttResult.duration);
+            const { totalCost, llmCost, sttCost } = await this.chargeCost(userId, totalTokens, sttResult.duration, sttResult.provider);
 
             // 6. Save results locally
             await record.update({
@@ -442,7 +442,7 @@ export class OperatorAnalyticsService {
             );
 
             const totalTokens = usage?.total_tokens || 0;
-            const { totalCost, llmCost, sttCost } = await this.chargeCost(record.userId, totalTokens, sttResult.duration);
+            const { totalCost, llmCost, sttCost } = await this.chargeCost(record.userId, totalTokens, sttResult.duration, sttResult.provider);
 
             await record.update({
                 status: AnalyticsStatus.COMPLETED,
@@ -729,6 +729,7 @@ export class OperatorAnalyticsService {
             aggregatedMetrics,
             sentimentDistribution,
             timeSeries,
+            insightsAvailable: totalAnalyzed >= 5,
         };
     }
 
@@ -1062,6 +1063,81 @@ Write insights in Russian. Be specific and actionable.`;
         return result;
     }
 
+    /**
+     * Get AI Insights without requiring a project.
+     * Works with the same filters as getDashboard().
+     * If projectId is provided, uses project's systemPrompt as business context.
+     */
+    async getInsights(
+        query: {
+            startDate?: string;
+            endDate?: string;
+            operatorName?: string;
+            projectId?: number;
+        },
+        isAdmin: boolean,
+        userId: string,
+    ): Promise<{ insights: string[]; generatedAt: string }> {
+        const cacheKey = `insights:${userId}:${query.projectId || 'all'}:${query.startDate || ''}:${query.endDate || ''}:${query.operatorName || ''}`;
+        const cached = this.insightsCache.get(cacheKey);
+        if (cached && Date.now() < cached.expiry) {
+            return cached.data;
+        }
+
+        const dashboard = await this.getDashboard(query, isAdmin, userId);
+
+        if (dashboard.totalAnalyzed < 5) {
+            return { insights: [], generatedAt: new Date().toISOString() };
+        }
+
+        // Optionally load project context
+        let projectContext = '';
+        if (query.projectId) {
+            const project = await this.projectRepository.findByPk(query.projectId);
+            if (project) {
+                projectContext = `\nProject: ${project.name}`;
+                if (project.systemPrompt) {
+                    projectContext += `\nBusiness context: ${project.systemPrompt}`;
+                }
+            }
+        }
+
+        const prompt = `You are a call center analytics expert. Based on the following aggregated data, generate 3-5 actionable insights.
+${projectContext}
+Period: ${query.startDate || 'all time'} — ${query.endDate || 'now'}
+
+Data:
+- Total calls analyzed: ${dashboard.totalAnalyzed}
+- Average score: ${dashboard.averageScore}
+- Success rate: ${dashboard.successRate}%
+- Average call duration: ${dashboard.averageDuration}s
+- Sentiment: ${JSON.stringify(dashboard.sentimentDistribution)}
+- Metrics breakdown: ${JSON.stringify(dashboard.aggregatedMetrics)}
+
+Return JSON: { "insights": ["insight1", "insight2", ...] }
+Write insights in Russian. Be specific and actionable.`;
+
+        const completion = await this.openAiClient.chat.completions.create({
+            messages: [
+                { role: 'system', content: 'You are a call center analytics AI. Respond only in JSON.' },
+                { role: 'user', content: prompt },
+            ],
+            model: 'gpt-4o',
+            response_format: { type: 'json_object' },
+        });
+
+        const content = completion.choices[0]?.message?.content || '{}';
+        const parsed = JSON.parse(this.sanitizeJsonResponse(content));
+
+        const result = {
+            insights: parsed.insights || [],
+            generatedAt: new Date().toISOString(),
+        };
+
+        this.insightsCache.set(cacheKey, { data: result, expiry: Date.now() + this.INSIGHTS_TTL });
+        return result;
+    }
+
     // ─── Webhook ─────────────────────────────────────────────────────
 
     async callWebhook(
@@ -1225,6 +1301,7 @@ Write insights in Russian. Be specific and actionable.`;
         userId: string,
         totalTokens: number,
         durationSeconds: number = 0,
+        sttProvider?: string,
     ): Promise<{ totalCost: number; llmCost: number; sttCost: number }> {
         const price = await this.pricesRepository.findOne({ where: { userId: Number(userId) } });
         if (!price) {
@@ -1236,12 +1313,14 @@ Write insights in Russian. Be specific and actionable.`;
         const llmCost = totalTokens > 0 ? parseFloat((totalTokens * ((price.analytic || 0) / 1_000_000)).toFixed(6)) : 0;
 
         // STT cost: duration in minutes × stt price per minute
+        // Local Whisper is free — only charge for external API (OpenAI, external-stt)
+        const isLocalStt = sttProvider === 'whisper';
         const durationMinutes = durationSeconds / 60;
-        const sttCost = durationMinutes > 0 ? parseFloat((durationMinutes * (price.stt || 0)).toFixed(6)) : 0;
+        const sttCost = (!isLocalStt && durationMinutes > 0) ? parseFloat((durationMinutes * (price.stt || 0)).toFixed(6)) : 0;
 
         const totalCost = parseFloat((llmCost + sttCost).toFixed(6));
 
-        this.logger.log(`Billing: LLM=${llmCost} (${totalTokens} tokens) + STT=${sttCost} (${durationMinutes.toFixed(2)} min) = ${totalCost}`);
+        this.logger.log(`Billing: LLM=${llmCost} (${totalTokens} tokens) + STT=${sttCost} (${durationMinutes.toFixed(2)} min, provider=${sttProvider || 'unknown'}) = ${totalCost}`);
 
         if (totalCost > 0) {
             await this.usersService.decrementUserBalance(userId, totalCost);

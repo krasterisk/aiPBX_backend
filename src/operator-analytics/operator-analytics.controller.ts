@@ -243,9 +243,15 @@ export class OperatorAnalyticsController {
             projectId,
         };
 
-        // Single URL → sync
+        // Single URL → async (same as batch)
         if (body.url && !body.urls?.length) {
-            return this.service.analyzeUrl(body.url, userId, options);
+            const filename = body.url.split('/').pop()?.split('?')[0] || 'download.mp3';
+            const record = await this.service.createProcessingRecord(
+                filename, userId, AnalyticsSource.API, options,
+            );
+            await record.update({ recordUrl: body.url });
+            this.service.processUrlInBackground(record.id, body.url, body.provider);
+            return { id: record.id, filename, url: body.url, status: 'processing' };
         }
 
         // Batch URLs → async
@@ -568,6 +574,28 @@ export class OperatorAnalyticsController {
         const isAdmin = req.isAdmin ?? false;
         const realUserId = isAdmin ? null : req.tokenUserId;
         return this.service.getDashboard(query, isAdmin, realUserId);
+    }
+
+    // ─── AI Insights (JWT Auth) ──────────────────────────────────────
+
+    @Get('insights')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Get AI-generated insights (project optional)' })
+    @ApiResponse({ status: 200, description: 'AI insights array with generation timestamp' })
+    async getDashboardInsights(
+        @Req() req: RequestWithUser,
+        @Query() query: {
+            startDate?: string;
+            endDate?: string;
+            operatorName?: string;
+            projectId?: number;
+        },
+    ) {
+        const isAdmin = req.isAdmin ?? false;
+        const realUserId = isAdmin ? null : req.tokenUserId;
+        return this.service.getInsights(query, isAdmin, realUserId);
     }
 
     // ─── Get by ID (JWT or API Token) ────────────────────────────────

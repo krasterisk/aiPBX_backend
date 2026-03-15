@@ -31,7 +31,10 @@ export class AssistantsService {
                     uniqueId,
                     userId: assistant.userId !== undefined && assistant.userId !== null
                         ? Number(assistant.userId)
-                        : Number(userId)
+                        : Number(userId),
+                    projectId: (assistant as any).projectId !== undefined && (assistant as any).projectId !== null && (assistant as any).projectId !== ''
+                        ? Number((assistant as any).projectId)
+                        : null
                 }
 
                 const result = await this.assistantsRepository.create(creationAttrs as any)
@@ -64,6 +67,11 @@ export class AssistantsService {
             if (updates.userId) {
                 // @ts-ignore
                 updates.userId = Number(updates.userId)
+            }
+            if ((updates as any).projectId !== undefined) {
+                (updates as any).projectId = (updates as any).projectId !== null && (updates as any).projectId !== ''
+                    ? Number((updates as any).projectId)
+                    : null;
             }
             const assistant = await this.assistantsRepository.findByPk((updates as any).id)
             if (!assistant) {

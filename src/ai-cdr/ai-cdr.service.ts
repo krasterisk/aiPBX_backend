@@ -365,13 +365,16 @@ export class AiCdrService {
 
             // Build order clause based on field type
             let orderClause: any[];
-            const isAssociatedSort = sortField === 'csat' || sortField === 'scenarioSuccess';
+            const isAssociatedSort = sortField === 'csat' || sortField === 'sentiment' || sortField === 'scenarioSuccess';
             // subQuery: false needed when sorting/searching by JOINed fields
             const needsFlatQuery = isAssociatedSort || (search && search.trim() !== '');
 
             if (sortField === 'csat') {
                 // Sort by associated AiAnalytics.csat column
                 orderClause = [[{ model: AiAnalytics, as: 'analytics' }, 'csat', sortOrder]];
+            } else if (sortField === 'sentiment') {
+                // Sort by associated AiAnalytics.sentiment column
+                orderClause = [[{ model: AiAnalytics, as: 'analytics' }, 'sentiment', sortOrder]];
             } else if (sortField === 'scenarioSuccess') {
                 // Sort by JSON field inside analytics.metrics (dialect-aware)
                 orderClause = [[sequelize.literal(`${this.sqlJsonExtract('analytics', 'metrics', '$.scenario_analysis.success')} ${sortOrder}`)]];

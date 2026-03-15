@@ -1,4 +1,4 @@
-import { BelongsTo, Column, DataType, ForeignKey, Model, Table } from 'sequelize-typescript';
+import { BelongsTo, Column, DataType, Model, Table } from 'sequelize-typescript';
 import { ApiProperty } from '@nestjs/swagger';
 import { AiCdr } from '../ai-cdr/ai-cdr.model';
 
@@ -18,8 +18,7 @@ interface CreateBillingRecord {
 
 @Table({ tableName: 'billingRecords' })
 export class BillingRecord extends Model<BillingRecord, CreateBillingRecord> {
-    @ApiProperty({ example: 'abc-123', description: 'Channel uniqueId (FK to aiCdr)' })
-    @ForeignKey(() => AiCdr)
+    @ApiProperty({ example: 'abc-123', description: 'Channel uniqueId or synthetic ID for non-call charges' })
     @Column({ type: DataType.STRING, allowNull: false })
     channelId: string;
 

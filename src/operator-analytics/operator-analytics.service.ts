@@ -1449,7 +1449,10 @@ Analyze the dialogue and return a JSON object with EXACTLY this structure:
   "csat": <1-5 integer>,
   "summary": "<string>",
   "success": <boolean>,
-  "diarized_text": "<full transcription reformatted with speaker labels>"${effectiveMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}
+  "diarized_text": [
+    { "speaker": "operator", "text": "..." },
+    { "speaker": "customer", "text": "..." }
+  ]${effectiveMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}
 }
 
 Metric descriptions:
@@ -1468,12 +1471,18 @@ Metric descriptions:
 - success: Was the customer's question or problem resolved?
 ${customMetricsPromptBlock}
 
-12. diarized_text: Reformat the ENTIRE transcription above with speaker labels. Each line must start with "Оператор: " or "Клиент: " (use "Operator: "/"Customer: " for English conversations). Identify speakers by context: the person providing service/information is the Operator, the person asking questions/requesting help is the Customer. Combine consecutive lines from the same speaker into one paragraph. Preserve ALL original text — do not omit or summarize.
+12. diarized_text: An array of dialogue turns. Each element has:
+   - "speaker": "operator" or "customer" (always lowercase English)
+   - "text": the exact spoken text for that turn
+   Identify speakers by context: the person providing service/information is "operator", the person asking questions/requesting help is "customer".
+   Combine consecutive lines from the same speaker into one array element.
+   Preserve ALL original text — do not omit, summarize, or translate.
 
 IMPORTANT LANGUAGE RULES:
 - "summary" field MUST be written in the same language as the conversation (e.g. Russian if the call is in Russian).
 - "customer_sentiment" MUST be one of these exact English values: "Positive", "Neutral", or "Negative" — do NOT translate it.
-- "diarized_text" MUST preserve the original language and ALL text from the transcription.
+- "diarized_text[].text" MUST preserve the original language and ALL text from the transcription.
+- "diarized_text[].speaker" MUST always be lowercase English: "operator" or "customer".
 - All numeric metric values (0-100) are language-neutral.
 Return ONLY valid JSON without markdown formatting.
 `;
@@ -1494,9 +1503,17 @@ Return ONLY valid JSON without markdown formatting.
         const parsed = JSON.parse(sanitized);
 
         const customMetricsResult = parsed.custom_metrics || null;
-        const diarizedText = parsed.diarized_text || null;
+        const diarizedRaw = parsed.diarized_text || null;
         delete parsed.custom_metrics;
         delete parsed.diarized_text;
+
+        // Convert diarized array to JSON string for storage, or keep as string fallback
+        let diarizedText: string | null = null;
+        if (Array.isArray(diarizedRaw) && diarizedRaw.length > 0) {
+            diarizedText = JSON.stringify(diarizedRaw);
+        } else if (typeof diarizedRaw === 'string' && diarizedRaw.length > 0) {
+            diarizedText = diarizedRaw;
+        }
 
         return {
             metrics: parsed as OperatorMetrics,

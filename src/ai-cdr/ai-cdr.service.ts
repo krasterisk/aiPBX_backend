@@ -279,11 +279,13 @@ export class AiCdrService {
                 throw new HttpException({ message: "[Report]:  userId must be set" }, HttpStatus.BAD_REQUEST);
             }
 
-            const userId = !query.userId && isAdmin
-                ? undefined
-                : !isAdmin
-                    ? realUserId
-                    : Number(query.userId);
+            // Admin with no userId filter → see all; Admin with userId → filter; User → own records only
+            let userId: string | undefined;
+            if (isAdmin) {
+                userId = query.userId ? String(query.userId) : undefined;
+            } else {
+                userId = String(realUserId);
+            }
 
             // Prepare the where clause
             const searchConditions: any[] = [

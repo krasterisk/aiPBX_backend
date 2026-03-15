@@ -27,9 +27,9 @@ export class AiCdrController {
     @Get('page')
     get(@Query() query: GetAiCdrDto,
         @Req() request: RequestWithUser) {
-        const isAdmin = request.isAdmin
-        const tokenUserId = request.vPbxUserId || request.tokenUserId
-        const realUserId = !isAdmin && tokenUserId
+        const isAdmin = request.isAdmin ?? false;
+        const tokenUserId = request.tokenUserId;
+        const realUserId = isAdmin ? null : tokenUserId;
         try {
             return this.aiCdrService.get(query, isAdmin, realUserId)
 

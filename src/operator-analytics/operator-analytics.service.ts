@@ -168,17 +168,22 @@ export class OperatorAnalyticsService {
             });
 
             // 4. Analyze metrics via LLM (with project context if available)
-            const { metrics, customMetricsResult, usage } = await this.analyzeTranscription(
+            const { metrics, customMetricsResult, usage, diarizedText } = await this.analyzeTranscription(
                 sttResult.text,
                 options.customMetrics,
                 project,
             );
 
-            // 5. Calculate cost and charge (LLM tokens + STT duration)
+            // 5. Update transcription with speaker-labeled version if available
+            if (diarizedText) {
+                await record.update({ transcription: diarizedText });
+            }
+
+            // 6. Calculate cost and charge (LLM tokens + STT duration)
             const totalTokens = usage?.total_tokens || 0;
             const { totalCost, llmCost, sttCost } = await this.chargeCost(userId, totalTokens, sttResult.duration, sttResult.provider);
 
-            // 6. Save results locally
+            // 7. Save results locally
             await record.update({
                 status: AnalyticsStatus.COMPLETED,
             });
@@ -437,11 +442,16 @@ export class OperatorAnalyticsService {
 
             await record.update({ transcription: sttResult.text, duration: sttResult.duration, sttProvider: sttResult.provider });
 
-            const { metrics, customMetricsResult, usage } = await this.analyzeTranscription(
+            const { metrics, customMetricsResult, usage, diarizedText } = await this.analyzeTranscription(
                 sttResult.text,
                 undefined,
                 project,
             );
+
+            // Update transcription with speaker-labeled version if available
+            if (diarizedText) {
+                await record.update({ transcription: diarizedText });
+            }
 
             const totalTokens = usage?.total_tokens || 0;
             const { totalCost, llmCost, sttCost } = await this.chargeCost(record.userId, totalTokens, sttResult.duration, sttResult.provider);
@@ -1387,7 +1397,7 @@ Write insights in Russian. Be specific and actionable.`;
         transcription: string,
         customMetricsDef?: CustomMetricDef[],
         project?: OperatorProject,
-    ): Promise<{ metrics: OperatorMetrics; customMetricsResult: any; usage: any }> {
+    ): Promise<{ metrics: OperatorMetrics; customMetricsResult: any; usage: any; diarizedText: string | null }> {
 
         // Build custom metrics block: prefer project schema, fall back to ad-hoc defs
         const effectiveMetrics: { name: string; id?: string; type: string; description: string; enumValues?: string[] }[] =
@@ -1438,7 +1448,8 @@ Analyze the dialogue and return a JSON object with EXACTLY this structure:
   "customer_sentiment": "<Positive|Neutral|Negative>",
   "csat": <1-5 integer>,
   "summary": "<string>",
-  "success": <boolean>${effectiveMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}
+  "success": <boolean>,
+  "diarized_text": "<full transcription reformatted with speaker labels>"${effectiveMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}
 }
 
 Metric descriptions:
@@ -1457,9 +1468,12 @@ Metric descriptions:
 - success: Was the customer's question or problem resolved?
 ${customMetricsPromptBlock}
 
+12. diarized_text: Reformat the ENTIRE transcription above with speaker labels. Each line must start with "Оператор: " or "Клиент: " (use "Operator: "/"Customer: " for English conversations). Identify speakers by context: the person providing service/information is the Operator, the person asking questions/requesting help is the Customer. Combine consecutive lines from the same speaker into one paragraph. Preserve ALL original text — do not omit or summarize.
+
 IMPORTANT LANGUAGE RULES:
 - "summary" field MUST be written in the same language as the conversation (e.g. Russian if the call is in Russian).
 - "customer_sentiment" MUST be one of these exact English values: "Positive", "Neutral", or "Negative" — do NOT translate it.
+- "diarized_text" MUST preserve the original language and ALL text from the transcription.
 - All numeric metric values (0-100) are language-neutral.
 Return ONLY valid JSON without markdown formatting.
 `;
@@ -1480,12 +1494,15 @@ Return ONLY valid JSON without markdown formatting.
         const parsed = JSON.parse(sanitized);
 
         const customMetricsResult = parsed.custom_metrics || null;
+        const diarizedText = parsed.diarized_text || null;
         delete parsed.custom_metrics;
+        delete parsed.diarized_text;
 
         return {
             metrics: parsed as OperatorMetrics,
             customMetricsResult,
             usage: completion.usage,
+            diarizedText,
         };
     }
 

@@ -68,4 +68,21 @@ export class CurrencyService {
         // Return with 2 decimal precision
         return Math.round(converted * 100) / 100;
     }
+
+    async getRate(currency: string): Promise<number> {
+        if (!currency || currency.toUpperCase() === 'USD') {
+            return 1;
+        }
+
+        const rateRecord = await this.ratesRepository.findOne({
+            where: { currency: currency.toUpperCase() },
+        });
+
+        if (!rateRecord) {
+            this.logger.warn(`Rate for currency ${currency} not found, defaulting to 1`);
+            return 1;
+        }
+
+        return rateRecord.rate;
+    }
 }

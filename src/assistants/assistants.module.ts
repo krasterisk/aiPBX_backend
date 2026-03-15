@@ -8,12 +8,13 @@ import { LoggerModule } from "../logger/logger.module";
 import { OpenAiModule } from "../open-ai/open-ai.module";
 import { Prices } from "../prices/prices.model";
 import { UsersModule } from "../users/users.module";
+import { BillingRecord } from "../billing/billing-record.model";
 
 @Module({
     providers: [AssistantsService],
     controllers: [AssistantsController],
     imports: [
-        SequelizeModule.forFeature([Assistant, Prices]),
+        SequelizeModule.forFeature([Assistant, Prices, BillingRecord]),
         forwardRef(() => AuthModule),
         forwardRef(() => OpenAiModule),
         forwardRef(() => UsersModule),

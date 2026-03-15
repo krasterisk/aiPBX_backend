@@ -5,6 +5,8 @@ import { AiCdr } from '../ai-cdr/ai-cdr.model';
 interface CreateBillingRecord {
     channelId: string;
     type: string;
+    userId?: string;
+    description?: string;
     audioTokens?: number;
     textTokens?: number;
     totalTokens?: number;
@@ -21,9 +23,17 @@ export class BillingRecord extends Model<BillingRecord, CreateBillingRecord> {
     @Column({ type: DataType.STRING, allowNull: false })
     channelId: string;
 
-    @ApiProperty({ example: 'realtime', description: 'Billing type: realtime | analytic' })
+    @ApiProperty({ example: 'realtime', description: 'Billing type: realtime | analytic | text | insight' })
     @Column({ type: DataType.STRING, allowNull: false })
     type: string;
+
+    @ApiProperty({ example: '1', description: 'User ID' })
+    @Column({ type: DataType.STRING, allowNull: true })
+    userId: string;
+
+    @ApiProperty({ example: 'Prompt generation', description: 'Human-readable description of the charge' })
+    @Column({ type: DataType.STRING, allowNull: true })
+    description: string;
 
     @ApiProperty({ example: 836, description: 'Audio tokens (input + output)' })
     @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })

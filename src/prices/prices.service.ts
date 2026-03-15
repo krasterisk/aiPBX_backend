@@ -34,6 +34,17 @@ export class PricesService {
         return prices;
     }
 
+    async findByUserId(userId: number) {
+        const price = await this.pricesRepository.findOne({
+            where: { userId },
+            attributes: { exclude: ['id', 'userId'] },
+        });
+        if (!price) {
+            throw new HttpException('Price not found for this user', HttpStatus.NOT_FOUND);
+        }
+        return price;
+    }
+
     async findOne(id: number) {
         const price = await this.pricesRepository.findByPk(id, { include: { all: true } });
         if (!price) {

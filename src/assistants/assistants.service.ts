@@ -8,6 +8,7 @@ import { nanoid } from 'nanoid';
 import { OpenAiService } from "../open-ai/open-ai.service";
 import { Prices } from "../prices/prices.model";
 import { UsersService } from "../users/users.service";
+import { BillingRecord } from "../billing/billing-record.model";
 
 @Injectable()
 export class AssistantsService {
@@ -16,6 +17,7 @@ export class AssistantsService {
     constructor(
         @InjectModel(Assistant) private assistantsRepository: typeof Assistant,
         @InjectModel(Prices) private readonly pricesRepository: typeof Prices,
+        @InjectModel(BillingRecord) private readonly billingRecordRepository: typeof BillingRecord,
         private readonly openAiService: OpenAiService,
         private readonly usersService: UsersService,
     ) { }
@@ -417,6 +419,18 @@ Do NOT include any explanations, commentary, or metadata outside the JSON object
                 if (price && price.text > 0) {
                     const cost = totalTokens * (price.text / 1_000_000);
                     await this.usersService.decrementUserBalance(userId, cost);
+
+                    await this.billingRecordRepository.create({
+                        channelId: `prompt-${Date.now()}`,
+                        type: 'text',
+                        userId: String(userId),
+                        description: 'Prompt generation',
+                        textTokens: totalTokens,
+                        totalTokens: totalTokens,
+                        textCost: cost,
+                        totalCost: cost,
+                    });
+
                     this.logger.log(`Generate prompt charged userId=${userId}: tokens=${totalTokens}, cost=${cost.toFixed(6)}`);
                 }
             }

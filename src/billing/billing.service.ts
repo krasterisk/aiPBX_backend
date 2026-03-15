@@ -5,6 +5,8 @@ import { Prices } from '../prices/prices.model';
 import { BillingRecord } from './billing-record.model';
 import { UsersService } from '../users/users.service';
 import { OpenAiUsage, BillingResult } from './interfaces/openai-usage.interface';
+import { Op } from 'sequelize';
+import { GetBillingDto } from './dto/get-billing.dto';
 
 @Injectable()
 export class BillingService {
@@ -41,7 +43,7 @@ export class BillingService {
             if (totalTokens > 0) {
                 const [record] = await this.billingRecordRepository.findOrCreate({
                     where: { channelId, type: 'realtime' },
-                    defaults: { channelId, type: 'realtime' },
+                    defaults: { channelId, type: 'realtime', userId: aiCdr.userId, description: 'Realtime call' },
                 });
                 await record.increment({ audioTokens, textTokens, totalTokens });
 
@@ -163,7 +165,7 @@ export class BillingService {
 
             const [record] = await this.billingRecordRepository.findOrCreate({
                 where: { channelId, type: 'analytic' },
-                defaults: { channelId, type: 'analytic' },
+                defaults: { channelId, type: 'analytic', userId: String(userId), description: 'Call analytics' },
             });
             // Chat completion tokens are all text tokens
             await record.increment({ textTokens: totalTokens, totalTokens, totalCost: analyticCost, textCost: analyticCost });
@@ -184,5 +186,68 @@ export class BillingService {
             this.logger.error(`Error charging analytics for ${channelId}: ${e.message}`);
             return 0;
         }
+    }
+
+    /**
+     * Get paginated billing history for a user.
+     * Admins can see all records or filter by userId.
+     * Non-admins see only their own records.
+     */
+    async getBillingHistory(query: GetBillingDto, isAdmin: boolean, realUserId: string) {
+        const page = Number(query.page) || 1;
+        const limit = Number(query.limit) || 20;
+        const offset = (page - 1) * limit;
+
+        const where: any = {};
+
+        // Access control
+        if (!isAdmin) {
+            where.userId = String(realUserId);
+        } else if (query.userId) {
+            where.userId = String(query.userId);
+        }
+
+        // Date filter
+        if (query.startDate && query.endDate) {
+            where.createdAt = {
+                [Op.between]: [
+                    new Date(`${query.startDate}T00:00:00`),
+                    new Date(`${query.endDate}T23:59:59`),
+                ],
+            };
+        } else if (query.startDate) {
+            where.createdAt = { [Op.gte]: new Date(`${query.startDate}T00:00:00`) };
+        } else if (query.endDate) {
+            where.createdAt = { [Op.lte]: new Date(`${query.endDate}T23:59:59`) };
+        }
+
+        // Type filter
+        if (query.type) {
+            where.type = query.type;
+        }
+
+        const sortField = query.sortField || 'createdAt';
+        const sortOrder = query.sortOrder || 'DESC';
+
+        const { rows, count } = await this.billingRecordRepository.findAndCountAll({
+            where,
+            order: [[sortField, sortOrder]],
+            limit,
+            offset,
+            include: [
+                {
+                    model: AiCdr,
+                    as: 'aiCdr',
+                    attributes: ['channelId', 'assistantName', 'callerId', 'source', 'duration'],
+                    required: false,
+                },
+            ],
+        });
+
+        // Total cost for the filtered set
+        const totalCostRaw = await this.billingRecordRepository.sum('totalCost', { where } as any);
+        const totalCost = parseFloat((totalCostRaw || 0).toFixed(6));
+
+        return { rows, count, totalCost, page, limit };
     }
 }

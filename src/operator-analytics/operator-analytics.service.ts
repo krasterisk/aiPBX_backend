@@ -214,6 +214,8 @@ export class OperatorAnalyticsService {
             await this.billingRecordRepository.create({
                 channelId,
                 type: 'analytic',
+                userId: record.userId,
+                description: 'File analysis',
                 totalTokens: totalTokens,
                 textTokens: totalTokens,
                 audioTokens: 0,
@@ -480,6 +482,8 @@ export class OperatorAnalyticsService {
             await this.billingRecordRepository.create({
                 channelId,
                 type: 'analytic',
+                userId: record.userId,
+                description: 'File analysis (background)',
                 totalTokens: totalTokens,
                 textTokens: totalTokens,
                 audioTokens: 0,
@@ -1054,6 +1058,10 @@ Write insights in Russian. Be specific and actionable.`;
         const content = completion.choices[0]?.message?.content || '{}';
         const parsed = JSON.parse(this.sanitizeJsonResponse(content));
 
+        // Charge for insight generation
+        const totalTokens = completion.usage?.total_tokens || 0;
+        await this.chargeInsightCost(userId, totalTokens, `Project insight: ${project.name}`);
+
         const result = {
             insights: parsed.insights || [],
             generatedAt: new Date().toISOString(),
@@ -1129,6 +1137,10 @@ Write insights in Russian. Be specific and actionable.`;
         const content = completion.choices[0]?.message?.content || '{}';
         const parsed = JSON.parse(this.sanitizeJsonResponse(content));
 
+        // Charge for insight generation
+        const totalTokens = completion.usage?.total_tokens || 0;
+        await this.chargeInsightCost(userId, totalTokens, 'Dashboard insight');
+
         const result = {
             insights: parsed.insights || [],
             generatedAt: new Date().toISOString(),
@@ -1136,6 +1148,39 @@ Write insights in Russian. Be specific and actionable.`;
 
         this.insightsCache.set(cacheKey, { data: result, expiry: Date.now() + this.INSIGHTS_TTL });
         return result;
+    }
+
+    /**
+     * Charge user for insight generation using price.analytic rate.
+     * Creates a BillingRecord and decrements user balance.
+     */
+    private async chargeInsightCost(userId: string, totalTokens: number, description: string): Promise<void> {
+        if (totalTokens <= 0) return;
+
+        const price = await this.pricesRepository.findOne({ where: { userId: Number(userId) } });
+        if (!price || !price.analytic) {
+            this.logger.warn(`Price not found for userId: ${userId}, skipping insight billing`);
+            return;
+        }
+
+        const cost = parseFloat((totalTokens * (price.analytic / 1_000_000)).toFixed(6));
+
+        if (cost > 0) {
+            await this.usersService.decrementUserBalance(userId, cost);
+
+            await this.billingRecordRepository.create({
+                channelId: `insight-${Date.now()}`,
+                type: 'insight',
+                userId: String(userId),
+                description,
+                textTokens: totalTokens,
+                totalTokens,
+                textCost: cost,
+                totalCost: cost,
+            });
+
+            this.logger.log(`Insight charged userId=${userId}: tokens=${totalTokens}, cost=${cost}, desc="${description}"`);
+        }
     }
 
     // ─── Webhook ─────────────────────────────────────────────────────

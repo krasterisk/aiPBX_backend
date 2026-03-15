@@ -4,13 +4,17 @@ import {AuthModule} from "../auth/auth.module";
 import {PricesService} from "./prices.service";
 import {PricesController} from "./prices.controller";
 import {Prices} from "./prices.model";
+import {UsersModule} from "../users/users.module";
+import {CurrencyModule} from "../currency/currency.module";
 
 @Module({
   providers: [PricesService],
   controllers: [PricesController],
   imports: [
     SequelizeModule.forFeature([Prices]),
-    forwardRef(() => AuthModule)
+    forwardRef(() => AuthModule),
+    forwardRef(() => UsersModule),
+    CurrencyModule,
   ],
   exports: [PricesService]
 })

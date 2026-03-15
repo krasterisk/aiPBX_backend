@@ -66,7 +66,7 @@ export class WidgetKeysController {
     @ApiResponse({ status: 403, description: 'Forbidden - Assistant does not belong to user' })
     @ApiResponse({ status: 404, description: 'Assistant not found' })
     create(@Request() req, @Body() createWidgetKeyDto: CreateWidgetKeyDto): Promise<WidgetKey> {
-        return this.widgetKeysService.create(req.tokenUserId, createWidgetKeyDto);
+        return this.widgetKeysService.create(Number(req.tokenUserId), createWidgetKeyDto);
     }
 
     @Get()
@@ -77,7 +77,7 @@ export class WidgetKeysController {
         if (req.isAdmin) {
             return this.widgetKeysService.findAll();
         }
-        return this.widgetKeysService.findAll(req.tokenUserId);
+        return this.widgetKeysService.findAll(Number(req.tokenUserId));
     }
 
     @Get(':id')
@@ -86,7 +86,7 @@ export class WidgetKeysController {
     @ApiResponse({ status: 401, description: 'Unauthorized' })
     @ApiResponse({ status: 404, description: 'Widget key not found' })
     findOne(@Request() req, @Param('id') id: string): Promise<WidgetKey> {
-        return this.widgetKeysService.findOne(+id, req.tokenUserId, req.isAdmin);
+        return this.widgetKeysService.findOne(+id, Number(req.tokenUserId), req.isAdmin);
     }
 
     @Put(':id')
@@ -99,7 +99,7 @@ export class WidgetKeysController {
         @Param('id') id: string,
         @Body() updateWidgetKeyDto: UpdateWidgetKeyDto,
     ): Promise<WidgetKey> {
-        return this.widgetKeysService.update(+id, req.tokenUserId, updateWidgetKeyDto, req.isAdmin);
+        return this.widgetKeysService.update(+id, Number(req.tokenUserId), updateWidgetKeyDto, req.isAdmin);
     }
 
     @Delete(':id')
@@ -108,7 +108,7 @@ export class WidgetKeysController {
     @ApiResponse({ status: 401, description: 'Unauthorized' })
     @ApiResponse({ status: 404, description: 'Widget key not found' })
     remove(@Request() req, @Param('id') id: string): Promise<void> {
-        return this.widgetKeysService.remove(+id, req.tokenUserId, req.isAdmin);
+        return this.widgetKeysService.remove(+id, Number(req.tokenUserId), req.isAdmin);
     }
 
     @Get(':id/embed')

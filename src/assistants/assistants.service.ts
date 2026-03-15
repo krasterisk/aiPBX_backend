@@ -26,8 +26,11 @@ export class AssistantsService {
             for (const assistant of dto) {
                 const uniqueId = nanoid(15)
 
+                // Strip frontend-only / relationship fields before spreading
+                const { id, user, tools, mcpServers, ...rest } = assistant as any;
+
                 const creationAttrs = {
-                    ...assistant,
+                    ...rest,
                     uniqueId,
                     userId: assistant.userId !== undefined && assistant.userId !== null
                         ? Number(assistant.userId)
@@ -39,15 +42,15 @@ export class AssistantsService {
 
                 const result = await this.assistantsRepository.create(creationAttrs as any)
 
-                if (result && assistant.tools.length) {
-                    const toolsIds = assistant.tools.map((tool) => tool.id)
+                if (result && tools?.length) {
+                    const toolsIds = tools.map((tool: any) => tool.id)
                     await result.$set('tools', toolsIds)
-                    result.tools = assistant.tools
+                    result.tools = tools
                 }
-                if (result && (assistant as any).mcpServers?.length) {
-                    const mcpServerIds = (assistant as any).mcpServers.map((s: any) => s.id);
+                if (result && mcpServers?.length) {
+                    const mcpServerIds = mcpServers.map((s: any) => s.id);
                     await result.$set('mcpServers', mcpServerIds);
-                    result.mcpServers = (assistant as any).mcpServers;
+                    result.mcpServers = mcpServers;
                 }
                 assistants.push(result)
             }

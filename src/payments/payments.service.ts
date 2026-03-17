@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from "@nestjs/sequelize";
 import { Payments } from "./payments.model";
 import { PaymentsDto } from "./dto/payments.dto";
@@ -6,12 +6,13 @@ import { UsersService } from "../users/users.service";
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { TelegramService } from "../telegram/telegram.service";
-
 import { CurrencyService } from "../currency/currency.service";
+import * as crypto from 'crypto';
 
 @Injectable()
 export class PaymentsService {
     private stripe: Stripe;
+    private readonly logger = new Logger(PaymentsService.name);
 
     constructor(
         @InjectModel(Payments) private paymentsRepository: typeof Payments,
@@ -166,4 +167,110 @@ export class PaymentsService {
             );
         }
     }
-}
+
+    // ========================
+    // Robokassa Methods
+    // ========================
+
+    async createRobokassaPayment(userId: string, amount: number, description?: string) {
+        try {
+            const payment = await this.paymentsRepository.create({
+                userId,
+                amount,
+                currency: 'RUB',
+                status: 'pending',
+                paymentMethod: 'robokassa',
+                paymentInfo: description || 'Account top-up',
+            } as any);
+
+            // Use payment.id as InvId
+            const invId = payment.id;
+            await payment.update({ robokassaInvId: invId });
+
+            const merchantLogin = this.configService.get<string>('ROBOKASSA_MERCHANT_LOGIN');
+            const password1 = this.configService.get<string>('ROBOKASSA_PASSWORD_1');
+            const isTest = this.configService.get<string>('ROBOKASSA_TEST_MODE') === '1';
+            const outSum = amount.toFixed(2);
+
+            // Signature: MD5(MerchantLogin:OutSum:InvId:Password#1:Shp_userId=userId)
+            const signatureString = `${merchantLogin}:${outSum}:${invId}:${password1}:Shp_userId=${userId}`;
+            const signatureValue = this.generateRobokassaSignature(signatureString);
+
+            const params = new URLSearchParams({
+                MerchantLogin: merchantLogin,
+                OutSum: outSum,
+                InvId: String(invId),
+                Description: description || 'Account top-up',
+                SignatureValue: signatureValue,
+                Shp_userId: userId,
+            });
+
+            if (isTest) {
+                params.append('IsTest', '1');
+            }
+
+            const paymentUrl = `https://auth.robokassa.ru/Merchant/Index.aspx?${params.toString()}`;
+
+            this.logger.log(`Robokassa payment created: InvId=${invId}, amount=${outSum} RUB, userId=${userId}`);
+
+            return { paymentUrl, invId };
+        } catch (error) {
+            throw new HttpException(`Robokassa Error: ${error.message}`, HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    async handleRobokassaResult(outSum: string, invId: number, signatureValue: string, shpUserId: string): Promise<string> {
+        const password2 = this.configService.get<string>('ROBOKASSA_PASSWORD_2');
+
+        // Verify signature: MD5(OutSum:InvId:Password#2:Shp_userId=value)
+        const expectedSignature = this.generateRobokassaSignature(
+            `${outSum}:${invId}:${password2}:Shp_userId=${shpUserId}`
+        );
+
+        if (signatureValue.toUpperCase() !== expectedSignature.toUpperCase()) {
+            this.logger.error(`Robokassa signature mismatch for InvId=${invId}`);
+            throw new HttpException('Invalid signature', HttpStatus.BAD_REQUEST);
+        }
+
+        const payment = await this.paymentsRepository.findOne({ where: { robokassaInvId: invId } });
+        if (!payment) {
+            throw new HttpException(`Payment not found: InvId=${invId}`, HttpStatus.NOT_FOUND);
+        }
+
+        if (payment.status === 'succeeded') {
+            return `OK${invId}`;
+        }
+
+        payment.status = 'succeeded';
+        await payment.save();
+
+        // Convert RUB → USD and add to balance
+        const amount = parseFloat(outSum);
+        const amountUsd = await this.currencyService.convertToUsd(amount, 'RUB');
+        await this.usersService.updateUserBalance(shpUserId, amountUsd);
+
+        const message = `✅ Robokassa Payment Successful!\nUser ID: ${shpUserId}\nAmount: ${amount} RUB\nConverted to: ${amountUsd} USD\nInvId: ${invId}`;
+        await this.telegramService.sendMessage(message);
+
+        this.logger.log(`Robokassa payment finalized: InvId=${invId}, ${amount} RUB → ${amountUsd} USD, userId=${shpUserId}`);
+
+        return `OK${invId}`;
+    }
+
+    async getRobokassaPaymentStatus(invId: number, userId: string) {
+        const payment = await this.paymentsRepository.findOne({
+            where: { robokassaInvId: invId, userId: String(userId) },
+            attributes: ['id', 'amount', 'currency', 'status', 'paymentMethod', 'createdAt'],
+        });
+
+        if (!payment) {
+            throw new HttpException('Payment not found', HttpStatus.NOT_FOUND);
+        }
+
+        return payment;
+    }
+
+    private generateRobokassaSignature(str: string): string {
+        return crypto.createHash('md5').update(str).digest('hex');
+    }
+}

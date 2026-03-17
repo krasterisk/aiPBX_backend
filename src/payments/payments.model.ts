@@ -5,6 +5,7 @@ interface CreatePayment {
     userId: string
     amount: number
     stripePaymentIntentId?: string
+    robokassaInvId?: number
     currency?: string
     status?: string
     paymentMethod?: string
@@ -46,4 +47,8 @@ export class Payments extends Model<Payments, CreatePayment> {
     @ApiProperty({ example: 'https://pay.stripe.com/receipts/...', description: "Stripe receipt URL" })
     @Column({ type: DataType.STRING, allowNull: true })
     receiptUrl: string;
+
+    @ApiProperty({ example: 12345, description: "Robokassa Invoice ID" })
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    robokassaInvId: number;
 }

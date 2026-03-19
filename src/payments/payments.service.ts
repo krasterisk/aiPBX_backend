@@ -271,6 +271,6 @@ export class PaymentsService {
     }
 
     private generateRobokassaSignature(str: string): string {
-        return crypto.createHash('md5').update(str).digest('hex');
+        return crypto.createHash('sha512').update(str).digest('hex');
     }
 }

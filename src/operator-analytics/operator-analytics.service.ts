@@ -750,10 +750,10 @@ export class OperatorAnalyticsService {
     // ─── Projects ────────────────────────────────────────────────────
 
     async getProjects(userId: string, isAdmin: boolean) {
-        // Ensure default project exists for this user
-        if (!isAdmin) {
-            await this.resolveDefaultProject(userId);
-        }
+        // // Ensure default project exists for this user
+        // if (!isAdmin) {
+        //     await this.resolveDefaultProject(userId);
+        // }
 
         const where = isAdmin ? {} : { userId };
         const projects = await this.projectRepository.findAll({

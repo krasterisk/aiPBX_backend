@@ -8,6 +8,7 @@ import { Payments } from "./payments.model";
 import { UsersModule } from "../users/users.module";
 import { TelegramModule } from "../telegram/telegram.module";
 import { CurrencyModule } from "../currency/currency.module";
+import { LoggerModule } from "../logger/logger.module";
 
 @Module({
     providers: [PaymentsService],
@@ -18,7 +19,8 @@ import { CurrencyModule } from "../currency/currency.module";
         UsersModule,
         ConfigModule,
         TelegramModule,
-        CurrencyModule
+        CurrencyModule,
+        LoggerModule
     ],
     exports: [PaymentsService]
 })

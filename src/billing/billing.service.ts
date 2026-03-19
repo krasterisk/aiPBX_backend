@@ -7,6 +7,7 @@ import { UsersService } from '../users/users.service';
 import { OpenAiUsage, BillingResult } from './interfaces/openai-usage.interface';
 import { Op } from 'sequelize';
 import { GetBillingDto } from './dto/get-billing.dto';
+import { LoggerService } from '../logger/logger.service';
 
 @Injectable()
 export class BillingService {
@@ -17,6 +18,7 @@ export class BillingService {
         @InjectModel(Prices) private readonly pricesRepository: typeof Prices,
         @InjectModel(BillingRecord) private readonly billingRecordRepository: typeof BillingRecord,
         private readonly usersService: UsersService,
+        private readonly logService: LoggerService,
     ) { }
 
     /**
@@ -128,6 +130,12 @@ export class BillingService {
                 await this.usersService.decrementUserBalance(userId, realtimeCost);
             }
 
+            await this.logService.logAction(
+                Number(userId), 'update', 'billing', null,
+                `Call billing finalized: $${result.totalCost.toFixed(6)} (channel: ${channelId})`,
+                null, { channelId, audioCost: result.audioCost, textCost: result.textCost, analyticCost: result.analyticCost, totalCost: result.totalCost },
+            );
+
             this.logger.log(
                 `Billing finalized for ${channelId}: audioCost=${result.audioCost.toFixed(6)}, ` +
                 `textCost=${result.textCost.toFixed(6)}, analyticCost=${result.analyticCost.toFixed(6)}, ` +
@@ -176,6 +184,12 @@ export class BillingService {
             if (analyticCost > 0) {
                 await this.usersService.decrementUserBalance(userId, analyticCost);
             }
+
+            await this.logService.logAction(
+                Number(userId), 'update', 'billing', null,
+                `Analytics charged: $${analyticCost.toFixed(6)} (channel: ${channelId})`,
+                null, { channelId, totalTokens, analyticCost },
+            );
 
             this.logger.log(
                 `Analytics charged for ${channelId}: tokens=${totalTokens}, cost=${analyticCost.toFixed(6)}`,

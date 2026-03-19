@@ -43,6 +43,11 @@ export class LogsDto {
     @IsNumber()
     readonly eventId?: number;
 
+    @ApiPropertyOptional({ example: 'info', description: 'Severity level: info, warning, critical' })
+    @IsOptional()
+    @IsString()
+    readonly severity?: string;
+
     @ApiProperty({ example: 1, description: 'User ID' })
     @IsNumber({}, { message: 'Must be a number' })
     readonly userId: number;

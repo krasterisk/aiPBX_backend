@@ -25,6 +25,11 @@ export class GetLogsDto {
     @IsString()
     entity?: string;
 
+    @ApiPropertyOptional({ example: 'critical', description: 'Filter by severity: info, warning, critical' })
+    @IsOptional()
+    @IsString()
+    severity?: string;
+
     @ApiPropertyOptional({ example: '2026-01-01' })
     @IsOptional()
     @IsString()

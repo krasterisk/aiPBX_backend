@@ -42,6 +42,7 @@ export class LoggerService {
         oldData?: any,
         newData?: any,
         req?: any,
+        severity: 'info' | 'warning' | 'critical' = 'info',
     ) {
         try {
             await this.LogsRepository.create({
@@ -54,6 +55,7 @@ export class LoggerService {
                 newData: newData || null,
                 ipAddress: req?.ip || req?.connection?.remoteAddress || null,
                 userAgent: req?.headers?.['user-agent'] || null,
+                severity,
             } as any);
         } catch (e) {
             this.logger.error(`Error logging action: ${action} ${entity} (userId: ${userId})`, e.message);
@@ -99,6 +101,11 @@ export class LoggerService {
             // Filter by entity
             if (query.entity) {
                 whereClause.entity = query.entity;
+            }
+
+            // Filter by severity
+            if (query.severity) {
+                whereClause.severity = query.severity;
             }
 
             // Date range filter

@@ -5,6 +5,7 @@ import { AiCdr } from '../ai-cdr/ai-cdr.model';
 import { Prices } from '../prices/prices.model';
 import { BillingRecord } from './billing-record.model';
 import { UsersService } from '../users/users.service';
+import { LoggerService } from '../logger/logger.service';
 import { OpenAiUsage } from './interfaces/openai-usage.interface';
 
 describe('BillingService', () => {
@@ -13,6 +14,7 @@ describe('BillingService', () => {
     let mockPricesRepository: any;
     let mockBillingRecordRepository: any;
     let mockUsersService: any;
+    let mockLoggerService: any;
 
     const mockCdr = {
         channelId: 'test-channel-123',
@@ -49,6 +51,7 @@ describe('BillingService', () => {
             findOne: jest.fn(),
         };
         mockUsersService = { decrementUserBalance: jest.fn().mockResolvedValue(true) };
+        mockLoggerService = { logAction: jest.fn().mockResolvedValue(undefined) };
 
         mockCdr.increment.mockClear();
         mockCdr.update.mockClear();
@@ -66,6 +69,7 @@ describe('BillingService', () => {
                 { provide: getModelToken(Prices), useValue: mockPricesRepository },
                 { provide: getModelToken(BillingRecord), useValue: mockBillingRecordRepository },
                 { provide: UsersService, useValue: mockUsersService },
+                { provide: LoggerService, useValue: mockLoggerService },
             ],
         }).compile();
 
@@ -90,7 +94,7 @@ describe('BillingService', () => {
 
             expect(mockBillingRecordRepository.findOrCreate).toHaveBeenCalledWith({
                 where: { channelId: 'test-channel-123', type: 'realtime' },
-                defaults: { channelId: 'test-channel-123', type: 'realtime' },
+                defaults: { channelId: 'test-channel-123', type: 'realtime', userId: '1', description: 'Realtime call' },
             });
             expect(mockRecord.increment).toHaveBeenCalledWith({
                 audioTokens: 836,       // 600 + 236
@@ -226,11 +230,13 @@ describe('BillingService', () => {
 
             expect(mockBillingRecordRepository.findOrCreate).toHaveBeenCalledWith({
                 where: { channelId: 'test-channel-123', type: 'analytic' },
-                defaults: { channelId: 'test-channel-123', type: 'analytic' },
+                defaults: { channelId: 'test-channel-123', type: 'analytic', userId: '1', description: 'Call analytics' },
             });
             expect(mockRecord.increment).toHaveBeenCalledWith({
+                textTokens: 1000,
                 totalTokens: 1000,
                 totalCost: 0.002, // 1000 * 2/1M
+                textCost: 0.002,
             });
         });
 

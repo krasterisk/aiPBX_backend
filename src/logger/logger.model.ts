@@ -7,6 +7,7 @@ interface CreateLogAttr {
     action: string;
     entity?: string;
     entityId?: number;
+    severity?: string;
     userId: number;
 }
 
@@ -50,6 +51,14 @@ export class Logs extends Model<Logs, CreateLogAttr> {
     @ApiProperty({ example: 'Mozilla/5.0...', description: "Client User-Agent" })
     @Column({ type: DataType.STRING, allowNull: true })
     userAgent: string;
+
+    @ApiProperty({ example: 'info', description: "Event severity level" })
+    @Column({
+        type: DataType.ENUM('info', 'warning', 'critical'),
+        allowNull: false,
+        defaultValue: 'info'
+    })
+    severity: string;
 
     @ApiProperty({ example: 1, description: "Legacy event ID" })
     @Column({ type: DataType.INTEGER, allowNull: true })

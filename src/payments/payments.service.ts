@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { TelegramService } from "../telegram/telegram.service";
 import { CurrencyService } from "../currency/currency.service";
+import { LoggerService } from "../logger/logger.service";
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -19,7 +20,8 @@ export class PaymentsService {
         private readonly usersService: UsersService,
         private configService: ConfigService,
         private readonly telegramService: TelegramService,
-        private readonly currencyService: CurrencyService
+        private readonly currencyService: CurrencyService,
+        private readonly logService: LoggerService,
     ) {
         this.stripe = new Stripe(this.configService.get<string>('STRIPE_SECRET_KEY'), {
             apiVersion: '2026-01-28.clover',
@@ -69,6 +71,13 @@ export class PaymentsService {
                 status: 'pending',
                 paymentMethod: 'stripe'
             } as any);
+
+            await this.logService.logAction(
+                Number(userId), 'create', 'payment', null,
+                `Stripe payment intent created: $${amount} ${currency}`,
+                null, { paymentIntentId: paymentIntent.id, amount, currency },
+                null, 'info',
+            );
 
             return {
                 clientSecret: paymentIntent.client_secret,
@@ -147,6 +156,13 @@ export class PaymentsService {
 
             await this.usersService.updateUserBalance(payment.userId, amountToAdd);
 
+            await this.logService.logAction(
+                Number(payment.userId), 'update', 'payment', payment.id,
+                `Stripe payment succeeded: $${payment.amount} ${payment.currency.toUpperCase()}`,
+                null, { amount: payment.amount, currency: payment.currency, amountUsd: amountToAdd },
+                null, 'critical',
+            );
+
             let message = `✅ Payment Successful!\nUser ID: ${payment.userId}\nAmount: ${payment.amount} ${payment.currency.toUpperCase()}\nStatus: ${payment.status}`;
             if (payment.currency.toUpperCase() !== 'USD') {
                 message += `\nConverted to: ${amountToAdd} USD`;
@@ -161,6 +177,13 @@ export class PaymentsService {
         if (payment) {
             payment.status = 'failed';
             await payment.save();
+
+            await this.logService.logAction(
+                Number(payment.userId), 'update', 'payment', payment.id,
+                `Stripe payment failed: $${payment.amount} ${payment.currency.toUpperCase()}`,
+                null, { amount: payment.amount, currency: payment.currency },
+                null, 'warning',
+            );
 
             await this.telegramService.sendMessage(
                 `❌ Payment Failed!\nUser ID: ${payment.userId}\nAmount: ${payment.amount} ${payment.currency.toUpperCase()}\nStatus: ${payment.status}`
@@ -213,6 +236,13 @@ export class PaymentsService {
 
             this.logger.log(`Robokassa payment created: InvId=${invId}, amount=${outSum} RUB, userId=${userId}`);
 
+            await this.logService.logAction(
+                Number(userId), 'create', 'payment', invId,
+                `Robokassa payment created: ${outSum} RUB`,
+                null, { invId, amount, currency: 'RUB' },
+                null, 'info',
+            );
+
             return { paymentUrl, invId };
         } catch (error) {
             throw new HttpException(`Robokassa Error: ${error.message}`, HttpStatus.BAD_REQUEST);
@@ -229,6 +259,14 @@ export class PaymentsService {
 
         if (signatureValue.toUpperCase() !== expectedSignature.toUpperCase()) {
             this.logger.error(`Robokassa signature mismatch for InvId=${invId}`);
+
+            await this.logService.logAction(
+                0, 'other', 'payment', invId,
+                `Robokassa signature mismatch for InvId=${invId}`,
+                null, { invId, outSum, shpUserId },
+                null, 'critical',
+            );
+
             throw new HttpException('Invalid signature', HttpStatus.BAD_REQUEST);
         }
 
@@ -248,6 +286,13 @@ export class PaymentsService {
         const amount = parseFloat(outSum);
         const amountUsd = await this.currencyService.convertToUsd(amount, 'RUB');
         await this.usersService.updateUserBalance(shpUserId, amountUsd);
+
+        await this.logService.logAction(
+            Number(shpUserId), 'update', 'payment', invId,
+            `Robokassa payment succeeded: ${amount} RUB → ${amountUsd} USD`,
+            null, { invId, amount, amountUsd, currency: 'RUB' },
+            null, 'critical',
+        );
 
         const message = `✅ Robokassa Payment Successful!\nUser ID: ${shpUserId}\nAmount: ${amount} RUB\nConverted to: ${amountUsd} USD\nInvId: ${invId}`;
         await this.telegramService.sendMessage(message);

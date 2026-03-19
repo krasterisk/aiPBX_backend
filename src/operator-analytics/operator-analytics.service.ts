@@ -839,8 +839,10 @@ export class OperatorAnalyticsService {
         return project;
     }
 
-    async deleteProject(id: number, userId: string) {
-        const project = await this.projectRepository.findOne({ where: { id, userId } });
+    async deleteProject(id: number, userId: string, isAdmin = false) {
+        const where: any = { id };
+        if (!isAdmin) where.userId = userId;
+        const project = await this.projectRepository.findOne({ where });
         if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
         if (project.isDefault) {
             throw new HttpException('Cannot delete default project', HttpStatus.BAD_REQUEST);

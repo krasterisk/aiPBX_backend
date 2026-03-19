@@ -457,7 +457,7 @@ export class OperatorAnalyticsController {
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Delete a project (POST fallback)' })
     async deleteProjectPost(@Req() req: RequestWithUser, @Param('id') id: string) {
-        return this.service.deleteProject(+id, req.tokenUserId);
+        return this.service.deleteProject(+id, req.tokenUserId, req.isAdmin ?? false);
     }
 
     @Delete('projects/:id')
@@ -466,7 +466,7 @@ export class OperatorAnalyticsController {
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Delete a project' })
     async deleteProject(@Req() req: RequestWithUser, @Param('id') id: string) {
-        return this.service.deleteProject(+id, req.tokenUserId);
+        return this.service.deleteProject(+id, req.tokenUserId, req.isAdmin ?? false);
     }
 
 

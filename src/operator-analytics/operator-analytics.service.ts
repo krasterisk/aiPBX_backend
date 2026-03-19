@@ -844,7 +844,7 @@ export class OperatorAnalyticsService {
         if (!isAdmin) where.userId = userId;
         const project = await this.projectRepository.findOne({ where });
         if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
-        if (project.isDefault) {
+        if (project.isDefault && !isAdmin) {
             throw new HttpException('Cannot delete default project', HttpStatus.BAD_REQUEST);
         }
         await project.destroy();

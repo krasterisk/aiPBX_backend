@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install PyTorch CPU-only (no CUDA needed for TTS)
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir fastapi uvicorn omegaconf
+RUN pip install --no-cache-dir fastapi uvicorn omegaconf numpy
 
 # Pre-download Silero TTS models during build (v5 for ru, v3 for en)
 RUN python -c "\

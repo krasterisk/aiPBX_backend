@@ -29,6 +29,7 @@ def load_models():
                 model="silero_tts",
                 language=lang,
                 speaker=tag,
+                trust_repo=True,
             )
             models[lang] = model
             print(f"✅ Loaded Silero TTS model: {tag} ({lang})")

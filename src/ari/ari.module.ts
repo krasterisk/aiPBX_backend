@@ -13,6 +13,7 @@ import { ConfigModule } from "@nestjs/config";
 import { OpenAiModule } from "../open-ai/open-ai.module";
 import { WidgetKeysModule } from "../widget-keys/widget-keys.module";
 import { TelegramModule } from "../telegram/telegram.module";
+import { NonRealtimeModule } from "../non-realtime/non-realtime.module";
 
 
 @Module({
@@ -32,6 +33,7 @@ import { TelegramModule } from "../telegram/telegram.module";
         PbxServersModule,
         WidgetKeysModule,
         TelegramModule,
+        NonRealtimeModule,
     ],
     exports: [
         AriService

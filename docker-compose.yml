@@ -39,6 +39,46 @@ services:
               count: 1
               capabilities: [gpu]
 
+  silero-tts:
+    build:
+      context: ./docker/silero-tts
+    restart: unless-stopped
+    profiles:
+      - gpu
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    profiles:
+      - gpu-full
+    networks:
+      - app-network
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
 #  nginx:
 #    image: nginx:alpine
 #    restart: unless-stopped
@@ -54,6 +94,7 @@ services:
 
 volumes:
   node_modules:
+  ollama-data:
 
 networks:
   app-network:

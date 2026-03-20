@@ -6,6 +6,7 @@ import * as path from 'path';
 import { AudioService } from "../audio/audio.service";
 import { OpenAiConnection } from "../open-ai/open-ai.connection";
 import { Assistant } from "../assistants/assistants.model";
+import { NonRealtimeService } from "../non-realtime/non-realtime.service";
 
 interface requestData {
     channelId?: string,
@@ -33,6 +34,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
         private openAi: OpenAiService,
         //        private vosk: VoskServerService,
         private audioService: AudioService,
+        private nonRealtimeService: NonRealtimeService,
     ) {
     }
 
@@ -52,15 +54,28 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             if (!currentSession) return
 
             if (currentSession && currentSession.init === 'false') {
+                const isNonRealtime = currentSession?.assistant?.pipelineMode === 'non-realtime';
                 const model = currentSession?.assistant?.model || 'unknown';
                 const isResample = (model.startsWith('qwen') || model.startsWith('yandex'))
                     && !currentSession.channelId.startsWith('playground-');
                 const inRate = model.startsWith('yandex') ? '24kHz' : '16kHz';
-                this.logger.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port} | model=${model} | audio=${isResample ? `PCM16 resample (alaw→${inRate})` : 'raw alaw passthrough'}`);
+                this.logger.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port} | model=${model} | pipeline=${isNonRealtime ? 'non-realtime' : 'realtime'} | audio=${isResample ? `PCM16 resample (alaw→${inRate})` : 'raw alaw passthrough'}`);
                 currentSession.init = 'true';
 
-                await this.openAi.updateRtAudioSession(currentSession)
-                await this.openAi.rtInitAudioResponse(currentSession)
+                if (isNonRealtime) {
+                    // Non-realtime: create session, skip OpenAI init
+                    await this.nonRealtimeService.createSession(
+                        currentSession.channelId,
+                        currentSession['callerId'] || '',
+                        currentSession.assistant,
+                        currentSession.address,
+                        currentSession.port,
+                    );
+                } else {
+                    // Realtime: OpenAI session init (existing behavior)
+                    await this.openAi.updateRtAudioSession(currentSession)
+                    await this.openAi.rtInitAudioResponse(currentSession)
+                }
             }
 
             try {
@@ -87,29 +102,19 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             this.activeChannels.add(channelId);
 
             try {
-
-                await this.openAi.rtInputAudioAppend(audioBuffer, channelId)
-
-                // const transcription = await this.vosk.audioAppend(audioChunk);
-                // if (transcription) {
-                //     console.log('User text: ', transcription,)
-                //     // const aiText = await this.openAi.textResponse(transcription)
-                //     const aiText = await this.openAi.rtTextAppend(transcription)
-                //                console.log(aiText)
-                // if (aiText) {
-                //     console.log('AI text: ', aiText)
-                //     const voice = await this.openAi.textToSpeech(aiText)
-                //     if (voice && this.externalAddress && this.externalPort) {
-                //         console.log('AI voice got')
-                //         // Отправляем назад поток
-                //         await this.convertAndStreamPCM(voice)
-
-                // }
-                // }
-                //            }
+                // Check if this channel uses non-realtime pipeline
+                const session = this.getSessionByField('channelId', channelId);
+                if (session?.assistant?.pipelineMode === 'non-realtime') {
+                    // Non-realtime: convert alaw → PCM16 16kHz and send to VAD→STT pipeline
+                    const pcm16_8k = this.audioService.alawToPcm16(audioBuffer);
+                    const pcm16_16k = this.audioService.resampleLinear(pcm16_8k, 8000, 16000);
+                    await this.nonRealtimeService.processAudio(pcm16_16k, channelId);
+                } else {
+                    // Realtime: send to OpenAI Realtime API (existing behavior)
+                    await this.openAi.rtInputAudioAppend(audioBuffer, channelId)
+                }
             } finally {
                 this.activeChannels.delete(channelId);
-                // await this.handleSessionEnd(channelId)
             }
         });
 

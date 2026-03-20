@@ -96,11 +96,22 @@ jobs:
               --build \
               --force-recreate backend
 
-            # ── Start Whisper GPU container (only on aipbxru / deploy:3) ──
+            # ── Start GPU services (only on aipbxru / deploy:3) ──
             if [[ "${{ matrix.server }}" == "aipbxru_production" ]]; then
               echo "Starting Whisper GPU container..."
               sudo docker compose -f docker-compose.production.yml --env-file .env.production --profile gpu up -d \
                 --force-recreate whisper
+
+              echo "Building and starting Silero TTS container..."
+              sudo docker compose -f docker-compose.production.yml --env-file .env.production --profile gpu up -d \
+                --build --force-recreate silero-tts
+
+              echo "Starting Ollama container..."
+              sudo docker compose -f docker-compose.production.yml --env-file .env.production --profile gpu-full up -d \
+                --force-recreate ollama
+              sleep 10
+              echo "Pulling Qwen3 8B model..."
+              sudo docker exec app-ollama-1 ollama pull qwen3:8b || echo "Model pull skipped (may already exist)"
             fi
 
             # ── Wait for health checks ──

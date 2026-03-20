@@ -89,6 +89,24 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: 'comment', description: "Any comments" })
     @Column({ type: DataType.STRING, allowNull: true })
     comment: string
+    @ApiProperty({ example: 'realtime', description: "Pipeline mode: realtime or non-realtime" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    pipelineMode: string
+    @ApiProperty({ example: 'whisper-local', description: "STT provider: whisper-local, vosk, whisper-api, yandex-stt" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    sttProvider: string
+    @ApiProperty({ example: 'openai', description: "LLM provider: openai, yandex, ollama" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    llmProvider: string
+    @ApiProperty({ example: 'gpt-4o-mini', description: "LLM model name" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    llmModel: string
+    @ApiProperty({ example: 'silero', description: "TTS provider: silero, openai-tts, yandex-tts" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    ttsProvider: string
+    @ApiProperty({ example: 'baya', description: "TTS voice name (provider-specific)" })
+    @Column({ type: DataType.STRING, allowNull: true })
+    ttsVoice: string
     @ApiProperty({ example: 1, description: "Project ID" })
     @Column({ type: DataType.INTEGER, allowNull: true })
     projectId: number

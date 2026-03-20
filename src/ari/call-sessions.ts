@@ -7,6 +7,7 @@ import { StreamAudioService } from "../audio/streamAudio.service";
 import { AriConnection, ChannelData } from "./ari-connection";
 import { PbxServers } from "../pbx-servers/pbx-servers.model";
 import { AriHttpClient, Bridge, Channel } from "./ari-http-client";
+import { NonRealtimeService } from "../non-realtime/non-realtime.service";
 
 interface ChanVars {
     UNICASTRTP_LOCAL_PORT: number;
@@ -47,20 +48,27 @@ export class CallSession {
         private streamAudioService: StreamAudioService,
         private assistant: Assistant,
         private readonly ariClient: AriHttpClient,
-        private readonly pbxServer: PbxServers
+        private readonly pbxServer: PbxServers,
+        private readonly nonRealtimeService?: NonRealtimeService,
     ) {
         this.connectionId = `${this.pbxServer.uniqueId}-${Date.now()}`;
         this.logger.log(`[${this.connectionId}] Creating connection for channel: ${channel.id}`);
     }
 
     async init(): Promise<void> {
-        this.openAiConnection = await this.openAiService.createConnection(
-            this.channel.id,
-            this.assistant
-        );
-
-        await this.registerOpenAiHandlers();
-        await this.initializeAri(this.assistant)
+        if (this.assistant.pipelineMode === 'non-realtime' && this.nonRealtimeService) {
+            // Non-realtime pipeline: VAD → STT → LLM → TTS
+            this.logger.log(`[${this.connectionId}] Using non-realtime pipeline`);
+            await this.initializeAri(this.assistant);
+        } else {
+            // Realtime pipeline: OpenAI/Qwen/Yandex Realtime API (existing behavior)
+            this.openAiConnection = await this.openAiService.createConnection(
+                this.channel.id,
+                this.assistant
+            );
+            await this.registerOpenAiHandlers();
+            await this.initializeAri(this.assistant);
+        }
     }
 
     private registerOpenAiHandlers() {
@@ -220,9 +228,15 @@ export class CallSession {
                 }
             }
 
-            // Очищаем OpenAI
+            // Очищаем AI сессию
             if (this.channel?.id) {
                 const safeChannelId = this.channel.id;
+
+                // Cleanup non-realtime session if applicable
+                if (this.assistant.pipelineMode === 'non-realtime' && this.nonRealtimeService) {
+                    await this.nonRealtimeService.closeSession(safeChannelId);
+                }
+
                 await this.openAiService.dataDecode(
                     { type: 'call.hangup' },
                     safeChannelId,

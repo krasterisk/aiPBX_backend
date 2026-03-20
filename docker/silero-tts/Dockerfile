@@ -3,9 +3,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install PyTorch CPU-only (no CUDA needed for TTS)
-RUN pip install --no-cache-dir \
-    torch --index-url https://download.pytorch.org/whl/cpu \
-    fastapi uvicorn
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir fastapi uvicorn
 
 # Pre-download Silero TTS models during build (v5 for ru, v3 for en)
 RUN python -c "\

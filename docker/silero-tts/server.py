@@ -21,8 +21,8 @@ speakers_map = {
 }
 
 def load_models():
-    # V5 for Russian (best quality + SSML), V3 for English (latest available)
-    for lang, tag in [("ru", "v5_ru"), ("en", "v3_en")]:
+    # V5.2 for Russian (no numpy/scipy deps), V3 for English (latest available)
+    for lang, tag in [("ru", "v5_2_ru"), ("en", "v3_en")]:
         try:
             model, _ = torch.hub.load(
                 "snakers4/silero-models",

@@ -4,12 +4,12 @@ WORKDIR /app
 
 # Install PyTorch CPU-only (no CUDA needed for TTS)
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir fastapi uvicorn omegaconf numpy
+RUN pip install --no-cache-dir fastapi uvicorn omegaconf
 
 # Pre-download Silero TTS models during build (v5 for ru, v3 for en)
 RUN python -c "\
 import torch; \
-torch.hub.load('snakers4/silero-models', model='silero_tts', language='ru', speaker='v5_ru', trust_repo=True); \
+torch.hub.load('snakers4/silero-models', model='silero_tts', language='ru', speaker='v5_2_ru', trust_repo=True); \
 torch.hub.load('snakers4/silero-models', model='silero_tts', language='en', speaker='v3_en', trust_repo=True)"
 
 COPY server.py .

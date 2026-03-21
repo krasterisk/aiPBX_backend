@@ -6,6 +6,7 @@ import { OpenAiService, sessionData } from '../open-ai/open-ai.service';
 import { Assistant } from '../assistants/assistants.model';
 import { WsServerGateway } from '../ws-server/ws-server.gateway';
 import { AiCdrService } from '../ai-cdr/ai-cdr.service';
+import { NonRealtimeService } from '../non-realtime/non-realtime.service';
 
 interface PlaygroundSession {
     socketId: string;
@@ -15,6 +16,7 @@ interface PlaygroundSession {
     audioDeltaHandler?: (outAudio: Buffer, serverData: sessionData) => Promise<void>;
     audioInterruptHandler?: (serverData: sessionData) => Promise<void>;
     hangupHandler?: () => void;
+    isNonRealtime?: boolean;
 }
 
 @Injectable()
@@ -28,7 +30,8 @@ export class PlaygroundService implements OnModuleInit {
         private openAiService: OpenAiService,
         private eventEmitter: EventEmitter2,
         private wsGateway: WsServerGateway,
-        private aiCdrService: AiCdrService
+        private aiCdrService: AiCdrService,
+        private nonRealtimeService: NonRealtimeService,
     ) { }
 
     onModuleInit() {
@@ -86,58 +89,83 @@ export class PlaygroundService implements OnModuleInit {
 
             this.logger.log(`[Init] Overridden audio formats for playground: input=pcm16, output=pcm16`);
 
+            const isNonRealtime = playgroundAssistant.pipelineMode === 'non-realtime';
+
             const session: PlaygroundSession = {
                 socketId,
                 channelId,
-                assistant: playgroundAssistant  // ✅ Use normalized assistant
+                assistant: playgroundAssistant,
+                isNonRealtime,
             };
             this.sessions.set(socketId, session);
 
-            // Init OpenAI Connection with normalized assistant
-            const openAiConnection = await this.openAiService.createConnection(channelId, playgroundAssistant);
-            session.openAiConn = openAiConnection;
+            if (isNonRealtime) {
+                // ── Non-realtime pipeline: VAD → STT → LLM → TTS ──
+                this.logger.log(`[Init] Using NON-REALTIME pipeline for playground ${channelId}`);
 
-            // Register handlers to receive audio from OpenAI
-            this.registerOpenAiHandlers(session);
+                await this.nonRealtimeService.createSession(
+                    channelId,
+                    'Playground',
+                    playgroundAssistant,
+                    'websocket', // address (not used for playground)
+                    '0',         // port (not used for playground)
+                );
 
-            // Initialize OpenAI Session
-            // Use the same normalized assistant object
-            const playgroundSessionData: sessionData = {
-                channelId,
-                callerId: 'Playground',
-                address: 'websocket',
-                port: '0',
-                init: 'true',
-                openAiConn: openAiConnection,
-                assistant: playgroundAssistant  // Same normalized object
-            };
+                // Listen for TTS audio output from non-realtime pipeline
+                this.eventEmitter.on(`audioDelta.${channelId}`, (audioChunk: Buffer) => {
+                    this.wsGateway.server.to(socketId).emit('playground.audio_out', audioChunk);
+                });
 
-            // ✅ FIX: Wait for connection to be OPEN before sending session update
-            this.logger.log(`[Init] Waiting for OpenAI WebSocket connection for ${channelId}...`);
+                this.wsGateway.server.to(socketId).emit('playground.ready');
 
-            const onConnected = async () => {
-                this.logger.log(`[Init] WebSocket connected for ${channelId}, sending configuration...`);
+            } else {
+                // ── Realtime pipeline: OpenAI Realtime API (existing behavior) ──
+                // Init OpenAI Connection with normalized assistant
+                const openAiConnection = await this.openAiService.createConnection(channelId, playgroundAssistant);
+                session.openAiConn = openAiConnection;
 
-                try {
-                    this.logger.log(`[Init] Calling updateRtAudioSession for ${channelId}`);
-                    await this.openAiService.updateRtAudioSession(playgroundSessionData);
+                // Register handlers to receive audio from OpenAI
+                this.registerOpenAiHandlers(session);
 
-                    this.logger.log(`[Init] Calling rtInitAudioResponse for ${channelId}`);
-                    await this.openAiService.rtInitAudioResponse(playgroundSessionData);
+                // Initialize OpenAI Session
+                // Use the same normalized assistant object
+                const playgroundSessionData: sessionData = {
+                    channelId,
+                    callerId: 'Playground',
+                    address: 'websocket',
+                    port: '0',
+                    init: 'true',
+                    openAiConn: openAiConnection,
+                    assistant: playgroundAssistant  // Same normalized object
+                };
 
-                    this.wsGateway.server.to(socketId).emit('playground.ready');
-                } catch (err) {
-                    this.logger.error(`[Init] Error during session config: ${err.message}`, err.stack);
-                    this.wsGateway.server.to(socketId).emit('playground.error', 'Failed to configure OpenAI session');
-                }
-            };
+                // ✅ FIX: Wait for connection to be OPEN before sending session update
+                this.logger.log(`[Init] Waiting for OpenAI WebSocket connection for ${channelId}...`);
 
-            // Listen for connected event
-            this.eventEmitter.once(`openai.connected.${channelId}`, onConnected);
+                const onConnected = async () => {
+                    this.logger.log(`[Init] WebSocket connected for ${channelId}, sending configuration...`);
 
-            // ✅ Manual CDR Creation to ensure record exists
-            this.logger.log(`[Init] Creating CDR record manually for ${channelId}`);
-            await this.openAiService.cdrCreateLog(channelId, 'Playground', playgroundAssistant, 'playground');
+                    try {
+                        this.logger.log(`[Init] Calling updateRtAudioSession for ${channelId}`);
+                        await this.openAiService.updateRtAudioSession(playgroundSessionData);
+
+                        this.logger.log(`[Init] Calling rtInitAudioResponse for ${channelId}`);
+                        await this.openAiService.rtInitAudioResponse(playgroundSessionData);
+
+                        this.wsGateway.server.to(socketId).emit('playground.ready');
+                    } catch (err) {
+                        this.logger.error(`[Init] Error during session config: ${err.message}`, err.stack);
+                        this.wsGateway.server.to(socketId).emit('playground.error', 'Failed to configure OpenAI session');
+                    }
+                };
+
+                // Listen for connected event
+                this.eventEmitter.once(`openai.connected.${channelId}`, onConnected);
+
+                // ✅ Manual CDR Creation to ensure record exists
+                this.logger.log(`[Init] Creating CDR record manually for ${channelId}`);
+                await this.openAiService.cdrCreateLog(channelId, 'Playground', playgroundAssistant, 'playground');
+            }
 
         } catch (e) {
             this.logger.error(`Error initializing playground: ${e.message}`, e.stack);
@@ -161,8 +189,13 @@ export class PlaygroundService implements OnModuleInit {
             session['audioReceived'] = true;
         }
 
-        // Forward raw audio to OpenAI
-        this.openAiService.rtInputAudioAppend(audio, session.channelId);
+        if (session.isNonRealtime) {
+            // Non-realtime: audio is PCM16 from browser, forward to VAD → pipeline
+            await this.nonRealtimeService.processAudio(audio, session.channelId);
+        } else {
+            // Realtime: forward raw audio to OpenAI
+            this.openAiService.rtInputAudioAppend(audio, session.channelId);
+        }
     }
 
     async handleStop(socketId: string) {
@@ -226,35 +259,42 @@ export class PlaygroundService implements OnModuleInit {
 
         this.logger.log(`Cleaning up session ${session.channelId}`);
 
-        // Remove all event listeners
-        this.openAiService.eventEmitter.removeAllListeners(`openai.${session.channelId}`);
-        this.openAiService.eventEmitter.removeAllListeners(`openai.connected.${session.channelId}`);
+        if (session.isNonRealtime) {
+            // Non-realtime cleanup
+            this.eventEmitter.removeAllListeners(`audioDelta.${session.channelId}`);
+            await this.nonRealtimeService.closeSession(session.channelId);
+        } else {
+            // Realtime cleanup
+            this.openAiService.eventEmitter.removeAllListeners(`openai.${session.channelId}`);
+            this.openAiService.eventEmitter.removeAllListeners(`openai.connected.${session.channelId}`);
 
-        if (session.audioDeltaHandler) {
-            this.openAiService.eventEmitter.off(`audioDelta.${session.channelId}`, session.audioDeltaHandler);
-        }
-        if (session.audioInterruptHandler) {
-            this.openAiService.eventEmitter.off(`audioInterrupt.${session.channelId}`, session.audioInterruptHandler);
-        }
-        if (session.hangupHandler) {
-            this.openAiService.eventEmitter.off(`HangupCall.${session.channelId}`, session.hangupHandler);
+            if (session.audioDeltaHandler) {
+                this.openAiService.eventEmitter.off(`audioDelta.${session.channelId}`, session.audioDeltaHandler);
+            }
+            if (session.audioInterruptHandler) {
+                this.openAiService.eventEmitter.off(`audioInterrupt.${session.channelId}`, session.audioInterruptHandler);
+            }
+            if (session.hangupHandler) {
+                this.openAiService.eventEmitter.off(`HangupCall.${session.channelId}`, session.hangupHandler);
+            }
+
+            // ✅ Calculate tokens and update balance (CDR Hangup via dataDecode)
+            try {
+                await this.openAiService.dataDecode(
+                    { type: 'call.hangup' },
+                    session.channelId,
+                    'Playground',
+                    session.assistant,
+                    'playground'
+                );
+                this.logger.log(`CDR Hangup processed for ${session.channelId}`);
+            } catch (e) {
+                this.logger.error(`Error processing CDR Hangup for ${session.channelId}: ${e.message}`);
+            }
+
+            await this.openAiService.closeConnection(session.channelId);
         }
 
-        // ✅ Calculate tokens and update balance (CDR Hangup via dataDecode)
-        try {
-            await this.openAiService.dataDecode(
-                { type: 'call.hangup' },
-                session.channelId,
-                'Playground',
-                session.assistant,
-                'playground'
-            );
-            this.logger.log(`CDR Hangup processed for ${session.channelId}`);
-        } catch (e) {
-            this.logger.error(`Error processing CDR Hangup for ${session.channelId}: ${e.message}`);
-        }
-
-        await this.openAiService.closeConnection(session.channelId);
         this.sessions.delete(socketId);
     }
 }

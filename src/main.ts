@@ -10,7 +10,6 @@ async function start() {
     const app = await NestFactory.create(AppModule, { rawBody: true })
     app.setGlobalPrefix('api', { exclude: ['static/{*path}'] })
 
-
     const config = new DocumentBuilder()
         .setTitle('AI PBX')
         .setDescription('REST API Documentation')

@@ -69,9 +69,11 @@ export class ParserService {
     private async parsePdf(buffer: Buffer): Promise<string> {
         try {
             // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const pdfParse = require('pdf-parse');
-            const data = await pdfParse(buffer);
-            return data.text || '';
+            const { PDFParse } = require('pdf-parse');
+            const parser = new PDFParse({ data: buffer, verbosity: 0 });
+            const result = await parser.getText();
+            await parser.destroy();
+            return result.text || '';
         } catch (err) {
             this.logger.error(`PDF parse error: ${err.message}`);
             throw new Error(`Failed to parse PDF: ${err.message}. Is pdf-parse installed?`);

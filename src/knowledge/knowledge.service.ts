@@ -151,26 +151,57 @@ export class KnowledgeService {
         }
 
         const queryEmbedding = await this.embeddingService.embed(query);
-        const vectorStr = `[${queryEmbedding.join(',')}]`;
 
+        if (this.isPostgres) {
+            // PostgreSQL + pgvector: native cosine distance
+            const vectorStr = `[${queryEmbedding.join(',')}]`;
+            const results = await this.sequelize.query(
+                `SELECT
+                    id, content, metadata, "documentId",
+                    1 - (embedding <=> :vector::vector) AS similarity
+                FROM "knowledgeChunks"
+                WHERE "knowledgeBaseId" IN (:kbIds)
+                ORDER BY embedding <=> :vector::vector
+                LIMIT :limit`,
+                {
+                    replacements: { vector: vectorStr, kbIds: knowledgeBaseIds, limit },
+                    type: 'SELECT' as any,
+                },
+            ) as any[];
+
+            return results.map((r: any) => ({
+                content: r.content,
+                similarity: parseFloat(r.similarity),
+                metadata: r.metadata || {},
+                documentId: r.documentId,
+            }));
+        }
+
+        // MySQL: fetch chunks and compute cosine similarity in JS
         const results = await this.sequelize.query(
-            `SELECT
-                id, content, metadata, "documentId",
-                1 - (embedding <=> :vector::vector) AS similarity
-            FROM "knowledgeChunks"
-            WHERE "knowledgeBaseId" IN (:kbIds)
-            ORDER BY embedding <=> :vector::vector
-            LIMIT :limit`,
+            'SELECT id, content, metadata, `documentId`, embedding FROM `knowledgeChunks` WHERE `knowledgeBaseId` IN (:kbIds)',
             {
-                replacements: { vector: vectorStr, kbIds: knowledgeBaseIds, limit },
+                replacements: { kbIds: knowledgeBaseIds },
                 type: 'SELECT' as any,
             },
         ) as any[];
 
-        return results.map((r: any) => ({
+        const scored = results.map((r: any) => {
+            let emb: number[] = [];
+            try {
+                emb = typeof r.embedding === 'string' ? JSON.parse(r.embedding) : r.embedding;
+            } catch { /* ignore */ }
+            return {
+                ...r,
+                similarity: emb.length ? this.cosineSimilarity(queryEmbedding, emb) : 0,
+            };
+        });
+        scored.sort((a: any, b: any) => b.similarity - a.similarity);
+
+        return scored.slice(0, limit).map((r: any) => ({
             content: r.content,
-            similarity: parseFloat(r.similarity),
-            metadata: r.metadata || {},
+            similarity: r.similarity,
+            metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata) : (r.metadata || {}),
             documentId: r.documentId,
         }));
     }
@@ -211,23 +242,37 @@ export class KnowledgeService {
             const transaction = await this.sequelize.transaction();
             try {
                 for (let i = 0; i < chunks.length; i++) {
-                    const vectorStr = `[${embeddings[i].join(',')}]`;
-                    await this.sequelize.query(
-                        `INSERT INTO "knowledgeChunks"
-                            ("documentId", "knowledgeBaseId", content, embedding, metadata, "createdAt")
-                        VALUES
-                            (:documentId, :knowledgeBaseId, :content, :vector::vector, :metadata::jsonb, NOW())`,
-                        {
-                            replacements: {
-                                documentId: doc.id,
-                                knowledgeBaseId,
-                                content: chunks[i].content,
-                                vector: vectorStr,
-                                metadata: JSON.stringify(chunks[i].metadata),
+                    const metadataStr = JSON.stringify(chunks[i].metadata);
+                    if (this.isPostgres) {
+                        const vectorStr = `[${embeddings[i].join(',')}]`;
+                        await this.sequelize.query(
+                            `INSERT INTO "knowledgeChunks"
+                                ("documentId", "knowledgeBaseId", content, embedding, metadata, "createdAt")
+                            VALUES
+                                (:documentId, :knowledgeBaseId, :content, :vector::vector, :metadata::jsonb, NOW())`,
+                            {
+                                replacements: {
+                                    documentId: doc.id, knowledgeBaseId,
+                                    content: chunks[i].content,
+                                    vector: vectorStr, metadata: metadataStr,
+                                },
+                                transaction,
                             },
-                            transaction,
-                        },
-                    );
+                        );
+                    } else {
+                        const vectorJson = JSON.stringify(embeddings[i]);
+                        await this.sequelize.query(
+                            'INSERT INTO `knowledgeChunks` (`documentId`, `knowledgeBaseId`, content, embedding, metadata, `createdAt`) VALUES (:documentId, :knowledgeBaseId, :content, :vector, :metadata, NOW())',
+                            {
+                                replacements: {
+                                    documentId: doc.id, knowledgeBaseId,
+                                    content: chunks[i].content,
+                                    vector: vectorJson, metadata: metadataStr,
+                                },
+                                transaction,
+                            },
+                        );
+                    }
                 }
 
                 await doc.update(
@@ -270,5 +315,21 @@ export class KnowledgeService {
         if (ext === 'docx' || mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx';
         if (ext === 'txt' || ext === 'md' || mimetype?.startsWith('text/')) return 'txt';
         throw new Error(`Unsupported file type: ${ext} (${mimetype})`);
+    }
+
+    private get isPostgres(): boolean {
+        return (this.sequelize.getDialect() as string) === 'postgres';
+    }
+
+    private cosineSimilarity(a: number[], b: number[]): number {
+        if (a.length !== b.length || a.length === 0) return 0;
+        let dot = 0, normA = 0, normB = 0;
+        for (let i = 0; i < a.length; i++) {
+            dot += a[i] * b[i];
+            normA += a[i] * a[i];
+            normB += b[i] * b[i];
+        }
+        const denom = Math.sqrt(normA) * Math.sqrt(normB);
+        return denom === 0 ? 0 : dot / denom;
     }
 }

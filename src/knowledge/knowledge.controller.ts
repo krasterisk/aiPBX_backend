@@ -88,6 +88,8 @@ export class KnowledgeController {
         @UploadedFile() file: { buffer: Buffer; originalname: string; mimetype: string; size: number },
         @Req() req: any,
     ) {
+        // Multer decodes filename as latin1 — re-encode back to bytes and decode as UTF-8
+        file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf-8');
         return this.knowledgeService.uploadFile(id, req.user.id, file);
     }
 

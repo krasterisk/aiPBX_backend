@@ -8,10 +8,12 @@ import { KnowledgeController } from './knowledge.controller';
 import { EmbeddingService } from './embedding.service';
 import { ChunkingService } from './chunking.service';
 import { ParserService } from './parser.service';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
     imports: [
         SequelizeModule.forFeature([KnowledgeBase, KnowledgeDocument, KnowledgeChunk]),
+        AuthModule,
     ],
     controllers: [KnowledgeController],
     providers: [

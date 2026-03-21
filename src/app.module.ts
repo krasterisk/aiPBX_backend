@@ -33,6 +33,7 @@ import { OperatorAnalyticsModule } from './operator-analytics/operator-analytics
 import { SipTrunksModule } from './sip-trunks/sip-trunks.module';
 import { WhisperModule } from './whisper/whisper.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
     imports: [
@@ -79,6 +80,7 @@ import { KnowledgeModule } from './knowledge/knowledge.module';
         SipTrunksModule,
         WhisperModule,
         KnowledgeModule,
+        ChatModule,
         ThrottlerModule.forRoot([{
             ttl: 60000,
             limit: 30,

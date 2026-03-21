@@ -103,6 +103,12 @@ export class PlaygroundService implements OnModuleInit {
                 // ── Non-realtime pipeline: VAD → STT → LLM → TTS ──
                 this.logger.log(`[Init] Using NON-REALTIME pipeline for playground ${channelId}`);
 
+                // ✅ Register audio listener BEFORE createSession
+                // (createSession plays greeting → emits audioDelta events immediately)
+                this.eventEmitter.on(`audioDelta.${channelId}`, (audioChunk: Buffer) => {
+                    this.wsGateway.server.to(socketId).emit('playground.audio_out', audioChunk);
+                });
+
                 await this.nonRealtimeService.createSession(
                     channelId,
                     'Playground',
@@ -110,11 +116,6 @@ export class PlaygroundService implements OnModuleInit {
                     'websocket', // address (not used for playground)
                     '0',         // port (not used for playground)
                 );
-
-                // Listen for TTS audio output from non-realtime pipeline
-                this.eventEmitter.on(`audioDelta.${channelId}`, (audioChunk: Buffer) => {
-                    this.wsGateway.server.to(socketId).emit('playground.audio_out', audioChunk);
-                });
 
                 this.wsGateway.server.to(socketId).emit('playground.ready');
 

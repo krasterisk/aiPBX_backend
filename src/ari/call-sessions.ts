@@ -60,6 +60,27 @@ export class CallSession {
             // Non-realtime pipeline: VAD → STT → LLM → TTS
             this.logger.log(`[${this.connectionId}] Using non-realtime pipeline`);
             await this.initializeAri(this.assistant);
+
+            // Proactively create non-realtime session (CDR, greeting, conversation history)
+            // Don't rely on lazy init from RtpUdpServer — it may not trigger reliably
+            const vars = this.externalChannel?.channelvars || {};
+            const rtpAddress = vars.UNICASTRTP_LOCAL_ADDRESS || this.externalHost;
+            const rtpPort = String(vars.UNICASTRTP_LOCAL_PORT || '0');
+
+            await this.nonRealtimeService.createSession(
+                this.channel.id,
+                this.channel.callerId || '',
+                this.assistant,
+                rtpAddress,
+                rtpPort,
+            );
+
+            // Mark RTP session as initialized to prevent duplicate createSession from RtpUdpServer
+            const sessionUrl = `${rtpAddress}:${vars.UNICASTRTP_LOCAL_PORT}`;
+            const rtpSession = this.rtpUdpServer.sessions.get(sessionUrl);
+            if (rtpSession) {
+                rtpSession.init = 'true';
+            }
         } else {
             // Realtime pipeline: OpenAI/Qwen/Yandex Realtime API (existing behavior)
             this.openAiConnection = await this.openAiService.createConnection(
@@ -177,7 +198,8 @@ export class CallSession {
             await this.startStreaming(sessionUrl, sessionData);
 
             // 9. Проактивная инициализация OpenAI, если порт уже известен
-            if (rtpPort) {
+            // Skip for non-realtime — session is created proactively in init()
+            if (rtpPort && assistant.pipelineMode !== 'non-realtime') {
                 await this.triggerOpenAiInit(sessionData);
             }
 

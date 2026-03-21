@@ -127,6 +127,14 @@ export class NonRealtimeService {
     // ── Audio Processing (called from RtpUdpServer) ─────────
 
     /**
+     * Silero VAD requires 1536-sample frames (96ms @ 16kHz = 3072 bytes).
+     * RTP packets are only ~320 samples (~640 bytes), so we must accumulate.
+     */
+    private static readonly VAD_FRAME_SAMPLES = 1536;
+    private static readonly VAD_FRAME_BYTES = NonRealtimeService.VAD_FRAME_SAMPLES * 2; // 16-bit PCM
+    private static readonly VAD_FRAME_DURATION_MS = (NonRealtimeService.VAD_FRAME_SAMPLES / 16000) * 1000; // ~96ms
+
+    /**
      * Process incoming audio frame from Asterisk.
      * This is called for every RTP packet (~20ms, alaw 8kHz).
      * Audio is already converted to PCM16 16kHz by caller.
@@ -164,10 +172,28 @@ export class NonRealtimeService {
 
         session.lastActivityAt = Date.now();
 
-        // VAD analysis
-        const vadResult = await this.vadProvider.processSamples(pcm16_16k);
+        // ── Accumulate small RTP frames into VAD-sized chunks ──
+        // Silero needs 1536 samples per frame; RTP gives us ~320.
+        if (!session['_vadAccumulator']) session['_vadAccumulator'] = Buffer.alloc(0);
+        session['_vadAccumulator'] = Buffer.concat([session['_vadAccumulator'], pcm16_16k]);
+
+        // Process all complete VAD frames in the accumulator
+        while (session['_vadAccumulator'].length >= NonRealtimeService.VAD_FRAME_BYTES) {
+            const vadChunk = session['_vadAccumulator'].subarray(0, NonRealtimeService.VAD_FRAME_BYTES);
+            session['_vadAccumulator'] = session['_vadAccumulator'].subarray(NonRealtimeService.VAD_FRAME_BYTES);
+
+            await this.processVadFrame(session, vadChunk);
+        }
+    }
+
+    /**
+     * Process a single VAD-sized audio frame (1536 samples / 3072 bytes).
+     */
+    private async processVadFrame(session: NonRealtimeSession, vadChunk: Buffer): Promise<void> {
+        const { channelId } = session;
+
+        const vadResult = await this.vadProvider.processSamples(vadChunk);
         const silenceDurationMs = Number(session.assistant.turn_detection_silence_duration_ms) || 500;
-        const frameDurationMs = 20; // RTP packet duration
 
         if (vadResult.isSpeech) {
             if (session.vadState === 'idle') {
@@ -186,14 +212,14 @@ export class NonRealtimeService {
                 this.emitEvent(session, { type: 'input_audio_buffer.speech_started' });
             }
 
-            session.speechBuffer.push(pcm16_16k);
+            session.speechBuffer.push(vadChunk);
             session.silenceMs = 0;
 
         } else {
             // Silence
             if (session.vadState === 'speaking') {
-                session.speechBuffer.push(pcm16_16k); // include trailing silence
-                session.silenceMs += frameDurationMs;
+                session.speechBuffer.push(vadChunk); // include trailing silence
+                session.silenceMs += NonRealtimeService.VAD_FRAME_DURATION_MS;
 
                 if (session.silenceMs >= silenceDurationMs) {
                     // ── SPEECH END ──
@@ -209,7 +235,7 @@ export class NonRealtimeService {
                 }
             } else {
                 // In idle state, keep prefix buffer
-                session.addToPrefixBuffer(pcm16_16k);
+                session.addToPrefixBuffer(vadChunk);
             }
         }
     }

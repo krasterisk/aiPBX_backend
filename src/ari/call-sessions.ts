@@ -259,39 +259,53 @@ export class CallSession {
                     await this.nonRealtimeService.closeSession(safeChannelId);
                 }
 
-                await this.openAiService.dataDecode(
-                    { type: 'call.hangup' },
-                    safeChannelId,
-                    this.channel?.callerId || '',
-                    this.assistant
-                );
+                // Only cleanup realtime event handlers if they were registered
+                if (this.assistant.pipelineMode !== 'non-realtime') {
+                    await this.openAiService.dataDecode(
+                        { type: 'call.hangup' },
+                        safeChannelId,
+                        this.channel?.callerId || '',
+                        this.assistant
+                    );
 
-                this.openAiService.eventEmitter.off(
-                    `audioDelta.${safeChannelId}`,
-                    this.audioDeltaHandler
-                );
+                    if (this.audioDeltaHandler) {
+                        this.openAiService.eventEmitter.off(
+                            `audioDelta.${safeChannelId}`,
+                            this.audioDeltaHandler
+                        );
+                    }
 
-                this.openAiService.eventEmitter.off(
-                    `audioInterrupt.${safeChannelId}`,
-                    this.audioInterruptHandler
-                );
+                    if (this.audioInterruptHandler) {
+                        this.openAiService.eventEmitter.off(
+                            `audioInterrupt.${safeChannelId}`,
+                            this.audioInterruptHandler
+                        );
+                    }
 
-                this.openAiService.eventEmitter.off(
-                    `openai.${safeChannelId}`,
-                    this.openAiEventHandler
-                );
+                    if (this.openAiEventHandler) {
+                        this.openAiService.eventEmitter.off(
+                            `openai.${safeChannelId}`,
+                            this.openAiEventHandler
+                        );
+                    }
 
-                this.openAiService.eventEmitter.off(
-                    `transferToDialplan.${safeChannelId}`,
-                    this.transferHandler
-                );
+                    if (this.transferHandler) {
+                        this.openAiService.eventEmitter.off(
+                            `transferToDialplan.${safeChannelId}`,
+                            this.transferHandler
+                        );
+                    }
 
-                this.openAiService.eventEmitter.off(
-                    `HangupCall.${safeChannelId}`,
-                    this.hangupHandler
-                );
+                    if (this.hangupHandler) {
+                        this.openAiService.eventEmitter.off(
+                            `HangupCall.${safeChannelId}`,
+                            this.hangupHandler
+                        );
+                    }
 
-                await this.openAiService.closeConnection(safeChannelId)
+                    await this.openAiService.closeConnection(safeChannelId);
+                }
+
                 await this.streamAudioService.removeStream(safeChannelId);
                 await this.rtpUdpServer.handleSessionEnd(safeChannelId);
             }

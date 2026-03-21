@@ -49,18 +49,39 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
 
         this.server.on('message', async (msg, rinfo) => {
             const sessionUrl = `${rinfo.address}:${rinfo.port}`
-            const currentSession = this.sessions.get(sessionUrl);
+            let currentSession = this.sessions.get(sessionUrl);
 
+            // Docker NAT workaround: incoming UDP packets may have a different
+            // source address:port than the registered UNICASTRTP_LOCAL_ADDRESS:PORT.
+            // When exact key doesn't match, find a session that hasn't received RTP yet
+            // and re-register it under the actual (NATted) source address.
             if (!currentSession) {
-                // Log once per unknown source to diagnose key mismatches
-                if (!this['_warnedUnknownRtp']) this['_warnedUnknownRtp'] = new Set();
-                if (!this['_warnedUnknownRtp'].has(sessionUrl)) {
-                    this['_warnedUnknownRtp'].add(sessionUrl);
-                    const knownKeys = [...this.sessions.keys()].join(', ');
-                    this.logger.warn(`RTP from unknown source ${sessionUrl} (known sessions: [${knownKeys}])`);
+                for (const [key, s] of this.sessions.entries()) {
+                    if (!s['_rtpReceived'] && s.channelId && key !== sessionUrl) {
+                        this.logger.log(
+                            `RTP NAT remap: ${sessionUrl} → session ${s.channelId} (was ${key})`,
+                        );
+                        currentSession = s;
+                        // Register under the actual source address so future packets match instantly
+                        this.sessions.set(sessionUrl, s);
+                        break;
+                    }
                 }
-                return;
+
+                if (!currentSession) {
+                    // Still no match — log once per source
+                    if (!this['_warnedUnknownRtp']) this['_warnedUnknownRtp'] = new Set();
+                    if (!this['_warnedUnknownRtp'].has(sessionUrl)) {
+                        this['_warnedUnknownRtp'].add(sessionUrl);
+                        const knownKeys = [...this.sessions.keys()].join(', ');
+                        this.logger.warn(`RTP from unknown source ${sessionUrl} (known sessions: [${knownKeys}])`);
+                    }
+                    return;
+                }
             }
+
+            // Mark session as having received RTP (for NAT remap logic above)
+            currentSession['_rtpReceived'] = true;
 
             if (currentSession && currentSession.init === 'false') {
                 const isNonRealtime = currentSession?.assistant?.pipelineMode === 'non-realtime';

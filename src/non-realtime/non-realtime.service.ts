@@ -273,10 +273,10 @@ export class NonRealtimeService {
             this.logger.log(`[${channelId}] STT: "${sttResult.text}"`);
             session.addUserMessage(sttResult.text);
 
-            // Log user transcription
+            // Log user transcription (format matches getDialogs() parser)
             this.emitEvent(session, {
-                type: 'conversation.item.created',
-                item: { role: 'user', content: sttResult.text },
+                type: 'conversation.item.input_audio_transcription.completed',
+                transcript: sttResult.text,
             });
 
             // ── Step 2: LLM (streaming) ──
@@ -340,6 +340,9 @@ export class NonRealtimeService {
                 if (delta.usage) {
                     session.totalTokens.prompt += delta.usage.promptTokens;
                     session.totalTokens.completion += delta.usage.completionTokens;
+
+                    // Write tokens to billing DB
+                    this.accumulateTokens(channelId, delta.usage).catch(() => {});
                 }
             }
 
@@ -357,12 +360,12 @@ export class NonRealtimeService {
                 return;
             }
 
-            // Save assistant response
+            // Save assistant response (format matches getDialogs() parser)
             if (fullResponse) {
                 session.addAssistantMessage(fullResponse);
                 this.emitEvent(session, {
                     type: 'response.done',
-                    response: { output: [{ type: 'message', content: fullResponse }] },
+                    response: { output: [{ type: 'message', content: [{ transcript: fullResponse }] }] },
                 });
             }
 
@@ -458,6 +461,9 @@ export class NonRealtimeService {
             if (delta.usage) {
                 session.totalTokens.prompt += delta.usage.promptTokens;
                 session.totalTokens.completion += delta.usage.completionTokens;
+
+                // Write tokens to billing DB
+                this.accumulateTokens(channelId, delta.usage).catch(() => {});
             }
         }
 
@@ -473,6 +479,10 @@ export class NonRealtimeService {
             await this.handleToolCalls(session, newToolCalls, tools, llmOptions);
         } else if (fullResponse) {
             session.addAssistantMessage(fullResponse);
+            this.emitEvent(session, {
+                type: 'response.done',
+                response: { output: [{ type: 'message', content: [{ transcript: fullResponse }] }] },
+            });
         }
     }
 
@@ -652,6 +662,30 @@ export class NonRealtimeService {
         }
 
         return 0;
+    }
+
+    /**
+     * Write LLM token usage to BillingRecord for cost tracking.
+     * Non-realtime uses only text tokens (no audio tokens).
+     */
+    private async accumulateTokens(
+        channelId: string,
+        usage: { promptTokens: number; completionTokens: number },
+    ): Promise<void> {
+        const textTokens = usage.promptTokens + usage.completionTokens;
+        if (textTokens <= 0) return;
+
+        try {
+            const aiCdr = await this.aiCdrService.getCdr(channelId);
+            if (!aiCdr) {
+                this.logger.warn(`[${channelId}] CDR not found, skipping token accumulation`);
+                return;
+            }
+
+            await this.billingService.accumulateNonRealtimeTokens(channelId, aiCdr.userId, textTokens);
+        } catch (e) {
+            this.logger.error(`[${channelId}] Token accumulation error: ${e.message}`);
+        }
     }
 
     /**

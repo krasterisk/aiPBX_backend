@@ -103,6 +103,10 @@ export class AiCdrService {
         }
     }
 
+    async getCdr(channelId: string): Promise<AiCdr | null> {
+        return this.aiCdrRepository.findOne({ where: { channelId } });
+    }
+
     async cdrUpdate(updates: Partial<AiCdr>) {
         try {
             const aiCdr = await this.aiCdrRepository.findOne({

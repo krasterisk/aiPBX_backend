@@ -62,8 +62,36 @@ export class BillingService {
     }
 
     /**
+     * Accumulate text tokens from a non-realtime LLM response.
+     * Uses findOrCreate + increment to maintain one record per channelId.
+     */
+    async accumulateNonRealtimeTokens(channelId: string, userId: string, textTokens: number): Promise<void> {
+        try {
+            if (textTokens <= 0) return;
+
+            const [record] = await this.billingRecordRepository.findOrCreate({
+                where: { channelId, type: 'non-realtime' },
+                defaults: { channelId, type: 'non-realtime', userId, description: 'Non-realtime call' },
+            });
+            await record.increment({ textTokens, totalTokens: textTokens });
+
+            // Update cached totals in CDR
+            const aiCdr = await this.aiCdrRepository.findOne({ where: { channelId } });
+            if (aiCdr) {
+                await aiCdr.increment({ tokens: textTokens });
+            }
+
+            this.logger.log(
+                `Non-realtime tokens accumulated for ${channelId}: text=${textTokens}`,
+            );
+        } catch (e) {
+            this.logger.error(`Error accumulating non-realtime tokens for ${channelId}: ${e.message}`);
+        }
+    }
+
+    /**
      * Finalize billing when a call ends (hangup).
-     * Calculates costs for the single realtime + analytic BillingRecords.
+     * Calculates costs for the single realtime + non-realtime + analytic BillingRecords.
      */
     async finalizeCallBilling(channelId: string): Promise<BillingResult> {
         const result: BillingResult = {
@@ -107,6 +135,21 @@ export class BillingService {
                 result.textTokens = realtimeRecord.textTokens;
                 result.audioCost = audioCost;
                 result.textCost = textCost;
+            }
+
+            // Get the single non-realtime record for this call (LLM text tokens)
+            const nonRealtimeRecord = await this.billingRecordRepository.findOne({
+                where: { channelId, type: 'non-realtime' },
+            });
+
+            if (nonRealtimeRecord) {
+                const textCost = nonRealtimeRecord.textTokens * (price.text / 1_000_000);
+                const totalCost = textCost;
+
+                await nonRealtimeRecord.update({ textCost, totalCost });
+
+                result.textTokens += nonRealtimeRecord.textTokens;
+                result.textCost += textCost;
             }
 
             // Get the single analytic record for this call

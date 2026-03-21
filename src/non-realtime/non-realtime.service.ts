@@ -136,7 +136,31 @@ export class NonRealtimeService {
      */
     async processAudio(pcm16_16k: Buffer, channelId: string): Promise<void> {
         const session = this.sessions.get(channelId);
-        if (!session || !this.vadProvider) return;
+        if (!session) {
+            // Log once per channel to avoid spam
+            if (!this['_warnedNoSession']?.has(channelId)) {
+                this.logger.warn(`[${channelId}] processAudio: session not found (sessions: ${[...this.sessions.keys()].join(', ')})`);
+                if (!this['_warnedNoSession']) this['_warnedNoSession'] = new Set();
+                this['_warnedNoSession'].add(channelId);
+            }
+            return;
+        }
+        if (!this.vadProvider) {
+            if (!this['_warnedNoVad']) {
+                this.logger.warn(`[${channelId}] processAudio: VAD provider not registered! Audio will be ignored.`);
+                this['_warnedNoVad'] = true;
+            }
+            return;
+        }
+
+        // Log first audio frame and then every 500th (≈10s) to confirm audio is flowing
+        if (!session['_audioFrameCount']) session['_audioFrameCount'] = 0;
+        session['_audioFrameCount']++;
+        if (session['_audioFrameCount'] === 1) {
+            this.logger.log(`[${channelId}] processAudio: first audio frame received (${pcm16_16k.length} bytes)`);
+        } else if (session['_audioFrameCount'] % 500 === 0) {
+            this.logger.debug(`[${channelId}] processAudio: ${session['_audioFrameCount']} frames processed`);
+        }
 
         session.lastActivityAt = Date.now();
 

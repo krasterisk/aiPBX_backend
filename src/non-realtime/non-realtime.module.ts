@@ -39,8 +39,9 @@ export class NonRealtimeModule implements OnModuleInit {
                 prefixPaddingMs: 300,
             });
             this.nonRealtimeService.registerVadProvider(vadProvider);
+            this.logger.log('✅ Silero VAD registered successfully');
         } catch (e) {
-            this.logger.warn(`Silero VAD not available: ${e.message}. Install @ricky0123/vad-node to enable.`);
+            this.logger.warn(`❌ Silero VAD not available: ${e.message}. Install @ricky0123/vad-node to enable.`);
         }
 
         // ── STT: Whisper Local ──

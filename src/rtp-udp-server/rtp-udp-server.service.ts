@@ -82,7 +82,7 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
                 const audioChunk = this.audioService.removeRTPHeader(msg, false);
 
                 if ((currentSession?.assistant?.model?.startsWith('qwen')
-                    || currentSession.assistant.model.startsWith('yandex'))
+                    || currentSession?.assistant?.model?.startsWith('yandex'))
                     && !currentSession.channelId.startsWith('playground-')) {
                     const pcm16_8k = this.audioService.alawToPcm16(audioChunk);
                     const targetRate = currentSession.assistant.model.startsWith('yandex') ? 24000 : 16000;

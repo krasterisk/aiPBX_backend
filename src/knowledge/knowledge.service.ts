@@ -313,6 +313,9 @@ export class KnowledgeService {
         const ext = filename.split('.').pop()?.toLowerCase();
         if (ext === 'pdf' || mimetype === 'application/pdf') return 'pdf';
         if (ext === 'docx' || mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx';
+        if (ext === 'xlsx' || mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return 'xlsx';
+        if (ext === 'xls' || mimetype === 'application/vnd.ms-excel') return 'xls';
+        if (ext === 'csv' || mimetype === 'text/csv') return 'csv';
         if (ext === 'txt' || ext === 'md' || mimetype?.startsWith('text/')) return 'txt';
         throw new Error(`Unsupported file type: ${ext} (${mimetype})`);
     }

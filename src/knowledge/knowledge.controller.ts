@@ -73,10 +73,13 @@ export class KnowledgeController {
             const allowed = [
                 'application/pdf',
                 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/vnd.ms-excel',
+                'text/csv',
                 'text/plain',
                 'text/markdown',
             ];
-            if (allowed.includes(file.mimetype) || file.originalname.match(/\.(pdf|docx|txt|md)$/i)) {
+            if (allowed.includes(file.mimetype) || file.originalname.match(/\.(pdf|docx|xlsx|xls|csv|txt|md)$/i)) {
                 cb(null, true);
             } else {
                 cb(new Error(`Unsupported file type: ${file.mimetype}`), false);

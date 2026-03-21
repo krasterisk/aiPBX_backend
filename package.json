@@ -1,6 +1,6 @@
 {
   "name": "aiPbxBackend",
-  "version": "1.4.9",
+  "version": "1.5.0",
   "description": "aiPBX",
   "author": "Krasterisk LTD",
   "private": true,
@@ -82,6 +82,7 @@
     "werift": "^0.22.2",
     "ws": "^8.18.0",
     "x-law": "^0.3.1",
+    "xlsx": "^0.18.5",
     "yauzl": "^3.2.0"
   },
   "devDependencies": {

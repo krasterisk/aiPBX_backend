@@ -6,6 +6,8 @@ import { Injectable, Logger } from '@nestjs/common';
  * Supported:
  *   - PDF (via pdf-parse)
  *   - DOCX (via mammoth)
+ *   - XLSX / XLS (via SheetJS)
+ *   - CSV (via SheetJS)
  *   - TXT / MD (as-is)
  *   - URL (via cheerio — HTML → text)
  */
@@ -22,6 +24,11 @@ export class ParserService {
                 return this.parsePdf(buffer);
             case 'docx':
                 return this.parseDocx(buffer);
+            case 'xlsx':
+            case 'xls':
+                return this.parseExcel(buffer, fileName);
+            case 'csv':
+                return this.parseCsv(buffer, fileName);
             case 'txt':
             case 'md':
             case 'text':
@@ -92,6 +99,64 @@ export class ParserService {
         } catch (err) {
             this.logger.error(`DOCX parse error: ${err.message}`);
             throw new Error(`Failed to parse DOCX: ${err.message}. Is mammoth installed?`);
+        }
+    }
+
+    /**
+     * Extract text from Excel files (.xlsx / .xls) using SheetJS.
+     * Converts each sheet into a tab-separated text block with headers.
+     */
+    private parseExcel(buffer: Buffer, fileName?: string): string {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const XLSX = require('xlsx');
+            const workbook = XLSX.read(buffer, { type: 'buffer' });
+
+            const parts: string[] = [];
+            for (const sheetName of workbook.SheetNames) {
+                const sheet = workbook.Sheets[sheetName];
+                // Convert to array of arrays for better text representation
+                const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+                if (!rows.length) continue;
+
+                const header = workbook.SheetNames.length > 1
+                    ? `=== Лист: ${sheetName} ===\n`
+                    : '';
+
+                const textRows = rows
+                    .filter((row: any[]) => row.some((cell: any) => cell !== '' && cell != null))
+                    .map((row: any[]) => row.map((cell: any) => String(cell ?? '').trim()).join('\t'));
+
+                if (textRows.length > 0) {
+                    parts.push(header + textRows.join('\n'));
+                }
+            }
+
+            return parts.join('\n\n') || '';
+        } catch (err) {
+            this.logger.error(`Excel parse error: ${err.message}`);
+            throw new Error(`Failed to parse Excel file: ${err.message}. Is xlsx installed?`);
+        }
+    }
+
+    /**
+     * Parse CSV file using SheetJS.
+     */
+    private parseCsv(buffer: Buffer, fileName?: string): string {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const XLSX = require('xlsx');
+            const workbook = XLSX.read(buffer, { type: 'buffer' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+            return rows
+                .filter((row: any[]) => row.some((cell: any) => cell !== '' && cell != null))
+                .map((row: any[]) => row.map((cell: any) => String(cell ?? '').trim()).join('\t'))
+                .join('\n');
+        } catch (err) {
+            this.logger.error(`CSV parse error: ${err.message}`);
+            throw new Error(`Failed to parse CSV: ${err.message}. Is xlsx installed?`);
         }
     }
 

@@ -468,8 +468,12 @@ export class NonRealtimeService {
                 if (signal?.aborted) return;
 
                 if (isPlayground) {
-                    // Playground: send raw PCM16 to browser via WebSocket event
-                    this.eventEmitter.emit(`audioDelta.${channelId}`, pcmChunk);
+                    // Playground: resample TTS output (48kHz) to 24kHz for browser AudioContext
+                    // Browser expects PCM16 24kHz (same as OpenAI Realtime API format)
+                    const resampled = ttsProvider.outputSampleRate !== 24000
+                        ? this.audioService.resampleLinear(pcmChunk, ttsProvider.outputSampleRate, 24000)
+                        : pcmChunk;
+                    this.eventEmitter.emit(`audioDelta.${channelId}`, resampled);
                 } else {
                     // Telephony: convert PCM16 to alaw and stream via UDP/RTP
                     let outputChunk: Buffer;

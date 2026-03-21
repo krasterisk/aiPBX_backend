@@ -7,6 +7,7 @@ import { Assistant } from '../assistants/assistants.model';
 import { WsServerGateway } from '../ws-server/ws-server.gateway';
 import { AiCdrService } from '../ai-cdr/ai-cdr.service';
 import { NonRealtimeService } from '../non-realtime/non-realtime.service';
+import { AudioService } from '../audio/audio.service';
 
 interface PlaygroundSession {
     socketId: string;
@@ -32,6 +33,7 @@ export class PlaygroundService implements OnModuleInit {
         private wsGateway: WsServerGateway,
         private aiCdrService: AiCdrService,
         private nonRealtimeService: NonRealtimeService,
+        private audioService: AudioService,
     ) { }
 
     onModuleInit() {
@@ -191,8 +193,9 @@ export class PlaygroundService implements OnModuleInit {
         }
 
         if (session.isNonRealtime) {
-            // Non-realtime: audio is PCM16 from browser, forward to VAD → pipeline
-            await this.nonRealtimeService.processAudio(audio, session.channelId);
+            // Non-realtime: browser sends PCM16 24kHz, but VAD expects PCM16 16kHz
+            const pcm16_16k = this.audioService.resampleLinear(audio, 24000, 16000);
+            await this.nonRealtimeService.processAudio(pcm16_16k, session.channelId);
         } else {
             // Realtime: forward raw audio to OpenAI
             this.openAiService.rtInputAudioAppend(audio, session.channelId);

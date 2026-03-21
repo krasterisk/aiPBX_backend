@@ -9,6 +9,7 @@ import { WidgetKeysService } from "../widget-keys/widget-keys.service";
 import { TelegramService } from '../telegram/telegram.service';
 import { AriHttpClient } from './ari-http-client';
 import { WebSocket } from 'ws';
+import { NonRealtimeService } from '../non-realtime/non-realtime.service';
 
 export interface ChannelData {
     id: string,
@@ -42,6 +43,7 @@ export class AriConnection {
         private readonly assistantsService: AssistantsService,
         private readonly widgetKeysService: WidgetKeysService,
         private readonly telegramService: TelegramService,
+        private readonly nonRealtimeService: NonRealtimeService,
     ) {
         this.logger.log(`Creating AriConnection for server: ${pbxServer.id} - ${pbxServer.ari_url}`);
         this.logger.log(`ARI User: ${pbxServer.ari_user}`);
@@ -343,7 +345,8 @@ export class AriConnection {
                 this.streamAudioService,
                 assistant,
                 this.ariClient,
-                this.pbxServer
+                this.pbxServer,
+                this.nonRealtimeService,
             );
 
             this.sessions.set(channelId, session);

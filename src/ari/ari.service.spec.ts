@@ -9,6 +9,8 @@ jest.mock('../open-ai/open-ai.service');
 jest.mock('../audio/streamAudio.service');
 jest.mock('../assistants/assistants.service');
 jest.mock('../widget-keys/widget-keys.service');
+jest.mock('../non-realtime/non-realtime.service');
+jest.mock('../telegram/telegram.service');
 jest.mock('nanoid', () => ({ nanoid: () => 'mock-nanoid-id' }));
 
 // Shared mocks for AriConnection instances
@@ -36,6 +38,8 @@ import { StreamAudioService } from '../audio/streamAudio.service';
 import { AssistantsService } from '../assistants/assistants.service';
 import { WidgetKeysService } from '../widget-keys/widget-keys.service';
 import { AriConnection } from './ari-connection';
+import { NonRealtimeService } from '../non-realtime/non-realtime.service';
+import { TelegramService } from '../telegram/telegram.service';
 
 describe('AriService', () => {
     let service: AriService;
@@ -45,6 +49,8 @@ describe('AriService', () => {
     let mockStreamAudioService: any;
     let mockAssistantsService: any;
     let mockWidgetKeysService: any;
+    let mockNonRealtimeService: any;
+    let mockTelegramService: any;
 
     // ─── Mock PBX Servers Data ──────────────────────────────────────────
 
@@ -77,6 +83,8 @@ describe('AriService', () => {
         mockStreamAudioService = {};
         mockAssistantsService = {};
         mockWidgetKeysService = {};
+        mockNonRealtimeService = {};
+        mockTelegramService = { sendMessage: jest.fn().mockResolvedValue(undefined) };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -87,6 +95,8 @@ describe('AriService', () => {
                 { provide: StreamAudioService, useValue: mockStreamAudioService },
                 { provide: AssistantsService, useValue: mockAssistantsService },
                 { provide: WidgetKeysService, useValue: mockWidgetKeysService },
+                { provide: NonRealtimeService, useValue: mockNonRealtimeService },
+                { provide: TelegramService, useValue: mockTelegramService },
             ],
         }).compile();
 
@@ -145,6 +155,8 @@ describe('AriService', () => {
                 mockStreamAudioService,
                 mockAssistantsService,
                 mockWidgetKeysService,
+                mockTelegramService,
+                mockNonRealtimeService,
             );
             expect(mockConnect).toHaveBeenCalledTimes(1);
         });

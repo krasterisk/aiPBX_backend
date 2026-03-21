@@ -32,6 +32,7 @@ import { McpClientModule } from './mcp-client/mcp-client.module';
 import { OperatorAnalyticsModule } from './operator-analytics/operator-analytics.module';
 import { SipTrunksModule } from './sip-trunks/sip-trunks.module';
 import { WhisperModule } from './whisper/whisper.module';
+import { KnowledgeModule } from './knowledge/knowledge.module';
 
 @Module({
     imports: [
@@ -77,6 +78,7 @@ import { WhisperModule } from './whisper/whisper.module';
         OperatorAnalyticsModule,
         SipTrunksModule,
         WhisperModule,
+        KnowledgeModule,
         ThrottlerModule.forRoot([{
             ttl: 60000,
             limit: 30,

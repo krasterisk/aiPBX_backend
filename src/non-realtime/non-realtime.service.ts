@@ -434,6 +434,7 @@ export class NonRealtimeService {
     private async synthesizeAndPlay(session: NonRealtimeSession, text: string): Promise<void> {
         const { channelId, assistant } = session;
         const signal = session.pipelineAbort?.signal;
+        const isPlayground = channelId.startsWith('playground-');
 
         const ttsProviderName = assistant['ttsProvider'] || 'silero';
         const ttsProvider = this.ttsProviders.get(ttsProviderName);
@@ -447,11 +448,14 @@ export class NonRealtimeService {
 
         session.isSpeaking = true;
 
-        // Ensure stream is initialized
-        await this.streamAudioService.addStream(channelId, {
-            external_local_Address: session.address,
-            external_local_Port: Number(session.port),
-        });
+        // For telephony (Asterisk): initialize UDP/RTP stream
+        // For playground (WebSocket): audio is emitted via EventEmitter, no UDP needed
+        if (!isPlayground) {
+            await this.streamAudioService.addStream(channelId, {
+                external_local_Address: session.address,
+                external_local_Port: Number(session.port),
+            });
+        }
 
         try {
             const audioStream = ttsProvider.synthesize(text, {
@@ -463,20 +467,25 @@ export class NonRealtimeService {
             for await (const pcmChunk of audioStream) {
                 if (signal?.aborted) return;
 
-                // Convert PCM16 to alaw for telephony (if needed)
-                let outputChunk: Buffer;
-                if (ttsProvider.outputSampleRate !== 8000) {
-                    const resampled = this.audioService.resampleLinear(
-                        pcmChunk,
-                        ttsProvider.outputSampleRate,
-                        8000,
-                    );
-                    outputChunk = this.audioService.pcm16ToAlaw(resampled);
+                if (isPlayground) {
+                    // Playground: send raw PCM16 to browser via WebSocket event
+                    this.eventEmitter.emit(`audioDelta.${channelId}`, pcmChunk);
                 } else {
-                    outputChunk = this.audioService.pcm16ToAlaw(pcmChunk);
-                }
+                    // Telephony: convert PCM16 to alaw and stream via UDP/RTP
+                    let outputChunk: Buffer;
+                    if (ttsProvider.outputSampleRate !== 8000) {
+                        const resampled = this.audioService.resampleLinear(
+                            pcmChunk,
+                            ttsProvider.outputSampleRate,
+                            8000,
+                        );
+                        outputChunk = this.audioService.pcm16ToAlaw(resampled);
+                    } else {
+                        outputChunk = this.audioService.pcm16ToAlaw(pcmChunk);
+                    }
 
-                await this.streamAudioService.streamAudio(channelId, outputChunk);
+                    await this.streamAudioService.streamAudio(channelId, outputChunk);
+                }
             }
         } finally {
             session.isSpeaking = false;

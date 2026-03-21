@@ -130,6 +130,21 @@ export class NonRealtimeSession {
     }
 
     /**
+     * Add or replace a temporary system context message (e.g., RAG knowledge base).
+     * Injected right after the main system prompt (index 1).
+     * Replaced on each new user turn to keep context relevant.
+     */
+    addSystemContext(content: string): void {
+        // Check if there's already a RAG context message at index 1
+        if (this.messages.length > 1 && this.messages[1].role === 'system' && this.messages[1]['_ragContext']) {
+            this.messages[1].content = content;
+        } else {
+            const msg: any = { role: 'system', content, _ragContext: true };
+            this.messages.splice(1, 0, msg);
+        }
+    }
+
+    /**
      * Add a user message to conversation history.
      */
     addUserMessage(text: string): void {

@@ -9,6 +9,7 @@ import { PbxServersService } from "../pbx-servers/pbx-servers.service";
 import { WidgetKeysService } from "../widget-keys/widget-keys.service";
 import { TelegramService } from "../telegram/telegram.service";
 import { PbxServers } from '../pbx-servers/pbx-servers.model';
+import { NonRealtimeService } from '../non-realtime/non-realtime.service';
 
 @Injectable()
 export class AriService implements OnModuleInit, OnModuleDestroy {
@@ -23,6 +24,7 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
         private readonly assistantsService: AssistantsService,
         private readonly widgetKeysService: WidgetKeysService,
         private readonly telegramService: TelegramService,
+        private readonly nonRealtimeService: NonRealtimeService,
     ) {
     }
 
@@ -94,6 +96,7 @@ export class AriService implements OnModuleInit, OnModuleDestroy {
                 this.assistantsService,
                 this.widgetKeysService,
                 this.telegramService,
+                this.nonRealtimeService,
             );
 
             await connection.connect();

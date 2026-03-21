@@ -1,40 +1,86 @@
-import { Body, Controller, Post, Req, Res, UseGuards } from '@nestjs/common';
+import {
+    Body,
+    Controller,
+    Delete,
+    Get,
+    Param,
+    ParseIntPipe,
+    Post,
+    Put,
+    Req,
+    Res,
+    UseGuards,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ChatService } from './chat.service';
-import { ChatRequestDto } from './dto/chat.dto';
+import { CreateChatDto, SendMessageDto, UpdateChatDto } from './dto/chat.dto';
 
-@ApiTags('Helpdesk Chat')
-@Controller('chat')
+@ApiTags('Chat')
+@UseGuards(JwtAuthGuard)
+@Controller('chats')
 export class ChatController {
     constructor(private readonly chatService: ChatService) {}
 
-    /**
-     * SSE streaming chat endpoint.
-     *
-     * Client sends POST with message + optional history.
-     * Server responds with SSE events:
-     *   - event: text       → { data: "chunk of text" }
-     *   - event: tool_call  → { data: { name, arguments } }
-     *   - event: tool_result → { data: { name, result } }
-     *   - event: done       → { data: { totalLength } }
-     *   - event: error      → { data: "error message" }
-     *
-     * Frontend usage:
-     *   const response = await fetch('/api/chat', { method: 'POST', body: JSON.stringify({...}), headers: {...} });
-     *   const reader = response.body.getReader();
-     *   // read SSE events...
-     */
-    @ApiOperation({ summary: 'Stream chat response (SSE)' })
-    @UseGuards(JwtAuthGuard)
+    // ── Chat CRUD ───────────────────────────────────────────
+
+    @ApiOperation({ summary: 'Create a chat' })
     @Post()
-    async chat(
-        @Body() dto: ChatRequestDto,
+    async create(@Body() dto: CreateChatDto, @Req() req: any) {
+        return this.chatService.create(req.user.id, dto);
+    }
+
+    @ApiOperation({ summary: 'List all chats' })
+    @Get()
+    async getAll(@Req() req: any) {
+        return this.chatService.getAll(req.user.id);
+    }
+
+    @ApiOperation({ summary: 'Get chat by ID' })
+    @Get(':id')
+    async getById(@Param('id', ParseIntPipe) id: number) {
+        return this.chatService.getById(id);
+    }
+
+    @ApiOperation({ summary: 'Update chat' })
+    @Put(':id')
+    async update(
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: UpdateChatDto,
+        @Req() req: any,
+    ) {
+        return this.chatService.update(id, req.user.id, dto);
+    }
+
+    @ApiOperation({ summary: 'Delete chat' })
+    @Delete(':id')
+    async delete(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+        await this.chatService.delete(id, req.user.id);
+        return { success: true };
+    }
+
+    // ── Messaging (SSE) ─────────────────────────────────────
+
+    /**
+     * Send a message and receive a streaming response (SSE).
+     *
+     * SSE events:
+     *   - event: text        → chunk of text
+     *   - event: tool_call   → { name, arguments }
+     *   - event: tool_result → { name, result }
+     *   - event: done        → { totalLength }
+     *   - event: error       → error message
+     */
+    @ApiOperation({ summary: 'Send message (SSE streaming response)' })
+    @Post(':id/message')
+    async sendMessage(
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: SendMessageDto,
         @Req() req: any,
         @Res() res: Response,
     ) {
-        // Set SSE headers
+        // SSE headers
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
@@ -42,23 +88,18 @@ export class ChatController {
         res.flushHeaders();
 
         const abortController = new AbortController();
-
-        // Cleanup on client disconnect
-        req.on('close', () => {
-            abortController.abort();
-        });
+        req.on('close', () => abortController.abort());
 
         try {
             const stream = this.chatService.streamChat(
+                id,
                 dto.message,
                 dto.history || [],
-                dto.assistantId,
                 abortController.signal,
             );
 
             for await (const event of stream) {
                 if (abortController.signal.aborted) break;
-
                 res.write(`event: ${event.type}\n`);
                 res.write(`data: ${JSON.stringify(event.data)}\n\n`);
             }

@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/sequelize';
 import OpenAI from 'openai';
+import { Chat } from './chat.model';
+import { ChatToolsModel } from './chat-tools.model';
+import { AiTool } from '../ai-tools/ai-tool.model';
 import { AiToolsHandlersService } from '../ai-tools-handlers/ai-tools-handlers.service';
-import { AiToolsService } from '../ai-tools/ai-tools.service';
-import { AssistantsService } from '../assistants/assistants.service';
-import { Assistant } from '../assistants/assistants.model';
 
 interface ChatMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -14,89 +15,153 @@ interface ChatMessage {
 }
 
 /**
- * Chat Service — text-based AI chat via Ollama (OpenAI-compatible API).
+ * Chat Service — text-based AI chat (Helpdesk).
+ *
+ * Each Chat is a separate entity with its own:
+ *   - System prompt (instruction)
+ *   - LLM model
+ *   - Temperature
+ *   - Tools (including KB search tools)
  *
  * Features:
- *   - SSE streaming responses
- *   - Tool calling (including knowledge base search)
- *   - Conversation history management
- *   - Configurable per-assistant (model, instruction, tools)
- *   - Filters <think>...</think> reasoning blocks from Qwen3
+ *   - SSE streaming responses via Ollama (OpenAI-compatible API)
+ *   - Tool calling loop (knowledge base search, webhooks)
+ *   - Qwen3 <think> block filtering
+ *   - Chat CRUD (create, update, delete, list)
  */
 @Injectable()
 export class ChatService {
     private readonly logger = new Logger(ChatService.name);
     private readonly client: OpenAI;
-    private readonly defaultModel: string;
 
     constructor(
+        @InjectModel(Chat) private chatModel: typeof Chat,
+        @InjectModel(ChatToolsModel) private chatToolsModel: typeof ChatToolsModel,
         private readonly toolsHandlerService: AiToolsHandlersService,
-        private readonly toolsService: AiToolsService,
-        private readonly assistantsService: AssistantsService,
     ) {
         const ollamaUrl = process.env.OLLAMA_URL || 'http://ollama:11434';
         this.client = new OpenAI({
             baseURL: `${ollamaUrl}/v1`,
             apiKey: 'ollama',
         });
-        this.defaultModel = process.env.CHAT_MODEL || 'qwen3:8b';
     }
+
+    // ── Chat CRUD ───────────────────────────────────────────
+
+    async create(userId: number, data: {
+        name: string;
+        instruction?: string;
+        model?: string;
+        temperature?: string;
+        toolIds?: number[];
+    }): Promise<Chat> {
+        const chat = await this.chatModel.create({
+            userId,
+            name: data.name,
+            instruction: data.instruction,
+            model: data.model || 'qwen3:8b',
+            temperature: data.temperature || '0.7',
+        } as any);
+
+        if (data.toolIds?.length) {
+            await this.setTools(chat.id, data.toolIds);
+        }
+
+        return this.getById(chat.id);
+    }
+
+    async getAll(userId: number): Promise<Chat[]> {
+        return this.chatModel.findAll({
+            where: { userId },
+            include: [{ model: AiTool }],
+            order: [['createdAt', 'DESC']],
+        });
+    }
+
+    async getById(id: number): Promise<Chat> {
+        const chat = await this.chatModel.findByPk(id, {
+            include: [{ model: AiTool }],
+        });
+        if (!chat) throw new NotFoundException('Chat not found');
+        return chat;
+    }
+
+    async update(id: number, userId: number, data: {
+        name?: string;
+        instruction?: string;
+        model?: string;
+        temperature?: string;
+        toolIds?: number[];
+    }): Promise<Chat> {
+        const chat = await this.chatModel.findByPk(id);
+        if (!chat || chat.userId !== userId) throw new NotFoundException('Chat not found');
+
+        const { toolIds, ...updateData } = data;
+        await chat.update(updateData);
+
+        if (toolIds !== undefined) {
+            await this.setTools(id, toolIds);
+        }
+
+        return this.getById(id);
+    }
+
+    async delete(id: number, userId: number): Promise<void> {
+        const chat = await this.chatModel.findByPk(id);
+        if (!chat || chat.userId !== userId) throw new NotFoundException('Chat not found');
+        await chat.destroy();
+    }
+
+    private async setTools(chatId: number, toolIds: number[]): Promise<void> {
+        await this.chatToolsModel.destroy({ where: { chatId } });
+        if (toolIds.length > 0) {
+            const records = toolIds.map(toolId => ({ chatId, toolId }));
+            await this.chatToolsModel.bulkCreate(records as any);
+        }
+    }
+
+    // ── Streaming Chat ──────────────────────────────────────
 
     /**
      * Stream a chat completion response.
-     * Yields text chunks as SSE events. Handles tool calls internally.
-     *
-     * @param message - User's message text
-     * @param history - Previous conversation messages
-     * @param assistantId - Optional assistant ID for config (instruction, tools, model)
-     * @param signal - AbortSignal for cancellation
+     * Loads Chat entity config → builds tools → calls Ollama → streams SSE.
      */
     async *streamChat(
+        chatId: number,
         message: string,
         history: ChatMessage[] = [],
-        assistantId?: number,
         signal?: AbortSignal,
     ): AsyncGenerator<{ type: string; data: any }> {
-        // Load assistant config if provided
-        let assistant: Assistant | null = null;
-        let systemPrompt = '/no_think You are a helpful assistant for the aiPBX helpdesk. Answer in the same language as the user.';
-        let model = this.defaultModel;
+        const chat = await this.getById(chatId);
+
+        const systemPrompt = '/no_think ' + (chat.instruction || 'You are a helpful assistant. Answer in the same language as the user.');
+        const model = chat.model || 'qwen3:8b';
+        const temperature = parseFloat(chat.temperature || '0.7');
+
+        // Build tool definitions from chat's attached tools
         let tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [];
-
-        if (assistantId) {
-            assistant = await this.assistantsService.getById(assistantId);
-            if (assistant) {
-                systemPrompt = '/no_think ' + (assistant.instruction || systemPrompt);
-                model = assistant['llmModel'] || assistant.model || this.defaultModel;
-
-                // Load assistant's tools
-                const assistantTools = await this.toolsService.getAll(String(assistant.userId), false);
-                if (assistantTools?.length) {
-                    tools = this.buildToolDefinitions(assistantTools);
-                }
-            }
+        if (chat.tools?.length) {
+            tools = this.buildToolDefinitions(chat.tools);
         }
 
-        // Build messages array
         const messages: ChatMessage[] = [
             { role: 'system', content: systemPrompt },
             ...history,
             { role: 'user', content: message },
         ];
 
-        // Run chat loop (may iterate for tool calls)
-        yield* this.chatLoop(messages, tools, model, assistant, signal);
+        yield* this.chatLoop(messages, tools, model, temperature, chat, signal);
     }
 
     /**
      * Chat loop — handles streaming + tool call iterations.
-     * After a tool call, adds tool result to messages and re-calls LLM.
      */
     private async *chatLoop(
         messages: ChatMessage[],
         tools: OpenAI.Chat.Completions.ChatCompletionTool[],
         model: string,
-        assistant: Assistant | null,
+        temperature: number,
+        chat: Chat,
         signal?: AbortSignal,
         maxIterations = 5,
     ): AsyncGenerator<{ type: string; data: any }> {
@@ -107,7 +172,7 @@ export class ChatService {
                 model,
                 messages: messages as any,
                 stream: true,
-                temperature: assistant ? parseFloat(assistant.temperature || '0.7') : 0.7,
+                temperature,
             };
 
             if (tools.length > 0) {
@@ -138,11 +203,10 @@ export class ChatService {
 
                     const delta = choice.delta;
 
-                    // Text content — filter <think>...</think> blocks
+                    // Text — filter <think>...</think>
                     if (delta?.content) {
                         let text = delta.content;
 
-                        // Filter Qwen3 reasoning blocks
                         if (text.includes('<think>')) {
                             insideThink = true;
                             text = text.replace(/<think>[\s\S]*/g, '');
@@ -159,7 +223,7 @@ export class ChatService {
                         }
                     }
 
-                    // Tool calls accumulation
+                    // Tool calls
                     if (delta?.tool_calls) {
                         for (const tc of delta.tool_calls) {
                             const idx = tc.index;
@@ -188,11 +252,10 @@ export class ChatService {
                 return;
             }
 
-            // Process tool calls if any
+            // Process tool calls
             if ((finishReason === 'tool_calls' || finishReason === 'stop') && toolCallAccumulator.size > 0) {
                 const toolCalls = Array.from(toolCallAccumulator.values());
 
-                // Add assistant message with tool calls
                 messages.push({
                     role: 'assistant',
                     content: fullText || null,
@@ -203,18 +266,17 @@ export class ChatService {
                     })),
                 });
 
-                // Execute each tool call
                 for (const tc of toolCalls) {
-                    this.logger.log(`Tool call: ${tc.name}(${tc.arguments})`);
+                    this.logger.log(`[Chat ${chat.id}] Tool call: ${tc.name}(${tc.arguments})`);
                     yield { type: 'tool_call', data: { name: tc.name, arguments: tc.arguments } };
 
                     let result: string;
                     try {
-                        if (assistant) {
-                            result = await this.toolsHandlerService.functionHandler(tc.name, tc.arguments, assistant);
-                        } else {
-                            result = 'Tool execution not available without assistant configuration';
-                        }
+                        // Create a minimal assistant-like object for the handler
+                        result = await this.toolsHandlerService.functionHandler(
+                            tc.name, tc.arguments,
+                            { userId: chat.userId } as any,
+                        );
                     } catch (err) {
                         result = `Tool error: ${err.message}`;
                     }
@@ -229,11 +291,9 @@ export class ChatService {
                     yield { type: 'tool_result', data: { name: tc.name, result: result.substring(0, 200) } };
                 }
 
-                // Continue loop — LLM will generate response based on tool results
                 continue;
             }
 
-            // No tool calls — we're done
             yield { type: 'done', data: { totalLength: fullText.length } };
             return;
         }
@@ -241,10 +301,7 @@ export class ChatService {
         yield { type: 'error', data: 'Max tool call iterations reached' };
     }
 
-    /**
-     * Build OpenAI-compatible tool definitions from AiTool models.
-     */
-    private buildToolDefinitions(tools: any[]): OpenAI.Chat.Completions.ChatCompletionTool[] {
+    private buildToolDefinitions(tools: AiTool[]): OpenAI.Chat.Completions.ChatCompletionTool[] {
         return tools
             .filter(t => t.type === 'function')
             .map(t => ({

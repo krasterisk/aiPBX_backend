@@ -51,7 +51,16 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             const sessionUrl = `${rinfo.address}:${rinfo.port}`
             const currentSession = this.sessions.get(sessionUrl);
 
-            if (!currentSession) return
+            if (!currentSession) {
+                // Log once per unknown source to diagnose key mismatches
+                if (!this['_warnedUnknownRtp']) this['_warnedUnknownRtp'] = new Set();
+                if (!this['_warnedUnknownRtp'].has(sessionUrl)) {
+                    this['_warnedUnknownRtp'].add(sessionUrl);
+                    const knownKeys = [...this.sessions.keys()].join(', ');
+                    this.logger.warn(`RTP from unknown source ${sessionUrl} (known sessions: [${knownKeys}])`);
+                }
+                return;
+            }
 
             if (currentSession && currentSession.init === 'false') {
                 const isNonRealtime = currentSession?.assistant?.pipelineMode === 'non-realtime';

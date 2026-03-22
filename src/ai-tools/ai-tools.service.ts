@@ -15,12 +15,20 @@ export class AiToolsService {
         try {
             const tools = [];
             for (const tool of dto) {
+                const toolData: any = { ...tool };
 
-                if(!tool.userId) {
-                    tool.userId = Number(userId)
+                // Remove id if empty/falsy — it's auto-generated
+                if (!toolData.id && toolData.id !== undefined) {
+                    delete toolData.id;
                 }
 
-                const result = await this.toolsRepository.create(tool)
+                if(!toolData.userId || toolData.userId === '') {
+                    toolData.userId = Number(userId)
+                } else {
+                    toolData.userId = Number(toolData.userId)
+                }
+
+                const result = await this.toolsRepository.create(toolData)
                 tools.push(result)
             }
             return tools

@@ -27,6 +27,9 @@ import axios from 'axios';
 export class OperatorAnalyticsService {
     private readonly logger = new Logger(OperatorAnalyticsService.name);
     private readonly openAiClient: OpenAI;
+    private readonly ollamaClient: OpenAI | null = null;
+    private readonly analyticsModel: string;
+    private readonly fallbackModel: string;
     private readonly sttProviders: Map<string, ITranscriptionProvider> = new Map();
 
     // ─── Batch Processing Tracker ─────────────────────────────────────
@@ -54,6 +57,16 @@ export class OperatorAnalyticsService {
             baseURL: process.env.OPENAI_BASE_URL || undefined,
         });
 
+        // Ollama fallback client
+        const ollamaUrl = process.env.OLLAMA_URL || 'http://ollama:11434';
+        this.ollamaClient = new OpenAI({
+            baseURL: `${ollamaUrl}/v1`,
+            apiKey: 'ollama',
+        });
+
+        this.analyticsModel = process.env.ANALYTICS_LLM_MODEL || 'gpt-4o-mini';
+        this.fallbackModel = process.env.ANALYTICS_FALLBACK_MODEL || 'qwen3:8b';
+
         // Register STT providers
         const openaiSttEnabled = (this.configService.get<string>('OPENAI_STT_ENABLED') || process.env.OPENAI_STT_ENABLED || 'false').toLowerCase() === 'true';
         if (openaiSttEnabled) {
@@ -64,6 +77,66 @@ export class OperatorAnalyticsService {
         }
         this.sttProviders.set('external', this.externalSttProvider);
         this.sttProviders.set('whisper', this.whisperService);
+    }
+
+    // ─── LLM with fallback ─────────────────────────────────────────
+
+    /**
+     * Call LLM with automatic fallback: OpenAI (gpt-4o-mini) → Ollama (qwen3:8b)
+     */
+    private async chatWithFallback(
+        messages: any[],
+        jsonFormat = true,
+    ): Promise<{ content: string; usage?: any }> {
+        // Primary: OpenAI
+        try {
+            const params: any = {
+                messages,
+                model: this.analyticsModel,
+            };
+            if (jsonFormat) params.response_format = { type: 'json_object' };
+
+            const completion = await this.openAiClient.chat.completions.create(params);
+            return {
+                content: completion.choices[0]?.message?.content || '{}',
+                usage: completion.usage,
+            };
+        } catch (err) {
+            this.logger.warn(`[Analytics LLM] OpenAI (${this.analyticsModel}) failed: ${err.message}. Falling back to Ollama...`);
+        }
+
+        // Fallback: Ollama
+        if (!this.ollamaClient) {
+            throw new Error('Both OpenAI and Ollama are unavailable for analytics');
+        }
+
+        try {
+            // Prepend /no_think for Qwen to suppress <think> blocks
+            const fallbackMessages = messages.map((m, i) => {
+                if (i === 0 && m.role === 'system') {
+                    return { ...m, content: '/no_think ' + m.content };
+                }
+                return m;
+            });
+
+            const params: any = {
+                messages: fallbackMessages,
+                model: this.fallbackModel,
+            };
+            if (jsonFormat) params.response_format = { type: 'json_object' };
+
+            const completion = await this.ollamaClient.chat.completions.create(params);
+            const raw = completion.choices[0]?.message?.content || '{}';
+
+            // Strip <think>...</think> blocks if present
+            const content = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+            this.logger.log(`[Analytics LLM] Ollama fallback (${this.fallbackModel}) succeeded`);
+            return { content, usage: completion.usage };
+        } catch (fallbackErr) {
+            this.logger.error(`[Analytics LLM] Ollama fallback also failed: ${fallbackErr.message}`);
+            throw fallbackErr;
+        }
     }
 
     // ─── Dialect-aware SQL helpers ───
@@ -917,14 +990,8 @@ ${systemPrompt ? `\nBusiness context: ${systemPrompt}` : ''}`,
             },
         ];
 
-        const completion = await this.openAiClient.chat.completions.create({
-            messages: llmMessages,
-            model: 'gpt-4o',
-            response_format: { type: 'json_object' },
-        });
-
-        const content = completion.choices[0]?.message?.content || '{}';
-        const parsed = JSON.parse(this.sanitizeJsonResponse(content));
+        const result = await this.chatWithFallback(llmMessages);
+        const parsed = JSON.parse(this.sanitizeJsonResponse(result.content));
         return parsed.metrics || [];
     }
 
@@ -994,17 +1061,11 @@ ${mockTranscription}
 
 Return JSON: { "result": <value>, "explanation": "<brief explanation in the conversation language>" }`;
 
-        const completion = await this.openAiClient.chat.completions.create({
-            messages: [
-                { role: 'system', content: 'You are a call center quality analysis system. Respond only in JSON format.' },
-                { role: 'user', content: prompt },
-            ],
-            model: 'gpt-4o',
-            response_format: { type: 'json_object' },
-        });
-
-        const content = completion.choices[0]?.message?.content || '{}';
-        const parsed = JSON.parse(this.sanitizeJsonResponse(content));
+        const result = await this.chatWithFallback([
+            { role: 'system', content: 'You are a call center quality analysis system. Respond only in JSON format.' },
+            { role: 'user', content: prompt },
+        ]);
+        const parsed = JSON.parse(this.sanitizeJsonResponse(result.content));
 
         return {
             metricId: metricDef.id,
@@ -1061,20 +1122,14 @@ Data:
 Return JSON: { "insights": ["insight1", "insight2", ...] }
 Write insights in Russian. Be specific and actionable.`;
 
-        const completion = await this.openAiClient.chat.completions.create({
-            messages: [
-                { role: 'system', content: 'You are a call center analytics AI. Respond only in JSON.' },
-                { role: 'user', content: prompt },
-            ],
-            model: 'gpt-4o',
-            response_format: { type: 'json_object' },
-        });
-
-        const content = completion.choices[0]?.message?.content || '{}';
-        const parsed = JSON.parse(this.sanitizeJsonResponse(content));
+        const llmResult = await this.chatWithFallback([
+            { role: 'system', content: 'You are a call center analytics AI. Respond only in JSON.' },
+            { role: 'user', content: prompt },
+        ]);
+        const parsed = JSON.parse(this.sanitizeJsonResponse(llmResult.content));
 
         // Charge for insight generation
-        const totalTokens = completion.usage?.total_tokens || 0;
+        const totalTokens = llmResult.usage?.total_tokens || 0;
         await this.chargeInsightCost(userId, totalTokens, `Project insight: ${project.name}`);
 
         const result = {
@@ -1145,7 +1200,7 @@ Write insights in Russian. Be specific and actionable.`;
                 { role: 'system', content: 'You are a call center analytics AI. Respond only in JSON.' },
                 { role: 'user', content: prompt },
             ],
-            model: 'gpt-4o',
+            model: 'gpt-4o-mini',
             response_format: { type: 'json_object' },
         });
 
@@ -1497,14 +1552,8 @@ Return ONLY valid JSON without markdown formatting.
             { role: 'user' as const, content: prompt },
         ];
 
-        const completion = await this.openAiClient.chat.completions.create({
-            messages,
-            model: 'gpt-4o',
-            response_format: { type: 'json_object' },
-        });
-
-        const content = completion.choices[0]?.message?.content || '{}';
-        const sanitized = this.sanitizeJsonResponse(content);
+        const llmResult = await this.chatWithFallback(messages);
+        const sanitized = this.sanitizeJsonResponse(llmResult.content);
         const parsed = JSON.parse(sanitized);
 
         const customMetricsResult = parsed.custom_metrics || null;
@@ -1523,7 +1572,7 @@ Return ONLY valid JSON without markdown formatting.
         return {
             metrics: parsed as OperatorMetrics,
             customMetricsResult,
-            usage: completion.usage,
+            usage: llmResult.usage,
             diarizedText,
         };
     }

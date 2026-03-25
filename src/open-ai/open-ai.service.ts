@@ -61,7 +61,10 @@ export class OpenAiService implements OnModuleInit {
         @Inject(McpToolRegistryService) private readonly mcpToolRegistry: McpToolRegistryService,
     ) {
         this.API_KEY = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
-        this.openAiClient = new OpenAI({ apiKey: this.API_KEY });
+        this.openAiClient = new OpenAI({
+            apiKey: this.API_KEY,
+            baseURL: process.env.OPENAI_BASE_URL || undefined,
+        });
     }
 
     async createConnection(channelId: string, assistant: Assistant): Promise<OpenAiConnection> {

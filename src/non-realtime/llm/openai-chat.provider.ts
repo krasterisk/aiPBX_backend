@@ -23,6 +23,7 @@ export class OpenAiChatProvider implements ILlmProvider {
     constructor(apiKey?: string) {
         this.client = new OpenAI({
             apiKey: apiKey || process.env.OPENAI_API_KEY,
+            baseURL: process.env.OPENAI_BASE_URL || undefined,
         });
     }
 

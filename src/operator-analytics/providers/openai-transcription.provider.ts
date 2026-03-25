@@ -10,7 +10,10 @@ export class OpenAiTranscriptionProvider implements ITranscriptionProvider {
 
     constructor(private readonly configService: ConfigService) {
         const apiKey = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
-        this.openAiClient = new OpenAI({ apiKey });
+        this.openAiClient = new OpenAI({
+            apiKey,
+            baseURL: process.env.OPENAI_BASE_URL || undefined,
+        });
     }
 
     async transcribe(buffer: Buffer, filename: string, language?: string): Promise<TranscriptionResult> {

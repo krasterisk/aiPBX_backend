@@ -49,7 +49,10 @@ export class OperatorAnalyticsService {
         private readonly whisperService: WhisperService,
     ) {
         const apiKey = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
-        this.openAiClient = new OpenAI({ apiKey });
+        this.openAiClient = new OpenAI({
+            apiKey,
+            baseURL: process.env.OPENAI_BASE_URL || undefined,
+        });
 
         // Register STT providers
         const openaiSttEnabled = (this.configService.get<string>('OPENAI_STT_ENABLED') || process.env.OPENAI_STT_ENABLED || 'false').toLowerCase() === 'true';

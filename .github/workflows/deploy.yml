@@ -96,8 +96,8 @@ jobs:
               --build \
               --force-recreate backend
 
-            # ── Start GPU services (only on aipbxru / deploy:3) ──
-            if [[ "${{ matrix.server }}" == "aipbxru_production" ]]; then
+            # ── Start GPU services (only on aipbxnet / deploy:1) ──
+            if [[ "${{ matrix.server }}" == "aipbxnet_production" ]]; then
               echo "Starting Whisper GPU container..."
               sudo docker compose -f docker-compose.production.yml --env-file .env.production --profile gpu up -d \
                 --force-recreate whisper

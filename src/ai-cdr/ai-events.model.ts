@@ -13,6 +13,7 @@ interface CreateAiEvents {
         { fields: ['channelId', 'createdAt'], name: 'idx_channelId_createdAt' }
     ]
 })
+
 export class AiEvents extends Model<AiEvents, CreateAiEvents> {
     @ApiProperty({ example: '123', description: "Channel uniqueId" })
     @Column({ type: DataType.STRING, allowNull: false })

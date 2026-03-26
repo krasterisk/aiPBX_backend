@@ -45,8 +45,12 @@ export class WhisperService implements ITranscriptionProvider {
             output: 'verbose_json',
         };
 
+        // Some versions of the Whisper container expect output as a form field
+        form.append('output', 'verbose_json');
+
         if (language && language !== 'auto') {
             params.language = language;
+            form.append('language', language);
         }
 
         const headers: Record<string, string> = {
@@ -58,7 +62,7 @@ export class WhisperService implements ITranscriptionProvider {
             response = await axios.post(this.whisperUrl, form, {
                 headers,
                 params,
-                responseType: 'json',  // Force JSON parsing (Whisper returns JSON with text/plain Content-Type)
+                responseType: 'text',  // Always get string, parse ourselves
                 timeout: 300_000, // 5 min
                 maxContentLength: Infinity,
                 maxBodyLength: Infinity,
@@ -194,8 +198,8 @@ export class WhisperService implements ITranscriptionProvider {
     }
 
     /**
-     * Parse MP3 frame header to get bitrate, then calculate duration.
-     * Scans for first valid MPEG sync word (0xFF 0xE0+).
+     * Calculate MP3 duration by walking all frames.
+     * Works correctly for both CBR and VBR files.
      */
     private getMp3Duration(buffer: Buffer): number {
         // Skip ID3v2 tag if present
@@ -210,65 +214,87 @@ export class WhisperService implements ITranscriptionProvider {
             offset = 10 + size;
         }
 
-        // Scan for first valid MPEG frame sync (0xFFE0)
-        for (let i = offset; i < Math.min(buffer.length - 4, offset + 4096); i++) {
-            if (buffer[i] === 0xFF && (buffer[i + 1] & 0xE0) === 0xE0) {
-                const header = this.parseMp3FrameHeader(buffer, i);
-                if (header && header.bitrate > 0) {
-                    // CBR assumption: duration = file_data_size * 8 / bitrate
-                    const dataSize = buffer.length - offset;
-                    const duration = Math.round(dataSize * 8 / (header.bitrate * 1000));
-                    return duration;
-                }
+        const MPEG_VERSIONS = [2.5, 0, 2, 1]; // index by version bits
+        const SAMPLE_RATES: Record<number, number[]> = {
+            1:   [44100, 48000, 32000],
+            2:   [22050, 24000, 16000],
+            2.5: [11025, 12000,  8000],
+        };
+        const SAMPLES_PER_FRAME: Record<number, Record<number, number>> = {
+            // MPEG version -> layer -> samples
+            1:   { 1: 384, 2: 1152, 3: 1152 },
+            2:   { 1: 384, 2: 1152, 3: 576 },
+            2.5: { 1: 384, 2: 1152, 3: 576 },
+        };
+        const BITRATE_TABLE: Record<string, number[]> = {
+            'V1L1': [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0],
+            'V1L2': [0, 32, 48, 56,  64,  80,  96, 112, 128, 160, 192, 224, 256, 320, 384, 0],
+            'V1L3': [0, 32, 40, 48,  56,  64,  80,  96, 112, 128, 160, 192, 224, 256, 320, 0],
+            'V2L1': [0, 32, 48, 56,  64,  80,  96, 112, 128, 144, 160, 176, 192, 224, 256, 0],
+            'V2L2': [0,  8, 16, 24,  32,  40,  48,  56,  64,  80,  96, 112, 128, 144, 160, 0],
+            'V2L3': [0,  8, 16, 24,  32,  40,  48,  56,  64,  80,  96, 112, 128, 144, 160, 0],
+        };
+
+        let totalDuration = 0;
+        let frameCount = 0;
+
+        while (offset < buffer.length - 4) {
+            // Find sync word
+            if (buffer[offset] !== 0xFF || (buffer[offset + 1] & 0xE0) !== 0xE0) {
+                offset++;
+                continue;
             }
-        }
 
-        return 0;
-    }
+            const b1 = buffer[offset + 1];
+            const b2 = buffer[offset + 2];
 
-    /**
-     * Parse a single MP3 frame header at the given offset.
-     * Returns bitrate in kbps or null if invalid.
-     */
-    private parseMp3FrameHeader(buffer: Buffer, offset: number): { bitrate: number } | null {
-        if (offset + 4 > buffer.length) return null;
+            const versionBits = (b1 >> 3) & 0x03;
+            const layerBits = (b1 >> 1) & 0x03;
+            const bitrateIndex = (b2 >> 4) & 0x0F;
+            const sampleRateIndex = (b2 >> 2) & 0x03;
+            const paddingBit = (b2 >> 1) & 0x01;
 
-        const b1 = buffer[offset + 1];
-        const b2 = buffer[offset + 2];
+            const mpegVersion = MPEG_VERSIONS[versionBits];
+            const layer = 4 - layerBits; // layerBits: 3=L1, 2=L2, 1=L3
 
-        // MPEG version: bits 4-3 of second byte
-        const versionBits = (b1 >> 3) & 0x03;
-        // Layer: bits 2-1 of second byte
-        const layerBits = (b1 >> 1) & 0x03;
-        // Bitrate index: bits 7-4 of third byte
-        const bitrateIndex = (b2 >> 4) & 0x0F;
+            if (mpegVersion === 0 || layer > 3 || layer < 1 || bitrateIndex === 0 || bitrateIndex === 15 || sampleRateIndex === 3) {
+                offset++;
+                continue;
+            }
 
-        if (bitrateIndex === 0 || bitrateIndex === 15) return null; // free / bad
-        if (versionBits === 1) return null; // reserved
-        if (layerBits === 0) return null;   // reserved
+            const vKey = mpegVersion === 1 ? 'V1' : 'V2';
+            const lKey = `L${layer}`;
+            const bitrateArr = BITRATE_TABLE[`${vKey}${lKey}`];
+            if (!bitrateArr) { offset++; continue; }
 
-        // Bitrate table for MPEG1, Layer III (most common for MP3 files)
-        const bitrateTableV1L3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
-        // Bitrate table for MPEG2/2.5, Layer III
-        const bitrateTableV2L3 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];
+            const bitrate = bitrateArr[bitrateIndex] * 1000; // bps
+            const sampleRateArr = SAMPLE_RATES[mpegVersion];
+            if (!sampleRateArr) { offset++; continue; }
+            const sampleRate = sampleRateArr[sampleRateIndex];
+            if (!sampleRate || !bitrate) { offset++; continue; }
 
-        let bitrate: number;
+            const samplesPerFrame = SAMPLES_PER_FRAME[mpegVersion]?.[layer] || 1152;
 
-        if (versionBits === 3) {
-            // MPEG1
-            if (layerBits === 1) {
-                // Layer III
-                bitrate = bitrateTableV1L3[bitrateIndex];
+            // Frame size calculation
+            let frameSize: number;
+            if (layer === 1) {
+                frameSize = Math.floor((12 * bitrate / sampleRate + paddingBit) * 4);
             } else {
-                // For Layer I/II, use V1L3 as approximation
-                bitrate = bitrateTableV1L3[bitrateIndex];
+                frameSize = Math.floor(samplesPerFrame * (bitrate / 8) / sampleRate + paddingBit);
             }
-        } else {
-            // MPEG2 or MPEG2.5
-            bitrate = bitrateTableV2L3[bitrateIndex];
+
+            if (frameSize < 1) { offset++; continue; }
+
+            totalDuration += samplesPerFrame / sampleRate;
+            frameCount++;
+            offset += frameSize;
         }
 
-        return bitrate > 0 ? { bitrate } : null;
+        if (frameCount > 0) {
+            this.logger.debug(`[Whisper] MP3 frame counting: ${frameCount} frames, ${Math.round(totalDuration)}s`);
+        }
+
+        return Math.round(totalDuration);
     }
 
     private getMimeType(filename: string): string {

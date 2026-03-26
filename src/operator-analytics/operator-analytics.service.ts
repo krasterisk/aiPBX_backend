@@ -155,6 +155,21 @@ export class OperatorAnalyticsService {
     }
 
     /**
+     * Sanitize a URL:
+     * - strip duplicate protocol prefixes (http://http://... → http://...)
+     * - replace spaces with %20 (handles + being decoded to space in phone numbers)
+     */
+    private sanitizeUrl(url: string): string {
+        let sanitized = url.replace(/^(https?:\/\/)+/i, (match) => {
+            const proto = match.toLowerCase().includes('https') ? 'https://' : 'http://';
+            return proto;
+        });
+        // Replace spaces that may appear from decoded '+' signs
+        sanitized = sanitized.replace(/ /g, '%2B');
+        return sanitized;
+    }
+
+    /**
      * Runs STT with automatic fallback to OpenAI Whisper if the primary provider fails.
      * If STT_API_URL is not set, goes straight to OpenAI.
      */
@@ -326,7 +341,7 @@ export class OperatorAnalyticsService {
     }
 
     async analyzeUrl(
-        url: string,
+        rawUrl: string,
         userId: string,
         options: {
             operatorName?: string;
@@ -337,15 +352,22 @@ export class OperatorAnalyticsService {
             projectId?: number;
         } = {},
     ): Promise<OperatorAnalytics> {
+        const url = this.sanitizeUrl(rawUrl);
         this.logger.log(`Downloading file from URL: ${url}`);
 
         const response = await axios.get(url, {
             responseType: 'arraybuffer',
             timeout: 120_000, // 2 min
             maxContentLength: 50 * 1024 * 1024, // 50 MB
+            maxRedirects: 5,
         });
 
         const buffer = Buffer.from(response.data);
+        const contentLength = response.headers['content-length'];
+        this.logger.log(`Downloaded ${buffer.length} bytes (Content-Length: ${contentLength || 'unknown'}) from ${url}`);
+        if (contentLength && buffer.length < parseInt(contentLength, 10)) {
+            this.logger.warn(`Partial download detected: got ${buffer.length} of ${contentLength} bytes`);
+        }
         const filename = this.extractFilenameFromUrl(url);
 
         return this.analyzeFile(buffer, filename, userId, AnalyticsSource.API, {
@@ -354,7 +376,8 @@ export class OperatorAnalyticsService {
         });
     }
 
-    async processUrlInBackground(recordId: number, url: string, provider?: string): Promise<void> {
+    async processUrlInBackground(recordId: number, rawUrl: string, provider?: string): Promise<void> {
+        const url = this.sanitizeUrl(rawUrl);
         try {
             this.logger.log(`Background: downloading file from URL: ${url}`);
             const response = await axios.get(url, {
@@ -363,6 +386,11 @@ export class OperatorAnalyticsService {
                 maxContentLength: 50 * 1024 * 1024,
             });
             const buffer = Buffer.from(response.data);
+            const contentLength = response.headers['content-length'];
+            this.logger.log(`Downloaded ${buffer.length} bytes (Content-Length: ${contentLength || 'unknown'}) from ${url}`);
+            if (contentLength && buffer.length < parseInt(contentLength, 10)) {
+                this.logger.warn(`Partial download detected: got ${buffer.length} of ${contentLength} bytes`);
+            }
             await this.processInBackground(recordId, buffer, provider);
         } catch (e) {
             this.logger.error(`Background URL download failed for record #${recordId}: ${e.message}`);

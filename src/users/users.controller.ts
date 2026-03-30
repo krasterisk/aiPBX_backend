@@ -25,6 +25,7 @@ import { GetUsersDto } from "./dto/getUsers.dto";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ValidationPipe } from "../pipes/validation.pipe";
 import { CreateUserLimitDto } from "./dto/create-user-limit.dto";
+import { CreateSubUserDto } from "./dto/create-sub-user.dto";
 import { UserLimits } from "./user-limits.model";
 import { AdminTopUpDto } from "./dto/admin-top-up.dto";
 import { LoggerService } from "../logger/logger.service";
@@ -60,11 +61,38 @@ export class UsersController {
     @UseGuards(RolesGuard)
     @Post()
     async create(@Body() dto: CreateUserDto, @Req() request: RequestWithUser) {
-        const activatedDto = { ...dto, isActivated: true }
+        // Sub-users не могут создавать пользователей
+        if (request.vpbxUserId) {
+            throw new HttpException('Sub-users cannot create users', HttpStatus.FORBIDDEN);
+        }
+        const activatedDto = { ...dto, isActivated: true, vpbx_user_id: Number(request.tokenUserId) }
         const result = await this.authService.create(activatedDto)
         const userId = request.vpbxUserId || request.tokenUserId;
         await this.loggerService.logAction(Number(userId), 'create', 'user', null, `Created user ${dto.email || dto.username}`, null, null, request);
         return result;
+    }
+
+    @ApiOperation({ summary: "Create sub-user" })
+    @ApiResponse({ status: 201, type: User })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Post('sub-user')
+    @UsePipes(ValidationPipe)
+    async createSubUser(@Body() dto: CreateSubUserDto, @Req() request: RequestWithUser) {
+        const ownerUserId = Number(request.vpbxUserId || request.tokenUserId);
+        const result = await this.userService.createSubUser(ownerUserId, dto);
+        await this.loggerService.logAction(ownerUserId, 'create', 'sub-user', result.id, `Created sub-user ${dto.email}`, null, null, request);
+        return result;
+    }
+
+    @ApiOperation({ summary: "Get sub-users of current owner" })
+    @ApiResponse({ status: 200, type: [User] })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get('sub-users')
+    getSubUsers(@Req() request: RequestWithUser) {
+        const ownerUserId = Number(request.vpbxUserId || request.tokenUserId);
+        return this.userService.getSubUsers(ownerUserId);
     }
 
     @ApiOperation({ summary: "Get users by page" })
@@ -85,7 +113,7 @@ export class UsersController {
     @UseGuards(RolesGuard)
     @Get('balance')
     getBalance(@Req() request: RequestWithUser) {
-        const userId = request.tokenUserId
+        const userId = request.vpbxUserId || request.tokenUserId
         return this.userService.getUserBalance(userId)
     }
 
@@ -208,9 +236,9 @@ export class UsersController {
     @UseGuards(RolesGuard)
     @Delete('/:id')
     async DeleteUser(@Param('id') id: number, @Req() request: RequestWithUser) {
-        const result = await this.userService.deleteUser(id)
-        const userId = request.vpbxUserId || request.tokenUserId;
-        await this.loggerService.logAction(Number(userId), 'delete', 'user', id, `Deleted user #${id}`, null, null, request);
+        const requesterId = Number(request.vpbxUserId || request.tokenUserId);
+        const result = await this.userService.deleteUser(id, request.isAdmin ? undefined : requesterId)
+        await this.loggerService.logAction(requesterId, 'delete', 'user', id, `Deleted user #${id}`, null, null, request);
         return result;
     }
 

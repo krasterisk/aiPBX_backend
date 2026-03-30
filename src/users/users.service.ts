@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } 
 import { InjectModel } from "@nestjs/sequelize";
 import { User } from "../users/users.model";
 import { CreateUserDto } from "./dto/create-user.dto";
+import { CreateSubUserDto } from "./dto/create-sub-user.dto";
 import { RolesService } from "../roles/roles.service";
 import { AddRoleDto } from "./dto/add-role.dto";
 import sequelize from "sequelize";
@@ -75,8 +76,7 @@ export class UsersService {
                         "googleId",
                         "telegramId",
                         "activationExpires",
-                        "isActivated",
-                        "vpbx_user_id"
+                        "isActivated"
                     ]
                 }
             });
@@ -88,6 +88,114 @@ export class UsersService {
             this.logger.error("User creation error", e);
             throw new HttpException({ message: "User creation error" }, HttpStatus.BAD_REQUEST);
         }
+    }
+
+    async createSubUser(ownerUserId: number, dto: CreateSubUserDto) {
+        try {
+            // Проверяем, что owner существует и является root user
+            const owner = await this.usersRepository.findByPk(ownerUserId);
+            if (!owner) {
+                throw new HttpException('Owner user not found', HttpStatus.NOT_FOUND);
+            }
+            if (owner.vpbx_user_id !== null && owner.vpbx_user_id !== undefined) {
+                throw new HttpException(
+                    'Sub-users cannot create other users',
+                    HttpStatus.FORBIDDEN,
+                );
+            }
+
+            // Проверяем, что email не занят
+            const existing = await this.usersRepository.findOne({ where: { email: dto.email } });
+            if (existing) {
+                throw new HttpException('User with this email already exists', HttpStatus.BAD_REQUEST);
+            }
+
+            const user = await this.usersRepository.create({
+                email: dto.email,
+                password: dto.password || null,
+                vpbx_user_id: ownerUserId,
+            } as any);
+
+            if (!user) {
+                throw new HttpException('Sub-user creation failed', HttpStatus.BAD_REQUEST);
+            }
+
+            // Устанавливаем имя и флаг активации
+            await user.update({
+                name: dto.name || null,
+                isActivated: true,
+            });
+
+            // Назначаем роль USER
+            const role = await this.roleService.getRoleByValue('USER');
+            if (role) {
+                await user.$set('roles', [role.id]);
+            }
+
+            // Копируем цены owner
+            let ownerPrice = null;
+            try {
+                ownerPrice = await this.priceService.findByUserId(ownerUserId);
+            } catch {}
+            const price: CreatePriceDto = {
+                userId: user.id,
+                realtime: ownerPrice?.realtime ?? 35,
+                analytic: ownerPrice?.analytic ?? 5,
+                text: ownerPrice?.text ?? 1,
+                stt: ownerPrice?.stt ?? 0.1,
+            };
+            await this.priceService.create(price);
+
+            this.logger.log(`Sub-user ${dto.email} created for owner #${ownerUserId}`);
+
+            // Возвращаем пользователя с ролями
+            return await this.usersRepository.findByPk(user.id, {
+                include: { all: true },
+                attributes: {
+                    exclude: [
+                        'password',
+                        'activationCode',
+                        'resetPasswordLink',
+                        'googleId',
+                        'telegramId',
+                        'activationExpires',
+                        'isActivated',
+                    ],
+                },
+            });
+        } catch (e) {
+            if (e instanceof HttpException) throw e;
+            this.logger.error('Sub-user creation error', e);
+            throw new HttpException('Sub-user creation error', HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    async getSubUsers(ownerUserId: number) {
+        return this.usersRepository.findAll({
+            where: { vpbx_user_id: ownerUserId },
+            include: { all: true },
+            attributes: {
+                exclude: [
+                    'password',
+                    'activationCode',
+                    'resetPasswordLink',
+                    'googleId',
+                    'telegramId',
+                    'activationExpires',
+                    'isActivated',
+                ],
+            },
+        });
+    }
+
+    async resolveOwnerId(userId: string | number): Promise<number> {
+        const user = await this.usersRepository.findByPk(userId, {
+            attributes: ['id', 'vpbx_user_id'],
+        });
+        if (!user) {
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
+        return user.vpbx_user_id ?? user.id;
     }
 
 
@@ -104,8 +212,7 @@ export class UsersService {
                         "googleId",
                         "telegramId",
                         "activationExpires",
-                        "isActivated",
-                        "vpbx_user_id"
+                        "isActivated"
                     ]
                 }
             });
@@ -173,8 +280,7 @@ export class UsersService {
                         "googleId",
                         "telegramId",
                         "activationExpires",
-                        "isActivated",
-                        "vpbx_user_id"
+                        "isActivated"
                     ]
                 }
             }
@@ -220,8 +326,7 @@ export class UsersService {
                     "resetPasswordLink",
                     "googleId",
                     "telegramId",
-                    "isActivated",
-                    "vpbx_user_id"
+                    "isActivated"
                 ]
             }
         });
@@ -246,8 +351,7 @@ export class UsersService {
                         "googleId",
                         "telegramId",
                         "activationExpires",
-                        "isActivated",
-                        "vpbx_user_id"
+                        "isActivated"
                     ]
                 }
             });
@@ -269,8 +373,7 @@ export class UsersService {
                     "googleId",
                     "telegramId",
                     "activationExpires",
-                    "isActivated",
-                    "vpbx_user_id"
+                    "isActivated"
                 ]
             }
         });
@@ -330,6 +433,13 @@ export class UsersService {
             }
         }
 
+        // Check if we crossed $3 threshold downwards
+        if (oldBalanceApprox > 3 && newBalance <= 3) {
+            const limitEmails = limit?.emails || [];
+            const recipients = [...new Set([...limitEmails, user.email])].filter(Boolean);
+            this.mailerService.sendCriticalBalanceNotification(recipients, newBalance);
+        }
+
         // Check if we crossed zero downwards
         if (oldBalanceApprox > 0 && newBalance <= 0) {
             const limitEmails = limit?.emails || [];
@@ -353,8 +463,7 @@ export class UsersService {
                         "googleId",
                         "telegramId",
                         "activationExpires",
-                        "isActivated",
-                        "vpbx_user_id"
+                        "isActivated"
                     ]
                 }
             });
@@ -368,8 +477,11 @@ export class UsersService {
     }
 
     async getUserBalance(id: string) {
+        // Разрешаем owner ID для sub-users
+        const ownerId = await this.resolveOwnerId(id);
+
         const user = await this.usersRepository.findOne({
-            where: { id },
+            where: { id: ownerId },
             attributes: ['balance', 'currency']
         });
 
@@ -378,13 +490,11 @@ export class UsersService {
             throw new HttpException('User not found', HttpStatus.NOT_FOUND);
         }
 
-
         const currency = user.currency || 'USD'
 
         const currencyRate = await this.ratesRepository.findOne({
             where: { currency }
         });
-
 
         return {
             balance: user.balance,
@@ -411,8 +521,7 @@ export class UsersService {
                     "googleId",
                     "telegramId",
                     "activationExpires",
-                    "isActivated",
-                    "vpbx_user_id"
+                    "isActivated"
                 ]
             }
         });
@@ -437,8 +546,7 @@ export class UsersService {
                         "googleId",
                         "telegramId",
                         "activationExpires",
-                        "isActivated",
-                        "vpbx_user_id"
+                        "isActivated"
                     ]
                 }
             });
@@ -478,8 +586,7 @@ export class UsersService {
                     "googleId",
                     "telegramId",
                     "activationExpires",
-                    "isActivated",
-                    "vpbx_user_id"
+                    "isActivated"
                 ]
             }
         });
@@ -538,8 +645,7 @@ export class UsersService {
                     "googleId",
                     "telegramId",
                     "activationExpires",
-                    "isActivated",
-                    "vpbx_user_id"
+                    "isActivated"
                 ]
             }
         });
@@ -556,8 +662,7 @@ export class UsersService {
                     "googleId",
                     "telegramId",
                     "activationExpires",
-                    "isActivated",
-                    "vpbx_user_id"
+                    "isActivated"
                 ]
             }
         });
@@ -573,13 +678,36 @@ export class UsersService {
     }
 
 
-    async deleteUser(id: number) {
-        const deleted = await this.usersRepository.destroy({ where: { id } });
-        if (deleted === 0) {
+    async deleteUser(id: number, requesterId?: number) {
+        const user = await this.usersRepository.findByPk(id, {
+            attributes: ['id', 'vpbx_user_id'],
+        });
+
+        if (!user) {
             this.logger.warn('User not found');
-            throw new HttpException("User not found", HttpStatus.NOT_FOUND);
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
         }
-        return { message: "User deleted successfully", statusCode: HttpStatus.OK };
+
+        // Если удаляется root user — проверяем, нет ли sub-users
+        if (user.vpbx_user_id === null || user.vpbx_user_id === undefined) {
+            const subUsersCount = await this.usersRepository.count({ where: { vpbx_user_id: id } });
+            if (subUsersCount > 0) {
+                throw new HttpException(
+                    `Cannot delete owner: ${subUsersCount} sub-user(s) still linked`,
+                    HttpStatus.BAD_REQUEST,
+                );
+            }
+        }
+
+        // Если requester указан — проверяем права
+        if (requesterId && user.vpbx_user_id !== null) {
+            if (user.vpbx_user_id !== requesterId && user.id !== requesterId) {
+                throw new HttpException('Forbidden: not your sub-user', HttpStatus.FORBIDDEN);
+            }
+        }
+
+        await this.usersRepository.destroy({ where: { id } });
+        return { message: 'User deleted successfully', statusCode: HttpStatus.OK };
     }
 
     async getCandidateByTelegramId(telegramId: number | string) {
@@ -595,8 +723,7 @@ export class UsersService {
                         "googleId",
                         "telegramId",
                         "activationExpires",
-                        "isActivated",
-                        "vpbx_user_id"
+                        "isActivated"
                     ]
                 }
             });

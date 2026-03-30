@@ -157,6 +157,52 @@ export class MailerService {
         }
     }
 
+    async sendCriticalBalanceNotification(to: string[], balance: number) {
+        if (!to || to.length === 0) return;
+
+        const subject = this.isRussian
+            ? 'AI PBX — Баланс менее $3'
+            : 'AI PBX — Balance Below $3';
+
+        const html = this.isRussian
+            ? `
+                <body>
+                    <div>
+                        <h2>Низкий баланс</h2>
+                        <p style="color: #e67e22;"><strong>Ваш баланс составляет менее $3. Рекомендуем пополнить счёт.</strong></p>
+                        <p><strong>Текущий баланс: $${balance.toFixed(2)}</strong></p>
+                        <p>Пожалуйста, пополните баланс, чтобы избежать приостановки сервиса.</p>
+                        <br/>
+                        <h5>Команда AI PBX</h5>
+                    </div>
+                </body>
+            `
+            : `
+                <body>
+                    <div>
+                        <h2>Low Balance Warning</h2>
+                        <p style="color: #e67e22;"><strong>Your balance is below $3. We recommend topping up your account.</strong></p>
+                        <p><strong>Current Balance: $${balance.toFixed(2)}</strong></p>
+                        <p>Please add funds to avoid service interruption.</p>
+                        <br/>
+                        <h5>AI PBX Team</h5>
+                    </div>
+                </body>
+            `;
+
+        try {
+            await this.transporter.sendMail({
+                from: `"AI PBX" <${process.env.MAIL_USER}>`,
+                to: to.join(', '),
+                subject,
+                html,
+            });
+            this.logger.log(`Sent critical balance alert to ${to.join(', ')}`);
+        } catch (e) {
+            this.logger.error('Error sending critical balance alert', e);
+        }
+    }
+
     async sendZeroBalanceNotification(to: string[], balance: number) {
         if (!to || to.length === 0) return;
 

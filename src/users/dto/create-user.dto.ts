@@ -45,4 +45,6 @@ export class CreateUserDto {
     @ApiProperty({ example: 'USER', description: "Role" })
     // @IsString({message: 'Must be a array of Roles'})
     readonly roles?: CreateRoleDto[]
+    @ApiProperty({ example: '4', description: "Parent user ID (for sub-users)", required: false })
+    readonly vpbx_user_id?: number
 }

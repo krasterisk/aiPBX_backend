@@ -53,10 +53,11 @@ export class PaymentsService {
 
     async createStripePaymentIntent(userId: string, amount: number, currency: string) {
         try {
+            const ownerId = String(await this.usersService.resolveOwnerId(userId));
             const paymentIntent = await this.stripe.paymentIntents.create({
                 amount: Math.round(amount * 100), // Convert to cents
                 currency: currency,
-                metadata: { userId },
+                metadata: { userId: ownerId },
                 automatic_payment_methods: {
                     enabled: true,
                 },
@@ -64,7 +65,7 @@ export class PaymentsService {
 
             // Save pending payment
             await this.paymentsRepository.create({
-                userId,
+                userId: ownerId,
                 amount,
                 currency,
                 stripePaymentIntentId: paymentIntent.id,
@@ -111,9 +112,10 @@ export class PaymentsService {
 
     async getUserPayments(userId: string, page: number = 1, limit: number = 10) {
         try {
+            const ownerId = String(await this.usersService.resolveOwnerId(userId));
             const offset = (page - 1) * limit;
             const payments = await this.paymentsRepository.findAndCountAll({
-                where: { userId: String(userId) },
+                where: { userId: ownerId },
                 attributes: [
                     'id',
                     'amount',
@@ -197,8 +199,9 @@ export class PaymentsService {
 
     async createRobokassaPayment(userId: string, amount: number, description?: string) {
         try {
+            const ownerId = String(await this.usersService.resolveOwnerId(userId));
             const payment = await this.paymentsRepository.create({
-                userId,
+                userId: ownerId,
                 amount,
                 currency: 'RUB',
                 status: 'pending',
@@ -215,8 +218,8 @@ export class PaymentsService {
             const isTest = this.configService.get<string>('ROBOKASSA_TEST_MODE') === '1';
             const outSum = amount.toFixed(2);
 
-            // Signature: MD5(MerchantLogin:OutSum:InvId:Password#1:Shp_userId=userId)
-            const signatureString = `${merchantLogin}:${outSum}:${invId}:${password1}:Shp_userId=${userId}`;
+            // Signature: MD5(MerchantLogin:OutSum:InvId:Password#1:Shp_userId=ownerId)
+            const signatureString = `${merchantLogin}:${outSum}:${invId}:${password1}:Shp_userId=${ownerId}`;
             const signatureValue = this.generateRobokassaSignature(signatureString);
 
             const params = new URLSearchParams({
@@ -225,7 +228,7 @@ export class PaymentsService {
                 InvId: String(invId),
                 Description: description || 'Account top-up',
                 SignatureValue: signatureValue,
-                Shp_userId: userId,
+                Shp_userId: ownerId,
             });
 
             if (isTest) {
@@ -303,8 +306,9 @@ export class PaymentsService {
     }
 
     async getRobokassaPaymentStatus(invId: number, userId: string) {
+        const ownerId = String(await this.usersService.resolveOwnerId(userId));
         const payment = await this.paymentsRepository.findOne({
-            where: { robokassaInvId: invId, userId: String(userId) },
+            where: { robokassaInvId: invId, userId: ownerId },
             attributes: ['id', 'amount', 'currency', 'status', 'paymentMethod', 'createdAt'],
         });
 

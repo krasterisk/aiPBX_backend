@@ -114,6 +114,7 @@ export class UsersService {
                 email: dto.email,
                 password: dto.password || null,
                 vpbx_user_id: ownerUserId,
+                balance: 0,
             } as any);
 
             if (!user) {
@@ -307,6 +308,17 @@ export class UsersService {
                 throw new UnauthorizedException({ message: "Authorization Error" });
             }
 
+            if (user.vpbx_user_id) {
+                const ownerBalance = await this.getUserBalance(String(user.vpbx_user_id));
+                if (typeof user.setDataValue === 'function') {
+                    user.setDataValue('balance', ownerBalance.balance);
+                    user.setDataValue('currency', ownerBalance.currency);
+                } else {
+                    user.balance = ownerBalance.balance;
+                    user.currency = ownerBalance.currency;
+                }
+            }
+
             return user;
 
         } catch (e) {
@@ -391,9 +403,10 @@ export class UsersService {
             this.logger.warn('id or amount not found');
             return false
         }
+        const ownerId = await this.resolveOwnerId(id);
         const [affectedRows] = await this.usersRepository.increment('balance', {
             by: amountToAdd,
-            where: { id }
+            where: { id: ownerId }
         });
 
         if (affectedRows.length === 0) {
@@ -408,15 +421,16 @@ export class UsersService {
             this.logger.warn('id or amount not found');
             return false
         }
-        const limit = await this.userLimitsRepository.findOne({ where: { userId: id } });
+        const ownerId = await this.resolveOwnerId(id);
+        const limit = await this.userLimitsRepository.findOne({ where: { userId: ownerId } });
 
         await this.usersRepository.decrement('balance', {
             by: amountToDec,
-            where: { id }
+            where: { id: ownerId }
         });
 
 
-        const user = await this.usersRepository.findByPk(id, { attributes: ['balance', 'email'] });
+        const user = await this.usersRepository.findByPk(ownerId, { attributes: ['balance', 'email'] });
 
         if (!user) {
             this.logger.warn('User not found');
@@ -530,6 +544,18 @@ export class UsersService {
             this.logger.warn('User not found');
             throw new HttpException('User not found', HttpStatus.NOT_FOUND);
         }
+
+        if (user.vpbx_user_id) {
+            const ownerBalance = await this.getUserBalance(String(user.vpbx_user_id));
+            if (typeof user.setDataValue === 'function') {
+                user.setDataValue('balance', ownerBalance.balance);
+                user.setDataValue('currency', ownerBalance.currency);
+            } else {
+                user.balance = ownerBalance.balance;
+                user.currency = ownerBalance.currency;
+            }
+        }
+
         return user
     }
 
@@ -553,6 +579,17 @@ export class UsersService {
 
             if (!user) {
                 throw new HttpException("User not found", HttpStatus.NOT_FOUND);
+            }
+
+            if (user.vpbx_user_id) {
+                const ownerBalance = await this.getUserBalance(String(user.vpbx_user_id));
+                if (typeof user.setDataValue === 'function') {
+                    user.setDataValue('balance', ownerBalance.balance);
+                    user.setDataValue('currency', ownerBalance.currency);
+                } else {
+                    user.balance = ownerBalance.balance;
+                    user.currency = ownerBalance.currency;
+                }
             }
 
             const isCanEdit =

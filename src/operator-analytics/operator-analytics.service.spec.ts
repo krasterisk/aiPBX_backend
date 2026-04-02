@@ -845,4 +845,131 @@ describe('OperatorAnalyticsService', () => {
             ).resolves.toBeUndefined();
         });
     });
+
+    // ═════════════════════════════════════════════════════════════════
+    // getDashboard — userId filtering (bug fix regression tests)
+    // ═════════════════════════════════════════════════════════════════
+
+    describe('getDashboard', () => {
+        beforeEach(() => {
+            // Default: return empty array so dashboard returns zeros
+            mockAiCdrRepo.findAll.mockResolvedValue([]);
+        });
+
+        it('should NOT filter by userId when admin requests without userId', async () => {
+            await service.getDashboard(
+                { startDate: '2026-03-30', endDate: '2026-04-05' },
+                true,   // isAdmin
+                null,   // realUserId (null for admin)
+            );
+
+            expect(mockAiCdrRepo.findAll).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.not.objectContaining({ userId: expect.anything() }),
+                }),
+            );
+        });
+
+        it('should filter by query.userId when admin specifies userId', async () => {
+            await service.getDashboard(
+                { userId: '96', startDate: '2026-03-30', endDate: '2026-04-05' },
+                true,   // isAdmin
+                null,   // realUserId
+            );
+
+            expect(mockAiCdrRepo.findAll).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({ userId: '96' }),
+                }),
+            );
+        });
+
+        it('should filter by realUserId for non-admin (ignore query.userId)', async () => {
+            await service.getDashboard(
+                { userId: '999', startDate: '2026-03-30', endDate: '2026-04-05' },
+                false,  // isAdmin
+                '42',   // realUserId
+            );
+
+            expect(mockAiCdrRepo.findAll).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({ userId: '42' }),
+                }),
+            );
+        });
+
+        it('should return empty dashboard when no records found', async () => {
+            mockAiCdrRepo.findAll.mockResolvedValue([]);
+
+            const result = await service.getDashboard({}, true, null);
+
+            expect(result.totalAnalyzed).toBe(0);
+            expect(result.totalCost).toBe(0);
+            expect(result.averageDuration).toBe(0);
+            expect(result.averageScore).toBe(0);
+            expect(result.timeSeries).toEqual([]);
+            expect(result.sentimentDistribution).toEqual({
+                positive: 0, neutral: 0, negative: 0,
+            });
+        });
+
+        it('should filter by projectId when provided', async () => {
+            await service.getDashboard(
+                { projectId: 5 },
+                true,
+                null,
+            );
+
+            expect(mockAiCdrRepo.findAll).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({ projectId: 5 }),
+                }),
+            );
+        });
+    });
+
+    // ═════════════════════════════════════════════════════════════════
+    // getCdrs — userId filtering
+    // ═════════════════════════════════════════════════════════════════
+
+    describe('getCdrs', () => {
+        beforeEach(() => {
+            mockAiCdrRepo.findAndCountAll = jest.fn().mockResolvedValue({
+                rows: [], count: 0,
+            });
+        });
+
+        it('should NOT filter by userId when admin requests without userId', async () => {
+            await service.getCdrs({}, true, null);
+
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where).not.toHaveProperty('userId');
+        });
+
+        it('should filter by query.userId when admin specifies userId', async () => {
+            await service.getCdrs({ userId: '96' }, true, null);
+
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where.userId).toBe('96');
+        });
+
+        it('should filter by realUserId for non-admin', async () => {
+            await service.getCdrs({}, false, '42');
+
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where.userId).toBe('42');
+        });
+
+        it('should return paginated result with defaults', async () => {
+            mockAiCdrRepo.findAndCountAll.mockResolvedValue({
+                rows: [], count: 0,
+            });
+
+            const result = await service.getCdrs({}, true, null);
+
+            expect(result).toEqual({
+                data: [], total: 0, page: 1, limit: 20,
+            });
+        });
+    });
 });

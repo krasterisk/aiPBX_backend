@@ -83,7 +83,7 @@ import { ChatModule } from './chat/chat.module';
         ChatModule,
         ThrottlerModule.forRoot([{
             ttl: 60000,
-            limit: 30,
+            limit: 100,
         }]),
     ],
     providers: [

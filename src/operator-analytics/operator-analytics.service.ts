@@ -742,6 +742,7 @@ export class OperatorAnalyticsService {
     }
 
     async getDashboard(query: {
+        userId?: string;
         startDate?: string;
         endDate?: string;
         operatorName?: string;
@@ -749,8 +750,12 @@ export class OperatorAnalyticsService {
     }, isAdmin: boolean, realUserId: string) {
         const where: any = {};
 
+        // Access control: non-admins see only their own data;
+        // admins can filter by userId from query params
         if (!isAdmin) {
             where.userId = String(realUserId);
+        } else if (query.userId) {
+            where.userId = query.userId;
         }
 
         if (query.startDate && query.endDate) {
@@ -1176,6 +1181,7 @@ Write insights in Russian. Be specific and actionable.`;
      */
     async getInsights(
         query: {
+            userId?: string;
             startDate?: string;
             endDate?: string;
             operatorName?: string;

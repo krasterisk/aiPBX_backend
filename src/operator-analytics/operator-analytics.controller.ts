@@ -565,6 +565,7 @@ export class OperatorAnalyticsController {
     async getDashboard(
         @Req() req: RequestWithUser,
         @Query() query: {
+            userId?: string;
             startDate?: string;
             endDate?: string;
             operatorName?: string;
@@ -587,6 +588,7 @@ export class OperatorAnalyticsController {
     async getDashboardInsights(
         @Req() req: RequestWithUser,
         @Query() query: {
+            userId?: string;
             startDate?: string;
             endDate?: string;
             operatorName?: string;

@@ -4,6 +4,7 @@ import { NonRealtimeSession } from './non-realtime.session';
 import { IVadProvider, VadConfig } from './interfaces/vad-provider.interface';
 import { ISttProvider } from './interfaces/stt-provider.interface';
 import { ILlmProvider, LlmDelta, LlmTool, LlmToolCall } from './interfaces/llm-provider.interface';
+import { IAudioLlmProvider, isAudioLlmProvider } from './interfaces/audio-llm-provider.interface';
 import { ITtsProvider } from './interfaces/tts-provider.interface';
 import { Assistant } from '../assistants/assistants.model';
 import { AudioService } from '../audio/audio.service';
@@ -252,34 +253,7 @@ export class NonRealtimeService {
         const signal = abortController.signal;
 
         try {
-            // ── Step 1: STT ──
-            const sttProviderName = assistant['sttProvider'] || 'whisper-local';
-            const sttProvider = this.sttProviders.get(sttProviderName);
-            if (!sttProvider) {
-                this.logger.error(`[${channelId}] STT provider not found: ${sttProviderName}`);
-                return;
-            }
-
-            const language = assistant.input_audio_transcription_language || undefined;
-            const sttResult = await sttProvider.transcribe(audioBuffer, language);
-
-            if (signal.aborted) return;
-
-            if (!sttResult.text || sttResult.text.trim().length === 0) {
-                this.logger.debug(`[${channelId}] Empty transcription, skipping`);
-                return;
-            }
-
-            this.logger.log(`[${channelId}] STT: "${sttResult.text}"`);
-            session.addUserMessage(sttResult.text);
-
-            // Log user transcription (format matches getDialogs() parser)
-            this.emitEvent(session, {
-                type: 'conversation.item.input_audio_transcription.completed',
-                transcript: sttResult.text,
-            });
-
-            // ── Step 2: LLM (streaming) ──
+            // ── Resolve LLM provider first (needed to check audio support) ──
             const llmProviderName = assistant['llmProvider'] || 'openai';
             const llmProvider = this.llmProviders.get(llmProviderName);
             if (!llmProvider) {
@@ -287,6 +261,40 @@ export class NonRealtimeService {
                 return;
             }
 
+            const audioLlm = isAudioLlmProvider(llmProvider);
+            const language = assistant.input_audio_transcription_language || undefined;
+
+            // ── Step 1: STT (skipped if LLM supports audio input) ──
+            if (audioLlm) {
+                this.logger.log(`[${channelId}] Audio-native LLM (${llmProviderName}): skipping STT`);
+            } else {
+                const sttProviderName = assistant['sttProvider'] || 'whisper-local';
+                const sttProvider = this.sttProviders.get(sttProviderName);
+                if (!sttProvider) {
+                    this.logger.error(`[${channelId}] STT provider not found: ${sttProviderName}`);
+                    return;
+                }
+
+                const sttResult = await sttProvider.transcribe(audioBuffer, language);
+
+                if (signal.aborted) return;
+
+                if (!sttResult.text || sttResult.text.trim().length === 0) {
+                    this.logger.debug(`[${channelId}] Empty transcription, skipping`);
+                    return;
+                }
+
+                this.logger.log(`[${channelId}] STT: "${sttResult.text}"`);
+                session.addUserMessage(sttResult.text);
+
+                // Log user transcription (format matches getDialogs() parser)
+                this.emitEvent(session, {
+                    type: 'conversation.item.input_audio_transcription.completed',
+                    transcript: sttResult.text,
+                });
+            }
+
+            // ── Step 2: LLM (streaming) ──
             const tools = await this.buildTools(assistant);
             const llmOptions = {
                 model: assistant['llmModel'] || assistant.model || 'gpt-4o-mini',
@@ -299,12 +307,14 @@ export class NonRealtimeService {
             let sentenceBuffer = '';
             let pendingToolCalls: LlmToolCall[] = [];
 
-            const stream = llmProvider.chatStream(
-                session.messages,
-                tools,
-                llmOptions,
-                signal,
-            );
+            // Choose stream mode: audio-native or text-only
+            const stream = audioLlm
+                ? (llmProvider as IAudioLlmProvider).chatStreamWithAudio(
+                    audioBuffer, session.messages, tools, llmOptions, signal,
+                )
+                : llmProvider.chatStream(
+                    session.messages, tools, llmOptions, signal,
+                );
 
             for await (const delta of stream) {
                 if (signal.aborted) return;

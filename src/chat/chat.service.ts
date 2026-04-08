@@ -33,6 +33,7 @@ interface ChatMessage {
 export class ChatService {
     private readonly logger = new Logger(ChatService.name);
     private readonly client: OpenAI;
+    private readonly defaultModel = process.env.DEFAULT_OLLAMA_MODEL || 'gemma4:e4b';
 
     constructor(
         @InjectModel(Chat) private chatModel: typeof Chat,
@@ -59,7 +60,7 @@ export class ChatService {
             userId,
             name: data.name,
             instruction: data.instruction,
-            model: data.model || 'qwen3:8b',
+            model: data.model || this.defaultModel,
             temperature: data.temperature || '0.7',
         } as any);
 
@@ -134,8 +135,8 @@ export class ChatService {
     ): AsyncGenerator<{ type: string; data: any }> {
         const chat = await this.getById(chatId);
 
-        const systemPrompt = '/no_think ' + (chat.instruction || 'You are a helpful assistant. Answer in the same language as the user.');
-        const model = chat.model || 'qwen3:8b';
+        const systemPrompt = chat.instruction || 'You are a helpful assistant. Answer in the same language as the user.';
+        const model = chat.model || this.defaultModel;
         const temperature = parseFloat(chat.temperature || '0.7');
 
         // Build tool definitions from chat's attached tools

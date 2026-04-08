@@ -12,7 +12,7 @@ export class CreateChatDto {
     @IsString()
     instruction?: string;
 
-    @ApiProperty({ example: 'qwen3:8b', description: 'Model name', required: false })
+    @ApiProperty({ example: 'gemma4:e4b', description: 'Model name', required: false })
     @IsOptional()
     @IsString()
     model?: string;

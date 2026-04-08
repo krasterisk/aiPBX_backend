@@ -18,8 +18,8 @@ export class Chat extends Model<Chat> {
     @Column({ type: DataType.TEXT, allowNull: true })
     instruction: string;
 
-    @ApiProperty({ example: 'qwen3:8b', description: 'LLM model name' })
-    @Column({ type: DataType.STRING(100), allowNull: true, defaultValue: 'qwen3:8b' })
+    @ApiProperty({ example: 'gemma4:e4b', description: 'LLM model name' })
+    @Column({ type: DataType.STRING(100), allowNull: true, defaultValue: 'gemma4:e4b' })
     model: string;
 
     @ApiProperty({ example: '0.7', description: 'Temperature' })

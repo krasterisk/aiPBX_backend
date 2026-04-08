@@ -120,7 +120,7 @@ describe('OperatorAnalyticsService', () => {
         };
 
         mockConfigService = {
-            get: jest.fn().mockReturnValue('test-openai-key'),
+            get: jest.fn((key: string) => key === 'DEFAULT_STT_PROVIDER' ? 'whisper' : 'test-openai-key'),
         };
 
         mockOpenAiStt = {
@@ -613,6 +613,7 @@ describe('OperatorAnalyticsService', () => {
             const axios = require('axios');
             axiosGetSpy = jest.spyOn(axios, 'get').mockResolvedValue({
                 data: Buffer.from('fake-audio-data'),
+                headers: {},
             });
         });
 
@@ -713,6 +714,7 @@ describe('OperatorAnalyticsService', () => {
             const axios = require('axios');
             axiosGetSpy = jest.spyOn(axios, 'get').mockResolvedValue({
                 data: Buffer.from('fake'),
+                headers: {},
             });
             mockUserRepo.findByPk.mockResolvedValue({ balance: 100 });
             mockExternalStt.transcribe.mockRejectedValue(new Error('skip'));
@@ -757,6 +759,7 @@ describe('OperatorAnalyticsService', () => {
             const axios = require('axios');
             axiosGetSpy = jest.spyOn(axios, 'get').mockResolvedValue({
                 data: Buffer.from('fake-audio'),
+                headers: {},
             });
             mockUserRepo.findByPk.mockResolvedValue({ balance: 100 });
         });
@@ -907,7 +910,7 @@ describe('OperatorAnalyticsService', () => {
             expect(result.totalCost).toBe(0);
             expect(result.averageDuration).toBe(0);
             expect(result.averageScore).toBe(0);
-            expect(result.timeSeries).toEqual([]);
+            expect(result.timeSeries).toEqual({ monthly: [], daily: [] });
             expect(result.sentimentDistribution).toEqual({
                 positive: 0, neutral: 0, negative: 0,
             });

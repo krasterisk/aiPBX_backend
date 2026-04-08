@@ -19,7 +19,7 @@ export class BillingController {
         return this.billingService.getBillingHistory(
             query,
             req.isAdmin,
-            req.tokenUserId,
+            req.vpbxUserId || req.tokenUserId,
         );
     }
 }

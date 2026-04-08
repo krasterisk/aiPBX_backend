@@ -97,21 +97,28 @@ jobs:
               --force-recreate backend
 
             # ── Start GPU services (only on aipbxnet / deploy:1) ──
+            # VRAM budget (GTX 1080 Ti, 11GB):
+            #   Whisper large-v3 INT8: ~4.5 GB  (analytics STT — always resident)
+            #   OmniVoice TTS INT8:    ~3.5 GB  (Pipeline B TTS — always resident)
+            #   Gemma 4 E4B (Ollama):  ~3.0 GB  (Pipeline B LLM — unloads after idle)
+            #   Peak (all loaded):     ~11 GB ⚠ (brief overlap during voice calls)
+            #   Typical (no calls):    ~8.0 GB ✅
             if [[ "${{ matrix.server }}" == "aipbxnet_production" ]]; then
-              echo "Starting Whisper GPU container..."
+              echo "Starting Whisper GPU container (used for analytics STT)..."
               sudo docker compose -f docker-compose.production.yml --env-file .env.production --profile gpu up -d \
                 --force-recreate whisper
-
-              echo "Building and starting Silero TTS container..."
-              sudo docker compose -f docker-compose.production.yml --env-file .env.production --profile gpu up -d \
-                --build --force-recreate silero-tts
 
               echo "Starting Ollama container..."
               sudo docker compose -f docker-compose.production.yml --env-file .env.production --profile gpu-full up -d \
                 --force-recreate ollama
+
+              echo "Building and starting OmniVoice TTS container (Pipeline B)..."
+              sudo docker compose -f docker-compose.production.yml --env-file .env.production --profile gpu-full up -d \
+                --build --force-recreate omnivoice-tts
+
               sleep 10
-              echo "Pulling Qwen3 8B model..."
-              sudo docker exec app-ollama-1 ollama pull qwen3:8b || echo "Model pull skipped (may already exist)"
+              echo "Pulling Gemma 4 E4B model (Pipeline B LLM)..."
+              sudo docker exec app-ollama-1 ollama pull gemma4:e4b || echo "Model pull skipped (may already exist)"
               echo "Pulling nomic-embed-text for RAG embeddings..."
               sudo docker exec app-ollama-1 ollama pull nomic-embed-text || echo "Embedding model pull skipped"
             fi
@@ -133,5 +140,11 @@ jobs:
             fi
 
             # ── Cleanup ──
-            sudo docker image prune -f
+            # Удаляем все неиспользуемые образы (не только dangling)
+            sudo docker image prune -a -f
+            # Чистим build cache, оставляя 2GB для кэширования
+            sudo docker builder prune -f --keep-storage=2GB
+            # Логируем состояние диска для мониторинга
+            echo "Docker disk usage after cleanup:"
+            sudo docker system df
             echo "Backend deployment to ${{ matrix.server }} successful!"

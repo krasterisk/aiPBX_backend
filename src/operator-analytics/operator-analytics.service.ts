@@ -65,7 +65,7 @@ export class OperatorAnalyticsService {
         });
 
         this.analyticsModel = process.env.ANALYTICS_LLM_MODEL || 'gpt-4o-mini';
-        this.fallbackModel = process.env.ANALYTICS_FALLBACK_MODEL || 'qwen3:8b';
+        this.fallbackModel = process.env.ANALYTICS_FALLBACK_MODEL || process.env.DEFAULT_OLLAMA_MODEL || 'gemma4:e4b';
 
         // Register STT providers
         const openaiSttEnabled = (this.configService.get<string>('OPENAI_STT_ENABLED') || process.env.OPENAI_STT_ENABLED || 'false').toLowerCase() === 'true';
@@ -82,7 +82,7 @@ export class OperatorAnalyticsService {
     // ─── LLM with fallback ─────────────────────────────────────────
 
     /**
-     * Call LLM with automatic fallback: OpenAI (gpt-4o-mini) → Ollama (qwen3:8b)
+     * Call LLM with automatic fallback: OpenAI (gpt-4o-mini) → Ollama (gemma4:e4b)
      */
     private async chatWithFallback(
         messages: any[],
@@ -111,13 +111,8 @@ export class OperatorAnalyticsService {
         }
 
         try {
-            // Prepend /no_think for Qwen to suppress <think> blocks
-            const fallbackMessages = messages.map((m, i) => {
-                if (i === 0 && m.role === 'system') {
-                    return { ...m, content: '/no_think ' + m.content };
-                }
-                return m;
-            });
+            // Gemma 4 doesn't need /no_think, but strip <think> blocks as safety net
+            const fallbackMessages = messages;
 
             const params: any = {
                 messages: fallbackMessages,
@@ -793,7 +788,7 @@ export class OperatorAnalyticsService {
                 averageScore: 0, successRate: 0,
                 aggregatedMetrics: this.emptyAggregatedMetrics(),
                 sentimentDistribution: { positive: 0, neutral: 0, negative: 0 },
-                timeSeries: [],
+                timeSeries: { monthly: [], daily: [] },
             };
         }
 
@@ -1642,7 +1637,7 @@ Return ONLY valid JSON without markdown formatting.
     }
 
     private buildTimeSeries(records: AiCdr[], startDate?: string, endDate?: string) {
-        if (!records.length) return [];
+        if (!records.length) return { monthly: [], daily: [] };
 
         const start = startDate ? new Date(startDate) : new Date(records[0].createdAt);
         const end = endDate ? new Date(endDate) : new Date(records[records.length - 1].createdAt);
@@ -1654,37 +1649,47 @@ Return ONLY valid JSON without markdown formatting.
             'problem_resolution', 'speech_clarity_pace', 'closing_quality',
         ];
 
-        const groups: Record<string, { calls: number; totalScore: number; totalDuration: number }> = {};
+        const buildMonthly = daysDiff > 60;
+        const dailyGroups: Record<string, { calls: number; totalScore: number; totalDuration: number }> = {};
+        const monthlyGroups: Record<string, { calls: number; totalScore: number; totalDuration: number }> = {};
 
         records.forEach(r => {
             const date = new Date(r.createdAt);
-            let label: string;
+            const dailyLabel = date.toISOString().split('T')[0];
 
-            if (daysDiff <= 31) {
-                label = date.toISOString().split('T')[0];
-            } else if (daysDiff <= 366) {
-                label = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-            } else {
-                label = `${date.getFullYear()}`;
+            if (!dailyGroups[dailyLabel]) {
+                dailyGroups[dailyLabel] = { calls: 0, totalScore: 0, totalDuration: 0 };
             }
+            dailyGroups[dailyLabel].calls++;
+            dailyGroups[dailyLabel].totalDuration += r.duration || 0;
 
-            if (!groups[label]) {
-                groups[label] = { calls: 0, totalScore: 0, totalDuration: 0 };
-            }
-            groups[label].calls++;
-            groups[label].totalDuration += r.duration || 0;
-
+            let avg = 0;
             if (r.analytics?.metrics) {
-                const avg = numericKeys.reduce((s, k) => s + (r.analytics.metrics[k] || 0), 0) / numericKeys.length;
-                groups[label].totalScore += avg;
+                avg = numericKeys.reduce((s, k) => s + (r.analytics.metrics[k] || 0), 0) / numericKeys.length;
+                dailyGroups[dailyLabel].totalScore += avg;
+            }
+
+            if (buildMonthly) {
+                const monthlyLabel = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                if (!monthlyGroups[monthlyLabel]) {
+                    monthlyGroups[monthlyLabel] = { calls: 0, totalScore: 0, totalDuration: 0 };
+                }
+                monthlyGroups[monthlyLabel].calls++;
+                monthlyGroups[monthlyLabel].totalDuration += r.duration || 0;
+                monthlyGroups[monthlyLabel].totalScore += avg;
             }
         });
 
-        return Object.entries(groups).map(([label, g]) => ({
+        const mapToOutput = (groups: Record<string, any>) => Object.entries(groups).map(([label, g]) => ({
             label,
             callsCount: g.calls,
             avgScore: parseFloat((g.totalScore / g.calls).toFixed(2)),
             avgDuration: parseFloat((g.totalDuration / g.calls).toFixed(2)),
         }));
+
+        const daily = mapToOutput(dailyGroups);
+        const monthly = buildMonthly ? mapToOutput(monthlyGroups) : daily;
+
+        return { monthly, daily };
     }
 }

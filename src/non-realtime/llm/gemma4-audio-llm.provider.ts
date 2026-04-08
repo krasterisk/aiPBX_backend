@@ -7,30 +7,77 @@ import {
     LlmToolCall,
     LlmOptions,
 } from '../interfaces/llm-provider.interface';
+import { IAudioLlmProvider } from '../interfaces/audio-llm-provider.interface';
 import OpenAI from 'openai';
 
 /**
- * Ollama LLM Provider (Qwen3, Llama, DeepSeek, etc.)
+ * Gemma 4 Audio-Native LLM Provider.
  *
- * Uses Ollama's OpenAI-compatible API (/v1/chat/completions)
- * with streaming and tool calling support.
+ * Uses Ollama's OpenAI-compatible API with multimodal audio input.
+ * Gemma 4 E4B natively accepts audio via its USM encoder (~300M params),
+ * processing 160ms chunks at ~6.25 tokens/second.
  *
- * Requires Ollama container running with a model pulled:
- *   docker exec ollama ollama pull gemma4:e4b
+ * Two modes:
+ *   - chatStreamWithAudio(): sends PCM16 audio as base64 in a multimodal message (skips STT)
+ *   - chatStream(): pure text mode (used for tool-call re-runs after tool execution)
+ *
+ * Requires Ollama with Gemma 4 model pulled:
+ *   ollama pull gemma4:e4b
  */
-export class OllamaChatProvider implements ILlmProvider {
-    readonly name = 'ollama';
-    private readonly logger = new Logger(OllamaChatProvider.name);
+export class Gemma4AudioLlmProvider implements IAudioLlmProvider {
+    readonly name = 'gemma4-audio';
+    readonly supportsAudioInput = true;
+    private readonly logger = new Logger(Gemma4AudioLlmProvider.name);
     private readonly client: OpenAI;
+    private readonly ollamaBaseUrl: string;
 
     constructor(baseUrl?: string) {
-        // Ollama exposes OpenAI-compatible API at /v1
-        const ollamaUrl = baseUrl || process.env.OLLAMA_URL || 'http://ollama:11434/v1';
+        this.ollamaBaseUrl = baseUrl || process.env.OLLAMA_URL || 'http://ollama:11434/v1';
         this.client = new OpenAI({
-            baseURL: ollamaUrl,
-            apiKey: 'ollama', // Ollama doesn't need a key, but OpenAI SDK requires one
+            baseURL: this.ollamaBaseUrl,
+            apiKey: 'ollama', // Ollama doesn't need a key
         });
     }
+
+    // ── Audio-native mode (Pipeline B: skip STT) ─────────────
+
+    async *chatStreamWithAudio(
+        audioBuffer: Buffer,
+        messages: LlmMessage[],
+        tools: LlmTool[],
+        options: LlmOptions,
+        signal?: AbortSignal,
+    ): AsyncIterable<LlmDelta> {
+        const model = options.model || 'gemma4:e4b';
+
+        // Build WAV from PCM16 16kHz mono buffer
+        const wavBuffer = this.buildWavBuffer(audioBuffer, 16000, 1, 16);
+        const audioBase64 = wavBuffer.toString('base64');
+
+        // Build message list with audio as the latest user turn
+        const openAiMessages: any[] = messages.map(m => this.toOpenAiMessage(m));
+
+        // Add audio as multimodal user message
+        // Ollama multimodal format: content as array with text + audio parts
+        openAiMessages.push({
+            role: 'user',
+            content: [
+                {
+                    type: 'audio',
+                    audio: {
+                        data: audioBase64,
+                        format: 'wav',
+                    },
+                },
+            ],
+        });
+
+        this.logger.log(`[Gemma4Audio] Sending ${audioBuffer.length} bytes audio to ${model}`);
+
+        yield* this.streamCompletion(openAiMessages, tools, options, model, signal);
+    }
+
+    // ── Text-only mode (for tool-call re-runs) ───────────────
 
     async *chatStream(
         messages: LlmMessage[],
@@ -38,10 +85,23 @@ export class OllamaChatProvider implements ILlmProvider {
         options: LlmOptions,
         signal?: AbortSignal,
     ): AsyncIterable<LlmDelta> {
+        const model = options.model || 'gemma4:e4b';
         const openAiMessages = messages.map(m => this.toOpenAiMessage(m));
 
+        yield* this.streamCompletion(openAiMessages, tools, options, model, signal);
+    }
+
+    // ── Shared streaming logic ───────────────────────────────
+
+    private async *streamCompletion(
+        openAiMessages: any[],
+        tools: LlmTool[],
+        options: LlmOptions,
+        model: string,
+        signal?: AbortSignal,
+    ): AsyncIterable<LlmDelta> {
         const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
-            model: options.model || process.env.DEFAULT_OLLAMA_MODEL || 'gemma4:e4b',
+            model,
             messages: openAiMessages,
             stream: true,
             temperature: options.temperature ?? 0.8,
@@ -90,7 +150,7 @@ export class OllamaChatProvider implements ILlmProvider {
 
                 const delta = choice.delta;
 
-                // Text content — filter out <think>...</think> blocks from Qwen3
+                // Text content
                 if (delta?.content) {
                     yield { text: delta.content, done: false };
                 }
@@ -143,25 +203,71 @@ export class OllamaChatProvider implements ILlmProvider {
             }
         } catch (err) {
             if (signal?.aborted) return;
-            this.logger.error(`[Ollama] Stream error: ${err.message}`);
+            this.logger.error(`[Gemma4Audio] Stream error: ${err.message}`);
             throw err;
         }
     }
 
+    // ── Helpers ───────────────────────────────────────────────
+
     /**
-     * Check if Ollama is reachable and has a model loaded.
+     * Check if Ollama is reachable and has a Gemma 4 model available.
      */
     async healthCheck(): Promise<{ status: string; models?: string[]; url?: string }> {
         try {
-            const baseUrl = (this.client as any)?.baseURL || process.env.OLLAMA_URL || 'http://ollama:11434/v1';
-            const ollamaBase = baseUrl.replace('/v1', '');
+            const ollamaBase = this.ollamaBaseUrl.replace('/v1', '');
             const res = await fetch(`${ollamaBase}/api/tags`);
             const data = await res.json();
-            const models = data.models?.map((m: any) => m.name) || [];
-            return { status: 'ok', models };
+            const allModels: string[] = data.models?.map((m: any) => m.name) || [];
+            const gemmaModels = allModels.filter(name =>
+                name.includes('gemma4') || name.includes('gemma-4'),
+            );
+            return {
+                status: gemmaModels.length > 0 ? 'ok' : 'no-gemma4-model',
+                models: gemmaModels.length > 0 ? gemmaModels : allModels,
+            };
         } catch {
-            return { status: 'unavailable', url: process.env.OLLAMA_URL || 'http://ollama:11434' };
+            return { status: 'unavailable', url: this.ollamaBaseUrl };
         }
+    }
+
+    /**
+     * Build a minimal WAV file from raw PCM16 data.
+     * Gemma 4 USM encoder expects WAV format.
+     */
+    private buildWavBuffer(
+        pcmData: Buffer,
+        sampleRate: number,
+        numChannels: number,
+        bitsPerSample: number,
+    ): Buffer {
+        const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+        const blockAlign = numChannels * (bitsPerSample / 8);
+        const dataSize = pcmData.length;
+        const headerSize = 44;
+
+        const header = Buffer.alloc(headerSize);
+
+        // RIFF header
+        header.write('RIFF', 0);
+        header.writeUInt32LE(dataSize + headerSize - 8, 4);
+        header.write('WAVE', 8);
+
+        // fmt sub-chunk
+        header.write('fmt ', 12);
+        header.writeUInt32LE(16, 16);                   // SubChunk1Size (PCM)
+        header.writeUInt16LE(1, 20);                    // AudioFormat (PCM = 1)
+        header.writeUInt16LE(numChannels, 22);          // NumChannels
+        header.writeUInt32LE(sampleRate, 24);           // SampleRate
+        header.writeUInt32LE(byteRate, 28);             // ByteRate
+        header.writeUInt16LE(blockAlign, 32);           // BlockAlign
+        header.writeUInt16LE(bitsPerSample, 34);        // BitsPerSample
+
+        // data sub-chunk
+        header.write('data', 36);
+        header.writeUInt32LE(dataSize, 40);
+
+        return Buffer.concat([header, pcmData]);
     }
 
     private toOpenAiMessage(msg: LlmMessage): any {

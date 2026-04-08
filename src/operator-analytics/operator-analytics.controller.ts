@@ -18,6 +18,7 @@ import { GenerateSchemaDto, BulkMoveDto, CreateProjectDto } from './dto/project.
 interface RequestWithUser extends Request {
     isAdmin?: boolean;
     tokenUserId?: string;
+    vpbxUserId?: string;
     isApiToken?: boolean;
     apiToken?: { projectId?: number;[key: string]: any };
 }
@@ -43,7 +44,7 @@ export class OperatorAnalyticsController {
     @ApiOperation({ summary: 'List all active batch processes for current user' })
     @ApiResponse({ status: 200, description: 'Array of active batches with progress' })
     async getActiveBatches(@Req() req: RequestWithUser) {
-        const userId = req.tokenUserId;
+        const userId = req.vpbxUserId || req.tokenUserId;
         if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
         const batches = this.service.getActiveBatches(userId);
         return batches.map(batch => ({
@@ -96,7 +97,7 @@ export class OperatorAnalyticsController {
             projectId?: string;
         },
     ) {
-        const userId = req.tokenUserId;
+        const userId = req.vpbxUserId || req.tokenUserId;
         if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
 
         if (!files || files.length === 0) {
@@ -165,7 +166,7 @@ export class OperatorAnalyticsController {
             provider?: string;
         },
     ) {
-        const userId = req.tokenUserId;
+        const userId = req.vpbxUserId || req.tokenUserId;
         if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
 
         if (!files || files.length === 0) {
@@ -227,7 +228,7 @@ export class OperatorAnalyticsController {
             provider?: string;
         },
     ) {
-        const userId = req.tokenUserId;
+        const userId = req.vpbxUserId || req.tokenUserId;
         if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
 
         const projectId = (body as any).projectId
@@ -289,7 +290,7 @@ export class OperatorAnalyticsController {
             endDate?: string;
         },
     ) {
-        const userId = req.tokenUserId;
+        const userId = req.vpbxUserId || req.tokenUserId;
         if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
 
         const projectId = (req as any).apiToken?.projectId;
@@ -311,7 +312,7 @@ export class OperatorAnalyticsController {
         @Param('id') id: string,
         @Req() req: RequestWithUser,
     ) {
-        const userId = req.tokenUserId;
+        const userId = req.vpbxUserId || req.tokenUserId;
         if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
         return this.service.getById(+id, userId);
     }
@@ -330,7 +331,7 @@ export class OperatorAnalyticsController {
         @Body() body: { name?: string; projectId?: number },
     ) {
         return this.service.generateApiToken(
-            req.tokenUserId,
+            req.vpbxUserId || req.tokenUserId,
             body.name,
             body.projectId ? +body.projectId : undefined,
         );
@@ -343,7 +344,7 @@ export class OperatorAnalyticsController {
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'List API tokens (with projectName)' })
     async listTokens(@Req() req: RequestWithUser) {
-        return this.service.getApiTokens(req.tokenUserId);
+        return this.service.getApiTokens(req.vpbxUserId || req.tokenUserId);
     }
 
     @Patch('tokens/:id/revoke')
@@ -354,7 +355,7 @@ export class OperatorAnalyticsController {
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Revoke an API token' })
     async revokeToken(@Req() req: RequestWithUser, @Param('id') id: string) {
-        return this.service.revokeApiToken(+id, req.tokenUserId);
+        return this.service.revokeApiToken(+id, req.vpbxUserId || req.tokenUserId);
     }
 
     @Delete('tokens/:id')
@@ -365,7 +366,7 @@ export class OperatorAnalyticsController {
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Delete an API token' })
     async deleteToken(@Req() req: RequestWithUser, @Param('id') id: string) {
-        return this.service.deleteApiToken(+id, req.tokenUserId);
+        return this.service.deleteApiToken(+id, req.vpbxUserId || req.tokenUserId);
     }
 
     // ─── Projects — Static routes FIRST (before :id) ─────────────────
@@ -380,7 +381,7 @@ export class OperatorAnalyticsController {
         @Req() req: RequestWithUser,
         @Body() body: GenerateSchemaDto,
     ) {
-        if (!req.tokenUserId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        if (!(req.vpbxUserId || req.tokenUserId)) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
         return this.service.generateMetricsSchema(body.messages, body.systemPrompt);
     }
 
@@ -392,7 +393,7 @@ export class OperatorAnalyticsController {
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'List projects (with recordCount)' })
     async listProjects(@Req() req: RequestWithUser) {
-        return this.service.getProjects(req.tokenUserId, req.isAdmin ?? false);
+        return this.service.getProjects(req.vpbxUserId || req.tokenUserId, req.isAdmin ?? false);
     }
 
     @Post('projects')
@@ -404,7 +405,7 @@ export class OperatorAnalyticsController {
         @Req() req: RequestWithUser,
         @Body() body: CreateProjectDto,
     ) {
-        return this.service.createProject(req.tokenUserId, body);
+        return this.service.createProject(req.vpbxUserId || req.tokenUserId, body);
     }
 
     @Post('projects/:id')
@@ -426,7 +427,7 @@ export class OperatorAnalyticsController {
             webhookHeaders?: Record<string, string>;
         },
     ) {
-        return this.service.updateProject(+id, req.tokenUserId, body);
+        return this.service.updateProject(+id, req.vpbxUserId || req.tokenUserId, body);
     }
 
     @Patch('projects/:id')
@@ -448,7 +449,7 @@ export class OperatorAnalyticsController {
             webhookHeaders?: Record<string, string>;
         },
     ) {
-        return this.service.updateProject(+id, req.tokenUserId, body);
+        return this.service.updateProject(+id, req.vpbxUserId || req.tokenUserId, body);
     }
 
     @Post('projects/:id/delete')
@@ -457,7 +458,7 @@ export class OperatorAnalyticsController {
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Delete a project (POST fallback)' })
     async deleteProjectPost(@Req() req: RequestWithUser, @Param('id') id: string) {
-        return this.service.deleteProject(+id, req.tokenUserId, req.isAdmin ?? false);
+        return this.service.deleteProject(+id, req.vpbxUserId || req.tokenUserId, req.isAdmin ?? false);
     }
 
     @Delete('projects/:id')
@@ -466,7 +467,7 @@ export class OperatorAnalyticsController {
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Delete a project' })
     async deleteProject(@Req() req: RequestWithUser, @Param('id') id: string) {
-        return this.service.deleteProject(+id, req.tokenUserId, req.isAdmin ?? false);
+        return this.service.deleteProject(+id, req.vpbxUserId || req.tokenUserId, req.isAdmin ?? false);
     }
 
 
@@ -482,7 +483,7 @@ export class OperatorAnalyticsController {
         @Query() query: { startDate?: string; endDate?: string; operatorName?: string },
     ) {
         return this.service.getProjectDashboard(
-            +id, req.tokenUserId, req.isAdmin ?? false, query,
+            +id, req.vpbxUserId || req.tokenUserId, req.isAdmin ?? false, query,
         );
     }
 
@@ -496,7 +497,7 @@ export class OperatorAnalyticsController {
         @Param('id') id: string,
         @Body() body: MetricDefinition,
     ) {
-        return this.service.previewMetric(+id, req.tokenUserId, body);
+        return this.service.previewMetric(+id, req.vpbxUserId || req.tokenUserId, body);
     }
 
     @Get('projects/:id/insights')
@@ -510,7 +511,7 @@ export class OperatorAnalyticsController {
         @Query() query: { startDate?: string; endDate?: string },
     ) {
         return this.service.getProjectInsights(
-            +id, req.tokenUserId, req.isAdmin ?? false, query,
+            +id, req.vpbxUserId || req.tokenUserId, req.isAdmin ?? false, query,
         );
     }
 
@@ -526,7 +527,7 @@ export class OperatorAnalyticsController {
         @Req() req: RequestWithUser,
         @Body() body: BulkMoveDto,
     ) {
-        return this.service.bulkMoveCdrs(req.tokenUserId, body.ids, body.targetProjectId);
+        return this.service.bulkMoveCdrs(req.vpbxUserId || req.tokenUserId, body.ids, body.targetProjectId);
     }
 
     @Get('cdrs')
@@ -550,7 +551,7 @@ export class OperatorAnalyticsController {
         },
     ) {
         const isAdmin = req.isAdmin ?? false;
-        const realUserId = isAdmin ? null : req.tokenUserId;
+        const realUserId = isAdmin ? null : (req.vpbxUserId || req.tokenUserId);
         return this.service.getCdrs(query, isAdmin, realUserId);
     }
 
@@ -573,7 +574,7 @@ export class OperatorAnalyticsController {
         },
     ) {
         const isAdmin = req.isAdmin ?? false;
-        const realUserId = isAdmin ? null : req.tokenUserId;
+        const realUserId = isAdmin ? null : (req.vpbxUserId || req.tokenUserId);
         return this.service.getDashboard(query, isAdmin, realUserId);
     }
 
@@ -596,7 +597,7 @@ export class OperatorAnalyticsController {
         },
     ) {
         const isAdmin = req.isAdmin ?? false;
-        const realUserId = isAdmin ? null : req.tokenUserId;
+        const realUserId = isAdmin ? null : (req.vpbxUserId || req.tokenUserId);
         return this.service.getInsights(query, isAdmin, realUserId);
     }
 
@@ -611,7 +612,7 @@ export class OperatorAnalyticsController {
         @Req() req: RequestWithUser,
     ) {
         // Try API token first, then fall back to JWT parsing
-        const userId = req.tokenUserId || null;
+        const userId = req.vpbxUserId || req.tokenUserId || null;
         return this.service.getById(+id, userId);
     }
 

@@ -11,7 +11,7 @@ import { GetDashboardDto } from "./dto/getDashboardDto";
 interface RequestWithUser extends Request {
     isAdmin?: boolean
     tokenUserId?: string
-    vPbxUserId?: string;
+    vpbxUserId?: string;
 }
 
 @Controller('reports')
@@ -28,8 +28,7 @@ export class AiCdrController {
     get(@Query() query: GetAiCdrDto,
         @Req() request: RequestWithUser) {
         const isAdmin = request.isAdmin ?? false;
-        const tokenUserId = request.tokenUserId;
-        const realUserId = isAdmin ? null : tokenUserId;
+        const realUserId = isAdmin ? null : String(request.vpbxUserId || request.tokenUserId);
         try {
             return this.aiCdrService.get(query, isAdmin, realUserId)
 
@@ -65,6 +64,9 @@ export class AiCdrController {
     getDashboard(@Query() query: GetDashboardDto,
         @Req() request: RequestWithUser) {
         const isAdmin = request.isAdmin
+        if (!isAdmin) {
+            query.userId = String(request.vpbxUserId || request.tokenUserId);
+        }
         try {
             return this.aiCdrService.getDashboardData(query, isAdmin)
 

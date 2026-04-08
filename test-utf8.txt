@@ -1,0 +1,224 @@
+﻿
+> aiPbxBackend@1.7.0 test
+> jest src/operator-analytics/operator-analytics.service.spec.ts
+
+node.exe : [31m[Nest] 19900  - [39m02.04.2026, 18:54:27 [31m  ERROR[39m [38;5;3m[OperatorAnalytics
+Service] [39m[31mAnalysis failed for "test.mp3" (id=1): STT provider "test-openai-key" is not registe
+red[39m
+C:\Program Files\nodejs\npm.ps1:29 знак:3
++   & $NODE_EXE $NPM_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([31m[Nest] 199...registered[39m:String) [], RemoteExcep 
+   tion
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:19900) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland a
+lternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[31m[Nest] 19900  - [39m02.04.2026, 18:54:34 [31m  ERROR[39m [38;5;3m[OperatorAnalyticsService] [
+39m[31mWebhook delivery failed after 3 retries: https://example.com/hook[39m
+[31m[Nest] 19900  - [39m02.04.2026, 18:54:34 [31m  ERROR[39m [38;5;3m[OperatorAnalyticsService] [
+39m[31mBackground URL download failed for record #1: Cannot read properties of undefined (reading 'con
+tent-length')[39m
+[31m[Nest] 19900  - [39m02.04.2026, 18:54:34 [31m  ERROR[39m [38;5;3m[OperatorAnalyticsService] [
+39m[31mBackground URL download failed for record #1: Network timeout[39m
+[31m[Nest] 19900  - [39m02.04.2026, 18:54:34 [31m  ERROR[39m [38;5;3m[OperatorAnalyticsService] [
+39m[31mBackground URL download failed for record #1: 404 Not Found[39m
+[31m[Nest] 19900  - [39m02.04.2026, 18:54:34 [31m  ERROR[39m [38;5;3m[OperatorAnalyticsService] [
+39m[31mBackground URL download failed for record #999: Crash[39m
+FAIL src/operator-analytics/operator-analytics.service.spec.ts (13.652 s)
+  OperatorAnalyticsService
+    analyzeFile тАФ balance check
+      тИЪ should throw 402 when user balance is 0 (58 ms)
+      тИЪ should throw 402 when user not found (5 ms)
+      ├Ч should proceed when balance is positive (41 ms)
+    chargeCost (via analyzeFile)
+      тИЪ should return zero costs when price not found (4 ms)
+    getProjects
+      тИЪ should return all projects for admin without creating default (5 ms)
+      тИЪ should filter by userId for non-admin (3 ms)
+    createProject
+      тИЪ should throw when name is empty (3 ms)
+      тИЪ should throw when name is only spaces (4 ms)
+      тИЪ should create project with trimmed name (4 ms)
+      тИЪ should apply template values when templateId is provided (3 ms)
+      тИЪ should store webhookUrl, webhookEvents, and webhookHeaders (2 ms)
+      тИЪ should set webhookUrl to null when empty string (3 ms)
+    updateProject
+      тИЪ should throw 404 when project not found (3 ms)
+      тИЪ should throw when renaming default project (2 ms)
+      тИЪ should update name and description (3 ms)
+      тИЪ should increment schemaVersion when customMetricsSchema changes (2 ms)
+      тИЪ should update webhookHeaders (2 ms)
+      тИЪ should set systemPrompt to null when empty string (2 ms)
+    deleteProject
+      тИЪ should throw 404 when project not found (3 ms)
+      тИЪ should throw when deleting default project (4 ms)
+      тИЪ should destroy the project (2 ms)
+    callWebhook
+      тИЪ should skip when webhookUrl is empty (3 ms)
+      тИЪ should skip when event not in webhookEvents (2 ms)
+      тИЪ should send POST with correct payload and custom headers (3 ms)
+      тИЪ should retry on failure (up to 3 attempts) (3021 ms)
+      тИЪ should not throw after all retries fail (3046 ms)
+    generateApiToken
+      тИЪ should create a token with oa_ prefix (4 ms)
+    revokeApiToken
+      тИЪ should set isActive to false (5 ms)
+      тИЪ should throw 404 when token not found (3 ms)
+    deleteApiToken
+      тИЪ should destroy the token (2 ms)
+      тИЪ should throw 404 when token not found (3 ms)
+    analyzeUrl
+      тИЪ should download file from URL with correct options (7 ms)
+      ├Ч should extract filename from URL (4 ms)
+    createProcessingRecord
+      тИЪ should create a record with PROCESSING status (3 ms)
+      тИЪ should default projectId to null (2 ms)
+    bulkMoveCdrs
+      тИЪ should throw 404 when target project not found (14 ms)
+    extractFilenameFromUrl (indirect)
+      ├Ч should handle URL without path (44 ms)
+      ├Ч should strip query params from filename (3 ms)
+    processUrlInBackground
+      тИЪ should download URL with correct options (6 ms)
+      тИЪ should set error status on download failure (4 ms)
+      тИЪ should send error webhook on download failure when project exists (58 ms)
+      тИЪ should not throw even if everything fails (3 ms)
+    getDashboard
+      тИЪ should NOT filter by userId when admin requests without userId (9 ms)
+      тИЪ should filter by query.userId when admin specifies userId (25 ms)
+      тИЪ should filter by realUserId for non-admin (ignore query.userId) (11 ms)
+      ├Ч should return empty dashboard when no records found (7 ms)
+      тИЪ should filter by projectId when provided (12 ms)
+    getCdrs
+      тИЪ should NOT filter by userId when admin requests without userId (9 ms)
+      тИЪ should filter by query.userId when admin specifies userId (2 ms)
+      тИЪ should filter by realUserId for non-admin (34 ms)
+      тИЪ should return paginated result with defaults (5 ms)
+
+  тЧП OperatorAnalyticsService тА║ analyzeFile тАФ balance check тА║ should proceed when balance is pos
+itive
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "Whisper STT error"
+    Received message:   "STT provider \"test-openai-key\" is not registered"
+
+        [0m [90m 187 |[39m
+         [90m 188 |[39m         [36mif[39m ([33m![39mprovider) {
+        [31m[1m>[22m[39m[90m 189 |[39m             [36mthrow[39m [36mnew[39m [33mError[39m(
+[32m`STT provider "${providerName}" is not registered`[39m)[33m;[39m
+         [90m     |[39m                   [31m[1m^[22m[39m
+         [90m 190 |[39m         }
+         [90m 191 |[39m
+         [90m 192 |[39m         [36mthis[39m[33m.[39mlogger[33m.[39mlog([32m`[STT] Using provi
+der: ${providerName}`[39m)[33m;[39m[0m
+
+      at OperatorAnalyticsService.<anonymous> (operator-analytics/operator-analytics.service.ts:189:19)
+      at operator-analytics/operator-analytics.service.ts:20:71
+      at Object.<anonymous>.__awaiter (operator-analytics/operator-analytics.service.ts:16:12)
+      at OperatorAnalyticsService.transcribeWithFallback (operator-analytics/operator-analytics.service
+.ts:185:16)
+      at OperatorAnalyticsService.<anonymous> (operator-analytics/operator-analytics.service.ts:248:42)
+      at fulfilled (operator-analytics/operator-analytics.service.ts:17:58)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at operator-analytics/operator-analytics.service.spec.ts:197:23
+      at operator-analytics/operator-analytics.service.spec.ts:8:71
+      at Object.<anonymous>.__awaiter (operator-analytics/operator-analytics.service.spec.ts:4:12)
+      at Object.<anonymous> (operator-analytics/operator-analytics.service.spec.ts:188:66)
+
+  тЧП OperatorAnalyticsService тА║ analyzeUrl тА║ should extract filename from URL
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: ObjectContaining {"filename": "call-123.wav"}
+
+    Number of calls: 0
+
+    [0m [90m 651 |[39m
+     [90m 652 |[39m             [90m// Verify filename was extracted (via record creation)[39m
+    [31m[1m>[22m[39m[90m 653 |[39m             expect(mockAnalyticsRepo[33m.[39mcreate)[33m.[
+39mtoHaveBeenCalledWith(
+     [90m     |[39m                                              [31m[1m^[22m[39m
+     [90m 654 |[39m                 expect[33m.[39mobjectContaining({ filename[33m:[39m [32m'cal
+l-123.wav'[39m })[33m,[39m
+     [90m 655 |[39m             )[33m;[39m
+     [90m 656 |[39m         })[33m;[39m[0m
+
+      at operator-analytics/operator-analytics.service.spec.ts:653:46
+          at Generator.throw (<anonymous>)
+      at rejected (operator-analytics/operator-analytics.service.spec.ts:6:65)
+
+  тЧП OperatorAnalyticsService тА║ extractFilenameFromUrl (indirect) тА║ should handle URL without path
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: ObjectContaining {"filename": Any<String>}
+
+    Number of calls: 0
+
+    [0m [90m 729 |[39m             } [36mcatch[39m { [90m/* expected */[39m }
+     [90m 730 |[39m
+    [31m[1m>[22m[39m[90m 731 |[39m             expect(mockAnalyticsRepo[33m.[39mcreate)[33m.[
+39mtoHaveBeenCalledWith(
+     [90m     |[39m                                              [31m[1m^[22m[39m
+     [90m 732 |[39m                 expect[33m.[39mobjectContaining({
+     [90m 733 |[39m                     filename[33m:[39m expect[33m.[39many([33mString[39m)[3
+3m,[39m
+     [90m 734 |[39m                 })[33m,[39m[0m
+
+      at operator-analytics/operator-analytics.service.spec.ts:731:46
+          at Generator.throw (<anonymous>)
+      at rejected (operator-analytics/operator-analytics.service.spec.ts:6:65)
+
+  тЧП OperatorAnalyticsService тА║ extractFilenameFromUrl (indirect) тА║ should strip query params from
+ filename
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: ObjectContaining {"filename": "recording.wav"}
+
+    Number of calls: 0
+
+    [0m [90m 741 |[39m             } [36mcatch[39m { [90m/* expected */[39m }
+     [90m 742 |[39m
+    [31m[1m>[22m[39m[90m 743 |[39m             expect(mockAnalyticsRepo[33m.[39mcreate)[33m.[
+39mtoHaveBeenCalledWith(
+     [90m     |[39m                                              [31m[1m^[22m[39m
+     [90m 744 |[39m                 expect[33m.[39mobjectContaining({ filename[33m:[39m [32m'rec
+ording.wav'[39m })[33m,[39m
+     [90m 745 |[39m             )[33m;[39m
+     [90m 746 |[39m         })[33m;[39m[0m
+
+      at operator-analytics/operator-analytics.service.spec.ts:743:46
+          at Generator.throw (<anonymous>)
+      at rejected (operator-analytics/operator-analytics.service.spec.ts:6:65)
+
+  тЧП OperatorAnalyticsService тА║ getDashboard тА║ should return empty dashboard when no records found
+
+    expect(received).toEqual(expected) // deep equality
+
+    Expected: []
+    Received: {"daily": [], "monthly": []}
+
+    [0m [90m 908 |[39m             expect(result[33m.[39maverageDuration)[33m.[39mtoBe([35m0[3
+9m)[33m;[39m
+     [90m 909 |[39m             expect(result[33m.[39maverageScore)[33m.[39mtoBe([35m0[39m)[33
+m;[39m
+    [31m[1m>[22m[39m[90m 910 |[39m             expect(result[33m.[39mtimeSeries)[33m.[39mtoEq
+ual([])[33m;[39m
+     [90m     |[39m                                       [31m[1m^[22m[39m
+     [90m 911 |[39m             expect(result[33m.[39msentimentDistribution)[33m.[39mtoEqual({
+     [90m 912 |[39m                 positive[33m:[39m [35m0[39m[33m,[39m neutral[33m:[39m [3
+5m0[39m[33m,[39m negative[33m:[39m [35m0[39m[33m,[39m
+     [90m 913 |[39m             })[33m;[39m[0m
+
+      at operator-analytics/operator-analytics.service.spec.ts:910:39
+      at fulfilled (operator-analytics/operator-analytics.service.spec.ts:5:58)
+
+Test Suites: 1 failed, 1 total
+Tests:       5 failed, 46 passed, 51 total
+Snapshots:   0 total
+Time:        13.798 s, estimated 14 s
+Ran all test suites matching /src\\operator-analytics\\operator-analytics.service.spec.ts/i.

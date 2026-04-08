@@ -9,7 +9,9 @@ import { SileroVadProvider } from './vad/silero-vad.provider';
 import { WhisperLocalProvider } from './stt/whisper-local.provider';
 import { OpenAiChatProvider } from './llm/openai-chat.provider';
 import { OllamaChatProvider } from './llm/ollama-chat.provider';
+import { Gemma4AudioLlmProvider } from './llm/gemma4-audio-llm.provider';
 import { SileroTtsProvider } from './tts/silero-tts.provider';
+import { OmniVoiceTtsProvider } from './tts/omnivoice-tts.provider';
 
 @Module({
     imports: [
@@ -64,6 +66,18 @@ export class NonRealtimeModule implements OnModuleInit {
             this.logger.warn(`Ollama unavailable at ${ollamaHealth.url}. Deploy ollama container and pull a model first.`);
         }
 
+        // ── LLM: Gemma 4 Audio (Ollama, audio-native — skips STT) ──
+        const gemma4Provider = new Gemma4AudioLlmProvider();
+        this.nonRealtimeService.registerLlmProvider('gemma4-audio', gemma4Provider);
+        const gemma4Health = await gemma4Provider.healthCheck();
+        if (gemma4Health.status === 'ok') {
+            this.logger.log(`✅ Gemma 4 Audio LLM registered. Models: ${gemma4Health.models?.join(', ')}`);
+        } else if (gemma4Health.status === 'no-gemma4-model') {
+            this.logger.warn(`⚠️ Gemma 4 Audio registered but no gemma4 model pulled. Run: ollama pull gemma4:e4b`);
+        } else {
+            this.logger.warn(`❌ Gemma 4 Audio LLM unavailable at ${gemma4Health.url}`);
+        }
+
         // ── TTS: Silero Local ──
         const sileroTtsUrl = process.env.SILERO_TTS_URL || 'http://silero-tts:9001/tts';
         const sileroTts = new SileroTtsProvider(sileroTtsUrl);
@@ -73,6 +87,21 @@ export class NonRealtimeModule implements OnModuleInit {
         const ttsHealth = await sileroTts.healthCheck();
         if (ttsHealth.status !== 'ok') {
             this.logger.warn(`Silero TTS container unavailable at ${ttsHealth.url}. Deploy docker/silero-tts first.`);
+        }
+
+        // ── TTS: OmniVoice (GPU, diffusion-based) ──
+        const omniVoiceUrl = process.env.OMNIVOICE_TTS_URL;
+        if (omniVoiceUrl) {
+            const omniVoice = new OmniVoiceTtsProvider(omniVoiceUrl);
+            this.nonRealtimeService.registerTtsProvider('omnivoice', omniVoice);
+            const omniHealth = await omniVoice.healthCheck();
+            if (omniHealth.status === 'ok') {
+                this.logger.log('✅ OmniVoice TTS registered successfully');
+            } else {
+                this.logger.warn(`❌ OmniVoice TTS unavailable at ${omniHealth.url}`);
+            }
+        } else {
+            this.logger.debug('OMNIVOICE_TTS_URL not set. OmniVoice TTS not registered.');
         }
 
         this.logger.log('Non-realtime pipeline providers initialized.');

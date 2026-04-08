@@ -1,6 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards, UploadedFile, UseInterceptors, ParseIntPipe, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AssistantsService } from "./assistants.service";
-import { ApiOperation, ApiResponse } from "@nestjs/swagger";
+import { ApiOperation, ApiResponse, ApiConsumes } from "@nestjs/swagger";
 import { Roles } from "../auth/roles-auth.decorator";
 import { RolesGuard } from "../auth/roles.guard";
 import { Assistant } from "./assistants.model";
@@ -103,5 +104,30 @@ export class AssistantsController {
     generatePrompt(@Body('prompt') prompt: string, @Req() request: RequestWithUser) {
         const userId = request.tokenUserId
         return this.assistantsService.generatePrompt(prompt, userId)
+    }
+
+    @ApiOperation({ summary: "Upload TTS voice reference file" })
+    @ApiConsumes('multipart/form-data')
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Post('/:id/tts-voice')
+    @UseInterceptors(FileInterceptor('file'))
+    async uploadTtsVoice(
+        @Param('id', ParseIntPipe) id: number,
+        @UploadedFile(
+            new ParseFilePipe({
+                validators: [
+                    new MaxFileSizeValidator({ maxSize: 10 * 1024 * 1024 }), // 10MB
+                    new FileTypeValidator({ fileType: 'audio/wav' }),
+                ],
+            }),
+        ) file: any,
+        @Req() request: RequestWithUser
+    ) {
+        const isAdmin = request.isAdmin;
+        const tokenUserId = request.tokenUserId;
+        const result = await this.assistantsService.uploadTtsVoice(id, file, isAdmin, tokenUserId);
+        await this.loggerService.logAction(Number(tokenUserId), 'update', 'assistant', id, `Uploaded custom TTS voice for assistant #${id}`, null, { file: file.originalname }, request);
+        return result;
     }
 }

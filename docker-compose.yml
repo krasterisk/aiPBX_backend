@@ -9,6 +9,7 @@ services:
     volumes:
       - ./:/app/aiPBX_backend
       - node_modules:/app/aiPBX_backend/node_modules
+      - tts-voices-data:/app/aiPBX_backend/tts_voices
     ports:
       - "7002:7002"
       - "3032:3032"
@@ -87,6 +88,8 @@ services:
       - gpu-full
     networks:
       - app-network
+    volumes:
+      - tts-voices-data:/app/voices
     deploy:
       resources:
         reservations:
@@ -117,6 +120,7 @@ services:
 volumes:
   node_modules:
   ollama-data:
+  tts-voices-data:
 
 networks:
   app-network:

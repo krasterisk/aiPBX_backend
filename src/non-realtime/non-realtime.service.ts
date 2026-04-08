@@ -106,7 +106,7 @@ export class NonRealtimeService {
             await this.synthesizeAndPlay(session, assistant.greeting);
         }
 
-        this.logger.log(`[${channelId}] Non-realtime session created (STT: ${assistant['sttProvider'] || 'whisper-local'}, LLM: ${assistant['llmProvider'] || 'openai'}, TTS: ${assistant['ttsProvider'] || 'silero'})`);
+        this.logger.log(`[${channelId}] Non-realtime session created (STT: ${assistant['sttProvider'] || 'whisper-local'}, LLM: ${assistant['llmProvider'] || process.env.DEFAULT_LLM_PROVIDER || 'gemma4-audio'}, TTS: ${assistant['ttsProvider'] || process.env.DEFAULT_TTS_PROVIDER || 'omnivoice'})`);
         return session;
     }
 
@@ -254,7 +254,7 @@ export class NonRealtimeService {
 
         try {
             // ── Resolve LLM provider first (needed to check audio support) ──
-            const llmProviderName = assistant['llmProvider'] || 'openai';
+            const llmProviderName = assistant['llmProvider'] || process.env.DEFAULT_LLM_PROVIDER || 'gemma4-audio';
             const llmProvider = this.llmProviders.get(llmProviderName);
             if (!llmProvider) {
                 this.logger.error(`[${channelId}] LLM provider not found: ${llmProviderName}`);
@@ -432,7 +432,7 @@ export class NonRealtimeService {
         if (signal?.aborted) return;
 
         // Re-run LLM with tool results (recursive pipeline)
-        const llmProviderName = assistant['llmProvider'] || 'openai';
+        const llmProviderName = assistant['llmProvider'] || process.env.DEFAULT_LLM_PROVIDER || 'gemma4-audio';
         const llmProvider = this.llmProviders.get(llmProviderName);
         if (!llmProvider) return;
 
@@ -506,7 +506,7 @@ export class NonRealtimeService {
         const signal = session.pipelineAbort?.signal;
         const isPlayground = channelId.startsWith('playground-');
 
-        const ttsProviderName = assistant['ttsProvider'] || 'silero';
+        const ttsProviderName = assistant['ttsProvider'] || process.env.DEFAULT_TTS_PROVIDER || 'omnivoice';
         const ttsProvider = this.ttsProviders.get(ttsProviderName);
         if (!ttsProvider) {
             this.logger.error(`[${channelId}] TTS provider not found: ${ttsProviderName}`);

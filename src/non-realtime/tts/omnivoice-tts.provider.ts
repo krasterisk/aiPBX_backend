@@ -79,7 +79,17 @@ export class OmniVoiceTtsProvider implements ITtsProvider {
         } catch (err) {
             if (signal?.aborted) return;
             if (axios.isCancel(err)) return;
-            this.logger.error(`[OmniVoice] Error: ${err.message}`);
+
+            // Extract concise error info from Axios response
+            if (err.response) {
+                const status = err.response.status;
+                const body = err.response.data
+                    ? Buffer.from(err.response.data).toString('utf-8').substring(0, 200)
+                    : 'no body';
+                this.logger.error(`[OmniVoice] HTTP ${status}: ${body}`);
+            } else {
+                this.logger.error(`[OmniVoice] ${err.code || 'Error'}: ${err.message}`);
+            }
             throw err;
         }
     }

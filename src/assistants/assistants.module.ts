@@ -9,6 +9,7 @@ import { OpenAiModule } from "../open-ai/open-ai.module";
 import { Prices } from "../prices/prices.model";
 import { UsersModule } from "../users/users.module";
 import { BillingRecord } from "../billing/billing-record.model";
+import { FilesModule } from "../files/files.module";
 
 @Module({
     providers: [AssistantsService],
@@ -19,6 +20,7 @@ import { BillingRecord } from "../billing/billing-record.model";
         forwardRef(() => OpenAiModule),
         forwardRef(() => UsersModule),
         LoggerModule,
+        FilesModule,
     ],
     exports: [AssistantsService]
 })

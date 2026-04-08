@@ -9,6 +9,7 @@ import { OpenAiService } from "../open-ai/open-ai.service";
 import { Prices } from "../prices/prices.model";
 import { UsersService } from "../users/users.service";
 import { BillingRecord } from "../billing/billing-record.model";
+import { FilesService } from "../files/files.service";
 
 @Injectable()
 export class AssistantsService {
@@ -20,6 +21,7 @@ export class AssistantsService {
         @InjectModel(BillingRecord) private readonly billingRecordRepository: typeof BillingRecord,
         private readonly openAiService: OpenAiService,
         private readonly usersService: UsersService,
+        private readonly filesService: FilesService,
     ) { }
 
     async create(dto: AssistantDto[], isAdmin: boolean, userId: string) {
@@ -110,10 +112,43 @@ export class AssistantsService {
 
     async delete(id: string) {
         try {
+            const assistant = await this.assistantsRepository.findOne({ where: { id: Number(id) } });
+            if (assistant && assistant.ttsVoice && assistant.ttsVoice.startsWith('/app/voices/')) {
+                this.filesService.deleteTtsVoice(assistant.ttsVoice);
+            }
             await this.assistantsRepository.destroy({ where: { id: id } })
             return { message: 'Assistant deleted successfully', statusCode: HttpStatus.OK }
         } catch (e) {
             throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
+        }
+    }
+
+    async uploadTtsVoice(id: number, file: any, isAdmin: boolean, tokenUserId: string) {
+        try {
+            const assistant = await this.assistantsRepository.findByPk(id);
+            if (!assistant) {
+                throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND);
+            }
+
+            // Check permissions
+            if (!isAdmin && assistant.userId !== Number(tokenUserId)) {
+                throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+            }
+
+            // Upload new file
+            const newVoicePath = await this.filesService.uploadTtsVoice(file);
+
+            // Delete old file if it was a custom file
+            if (assistant.ttsVoice && assistant.ttsVoice.startsWith('/app/voices/')) {
+                this.filesService.deleteTtsVoice(assistant.ttsVoice);
+            }
+
+            await assistant.update({ ttsVoice: newVoicePath });
+
+            return assistant;
+        } catch (e) {
+            this.logger.error("Upload TTS voice error", e);
+            throw new HttpException(e.message || 'Error uploading file', e.status || HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 

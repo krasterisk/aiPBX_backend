@@ -31,14 +31,17 @@ def load_model():
     global model
     from omnivoice import OmniVoice
     print(f"Loading OmniVoice on {DEVICE}...")
-    model = OmniVoice.from_pretrained(MODEL_ID, device=DEVICE)
+    # device is NOT a from_pretrained() argument — move model to device after loading
+    model = OmniVoice.from_pretrained(MODEL_ID)
+    model = model.to(DEVICE)
+    model.eval()
     # INT8 quantization for lower VRAM (~3.5GB instead of ~6GB)
     if DEVICE == "cuda":
         try:
             model = model.quantize(dtype=torch.int8)
-            print("✅ OmniVoice loaded with INT8 quantization")
+            print("✅ OmniVoice loaded with INT8 quantization on CUDA")
         except Exception as e:
-            print(f"⚠️ INT8 quantization failed, using FP16: {e}")
+            print(f"⚠️ INT8 quantization failed, using default dtype: {e}")
     else:
         print("✅ OmniVoice loaded on CPU")
 

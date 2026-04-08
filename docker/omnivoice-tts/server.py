@@ -19,7 +19,7 @@ app = FastAPI(title="OmniVoice TTS Server")
 
 model = None
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MODEL_ID = "k2-fsa/OmniVoice-TTS-v1"
+MODEL_ID = "k2-fsa/OmniVoice"
 
 # Concurrency limiter: how many TTS inferences can run in parallel.
 # GPU can handle 2-3 concurrent inferences sharing the same model weights.

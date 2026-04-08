@@ -18,11 +18,12 @@ RUN pip3 install --no-cache-dir \
     uvicorn \
     numpy
 
-# Pre-download OmniVoice model weights during build
-RUN python3 -c "\
-from omnivoice import OmniVoice; \
-model = OmniVoice.from_pretrained('k2-fsa/OmniVoice-TTS-v1', device='cpu'); \
-print('✅ OmniVoice model downloaded successfully')"
+# Set HuggingFace cache dir — will be mounted as a volume for persistence
+ENV HF_HOME=/app/hf_cache
+ENV TRANSFORMERS_CACHE=/app/hf_cache
+# Model will be downloaded on first startup (cached in volume)
+# Run: docker volume create omnivoice-cache
+# Mount: - omnivoice-cache:/app/hf_cache
 
 COPY server.py .
 

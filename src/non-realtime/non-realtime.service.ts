@@ -106,7 +106,7 @@ export class NonRealtimeService {
             await this.synthesizeAndPlay(session, assistant.greeting);
         }
 
-        this.logger.log(`[${channelId}] Non-realtime session created (STT: ${assistant['sttProvider'] || 'whisper-local'}, LLM: ${assistant['llmProvider'] || process.env.DEFAULT_LLM_PROVIDER || 'gemma4-audio'}, TTS: ${assistant['ttsProvider'] || process.env.DEFAULT_TTS_PROVIDER || 'omnivoice'})`);
+        this.logger.log(`[${channelId}] Non-realtime session created (STT: ${assistant['sttProvider'] || 'whisper-local'}, LLM: ${assistant['llmProvider'] || process.env.DEFAULT_LLM_PROVIDER || 'ollama'}, TTS: ${assistant['ttsProvider'] || process.env.DEFAULT_TTS_PROVIDER || 'omnivoice'})`);
         return session;
     }
 
@@ -254,7 +254,7 @@ export class NonRealtimeService {
 
         try {
             // ── Resolve LLM provider first (needed to check audio support) ──
-            const llmProviderName = assistant['llmProvider'] || process.env.DEFAULT_LLM_PROVIDER || 'gemma4-audio';
+            const llmProviderName = assistant['llmProvider'] || process.env.DEFAULT_LLM_PROVIDER || 'ollama';
             const llmProvider = this.llmProviders.get(llmProviderName);
             if (!llmProvider) {
                 this.logger.error(`[${channelId}] LLM provider not found: ${llmProviderName}`);
@@ -296,8 +296,11 @@ export class NonRealtimeService {
 
             // ── Step 2: LLM (streaming) ──
             const tools = await this.buildTools(assistant);
+            const defaultModel = llmProviderName === 'ollama'
+                ? (process.env.DEFAULT_OLLAMA_MODEL || 'gemma4:e4b')
+                : 'gpt-4o-mini';
             const llmOptions = {
-                model: assistant['llmModel'] || assistant.model || 'gpt-4o-mini',
+                model: assistant['llmModel'] || defaultModel,
                 temperature: Number(assistant.temperature) || 0.8,
                 maxTokens: parseInt(assistant.max_response_output_tokens) || undefined,
                 toolChoice: assistant.tool_choice || 'auto',
@@ -306,6 +309,9 @@ export class NonRealtimeService {
             let fullResponse = '';
             let sentenceBuffer = '';
             let pendingToolCalls: LlmToolCall[] = [];
+
+            this.logger.debug(`[${channelId}] LLM request: provider=${llmProviderName}, model=${llmOptions.model}, messages=${session.messages.length}, audioLlm=${audioLlm}`);
+            this.logger.debug(`[${channelId}] System prompt (first 200 chars): "${session.messages[0]?.content?.substring(0, 200)}..."`);
 
             // Choose stream mode: audio-native or text-only
             const stream = audioLlm
@@ -432,7 +438,7 @@ export class NonRealtimeService {
         if (signal?.aborted) return;
 
         // Re-run LLM with tool results (recursive pipeline)
-        const llmProviderName = assistant['llmProvider'] || process.env.DEFAULT_LLM_PROVIDER || 'gemma4-audio';
+        const llmProviderName = assistant['llmProvider'] || process.env.DEFAULT_LLM_PROVIDER || 'ollama';
         const llmProvider = this.llmProviders.get(llmProviderName);
         if (!llmProvider) return;
 

@@ -105,6 +105,12 @@ jobs:
             #   Peak (all loaded):     ~11 GB ⚠ (brief overlap during voice calls)
             #   Typical (no calls):    ~8.0 GB ✅
             if [[ "${{ matrix.server }}" == "aipbxnet_production" ]]; then
+              # Docker daemon has iptables:false on this server (UFW compat).
+              # Ensure MASQUERADE exists so containers can reach the internet.
+              echo "Ensuring Docker NAT (MASQUERADE) rule..."
+              sudo iptables -t nat -C POSTROUTING -s 172.18.0.0/16 -o ens1 -j MASQUERADE 2>/dev/null || \
+                sudo iptables -t nat -A POSTROUTING -s 172.18.0.0/16 -o ens1 -j MASQUERADE
+
               echo "Starting Whisper GPU container (used for analytics STT)..."
               sudo docker compose -f docker-compose.production.yml --env-file .env.production --profile gpu up -d \
                 --force-recreate whisper

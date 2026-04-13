@@ -187,10 +187,10 @@ export class AuthService {
             const JSONText = JSON.stringify(user, null, 2);
             const formattedResult =
                 `<b>User ${activationData.type} via ${user.authType}</b><pre>${JSONText}</pre>`.trim();
-            await this.telegramService.sendMessage(
+            this.telegramService.sendMessage(
                 formattedResult, {
                 parse_mode: "HTML"
-            });
+            }).catch(e => this.logger.error('Failed to send telegram log', e));
         }
         await this.logService.logAction(
             user.id,

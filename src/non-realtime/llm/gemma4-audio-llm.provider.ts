@@ -32,7 +32,9 @@ export class Gemma4AudioLlmProvider implements IAudioLlmProvider {
     private readonly ollamaBaseUrl: string;
 
     constructor(baseUrl?: string) {
-        this.ollamaBaseUrl = baseUrl || process.env.OLLAMA_URL || 'http://ollama:11434/v1';
+        const rawUrl = baseUrl || process.env.OLLAMA_URL || 'http://ollama:11434';
+        // Ensure URL ends with /v1 for OpenAI SDK compatibility
+        this.ollamaBaseUrl = rawUrl.endsWith('/v1') ? rawUrl : `${rawUrl.replace(/\/+$/, '')}/v1`;
         this.client = new OpenAI({
             baseURL: this.ollamaBaseUrl,
             apiKey: 'ollama', // Ollama doesn't need a key

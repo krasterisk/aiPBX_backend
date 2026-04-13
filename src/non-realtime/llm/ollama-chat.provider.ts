@@ -25,7 +25,8 @@ export class OllamaChatProvider implements ILlmProvider {
 
     constructor(baseUrl?: string) {
         // Ollama exposes OpenAI-compatible API at /v1
-        const ollamaUrl = baseUrl || process.env.OLLAMA_URL || 'http://ollama:11434/v1';
+        const rawUrl = baseUrl || process.env.OLLAMA_URL || 'http://ollama:11434';
+        const ollamaUrl = rawUrl.endsWith('/v1') ? rawUrl : `${rawUrl.replace(/\/+$/, '')}/v1`;
         this.client = new OpenAI({
             baseURL: ollamaUrl,
             apiKey: 'ollama', // Ollama doesn't need a key, but OpenAI SDK requires one

@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import TelegramBot, { SendMessageOptions } from 'node-telegram-bot-api';
+// @ts-ignore
+import { SocksProxyAgent } from 'socks-proxy-agent';
 
 /**
  * Predefined Telegram tools for AI assistant integration.
@@ -127,7 +129,19 @@ export class TelegramService {
   constructor() {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const baseApiUrl = 'https://api.telegram.org';
-    this.bot = new TelegramBot(token, { polling: false, baseApiUrl });
+    const proxy = process.env.TELEGRAM_PROXY;
+
+    const options: TelegramBot.ConstructorOptions = { polling: false, baseApiUrl };
+
+    if (proxy) {
+      if (proxy.startsWith('socks')) {
+        options.request = { agent: new SocksProxyAgent(proxy) } as any;
+      } else {
+        options.request = { proxy } as any;
+      }
+    }
+
+    this.bot = new TelegramBot(token, options);
   }
 
   // ─── Configuration Check ────────────────────────────────────────

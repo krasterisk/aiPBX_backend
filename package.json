@@ -1,6 +1,6 @@
 {
   "name": "aiPbxBackend",
-  "version": "1.7.8",
+  "version": "1.7.9",
   "description": "aiPBX",
   "author": "Krasterisk LTD",
   "private": true,
@@ -74,6 +74,7 @@
     "sequelize-typescript": "^2.1.6",
     "sharp": "^0.34.1",
     "sip.js": "^0.21.2",
+    "socks-proxy-agent": "^10.0.0",
     "stripe": "^20.3.1",
     "swagger-ui-express": "^5.0.1",
     "uuid": "^11.0.5",

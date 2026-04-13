@@ -1,7 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import TelegramBot, { SendMessageOptions } from 'node-telegram-bot-api';
-// @ts-ignore
-import { SocksProxyAgent } from 'socks-proxy-agent';
 
 /**
  * Predefined Telegram tools for AI assistant integration.
@@ -135,7 +133,18 @@ export class TelegramService {
 
     if (proxy) {
       if (proxy.startsWith('socks')) {
-        options.request = { agent: new SocksProxyAgent(proxy) } as any;
+        const proxyUrl = new URL(proxy);
+        // @ts-ignore
+        const SocksAgent = require('socks5-https-client/lib/Agent');
+        options.request = {
+          agentClass: SocksAgent,
+          agentOptions: {
+            socksHost: proxyUrl.hostname,
+            socksPort: parseInt(proxyUrl.port, 10) || 1080,
+            ...(proxyUrl.username && { socksUsername: proxyUrl.username }),
+            ...(proxyUrl.password && { socksPassword: proxyUrl.password })
+          }
+        } as any;
       } else {
         options.request = { proxy } as any;
       }

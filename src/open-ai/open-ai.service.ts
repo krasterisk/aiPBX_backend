@@ -297,6 +297,11 @@ export class OpenAiService implements OnModuleInit {
         if (serverEvent.type === "input_audio_buffer.speech_started") {
             const responseId = currentSession?.currentResponseId
             this.logger.log(`Speech started`)
+            
+            if (currentSession) {
+                this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession)
+            }
+            
             if (responseId) {
                 this.logger.log(`Current responseId: ${responseId}`)
                 const cancelEvent = {
@@ -308,7 +313,6 @@ export class OpenAiService implements OnModuleInit {
                 if (!adapter.usesServerVad) {
                     currentSession.openAiConn.send(cancelEvent)
                     this.logger.log(`Canceled OpenAI response ${responseId} for ${channelId}`);
-                    this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession)
                     currentSession.currentResponseId = ''
                 } else {
                     this.logger.log(`[ServerVAD] Skipping manual cancel (handled by server VAD) for ${channelId}`);

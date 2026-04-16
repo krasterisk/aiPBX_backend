@@ -132,7 +132,7 @@ export class OpenAiAdapter implements RealtimeModelAdapter {
     readonly vendor = 'openai' as const;
     readonly outputResampleRate = null;
     readonly needsPcmToAlaw = false;
-    readonly usesServerVad = false;
+    readonly usesServerVad = true;
     readonly skipFunctionCallsInResponseDone = false;
 
     sanitizeTools(tools: any[]): any[] {
@@ -159,10 +159,15 @@ export class OpenAiAdapter implements RealtimeModelAdapter {
                     threshold: Number(assistant.turn_detection_threshold),
                     prefix_padding_ms: Number(assistant.turn_detection_prefix_padding_ms),
                     silence_duration_ms: Number(assistant.turn_detection_silence_duration_ms),
-                    create_response: false,
-                    interrupt_response: false,
+                    create_response: true,
+                    interrupt_response: true,
                     idle_timeout_ms: Number(assistant.idle_timeout_ms) || 10000,
                 },
+                ...(assistant.input_audio_noise_reduction ? {
+                    input_audio_noise_reduction: {
+                        type: assistant.input_audio_noise_reduction
+                    }
+                } : {}),
                 temperature: Number(assistant.temperature),
                 max_response_output_tokens: assistant.max_response_output_tokens,
                 tools,

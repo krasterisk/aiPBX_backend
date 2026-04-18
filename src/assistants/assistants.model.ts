@@ -59,6 +59,9 @@ export class Assistant extends Model<Assistant, CreateAssistantAttr> {
     @ApiProperty({ example: '10000', description: "Idle timeout ms" })
     @Column({ type: DataType.STRING, allowNull: true })
     idle_timeout_ms: string
+    @ApiProperty({ example: true, description: "Whether user speech interrupts AI response" })
+    @Column({ type: DataType.BOOLEAN, defaultValue: true, allowNull: true })
+    interrupt_response: boolean
     @ApiProperty({ example: 'auto', description: "Tool choice method" })
     @Column({ type: DataType.STRING, allowNull: true })
     tool_choice: string

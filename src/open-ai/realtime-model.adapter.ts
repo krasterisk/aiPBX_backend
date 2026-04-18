@@ -160,7 +160,7 @@ export class OpenAiAdapter implements RealtimeModelAdapter {
                     prefix_padding_ms: Number(assistant.turn_detection_prefix_padding_ms),
                     silence_duration_ms: Number(assistant.turn_detection_silence_duration_ms),
                     create_response: true,
-                    interrupt_response: true,
+                    interrupt_response: assistant.interrupt_response !== false,
                     idle_timeout_ms: Number(assistant.idle_timeout_ms) || 10000,
                 },
                 ...(assistant.input_audio_noise_reduction ? {
@@ -230,7 +230,7 @@ export class QwenAdapter implements RealtimeModelAdapter {
                     prefix_padding_ms: Number(assistant.turn_detection_prefix_padding_ms),
                     silence_duration_ms: Number(assistant.turn_detection_silence_duration_ms),
                     create_response: true,
-                    interrupt_response: true,
+                    interrupt_response: assistant.interrupt_response !== false,
                     idle_timeout_ms: Number(assistant.idle_timeout_ms) || 10000,
                 },
                 temperature: Number(assistant.temperature),

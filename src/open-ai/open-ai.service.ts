@@ -296,34 +296,31 @@ export class OpenAiService implements OnModuleInit {
 
         if (serverEvent.type === "input_audio_buffer.speech_started") {
             const responseId = currentSession?.currentResponseId
-            this.logger.log(`Speech started`)
-            
-            if (currentSession) {
-                this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession)
-            }
-            
-            if (responseId) {
-                this.logger.log(`Current responseId: ${responseId}`)
-                const cancelEvent = {
-                    type: 'response.cancel',
-                    response_id: responseId
+            const interruptEnabled = assistant?.interrupt_response !== false;
+            this.logger.log(`Speech started (interrupt_response=${interruptEnabled})`)
+
+            if (interruptEnabled) {
+                if (currentSession) {
+                    this.eventEmitter.emit(`audioInterrupt.${currentSession.channelId}`, currentSession)
                 }
 
-                // console.log(currentSession.currentResponseId, cancelEvent)
-                if (!adapter.usesServerVad) {
-                    currentSession.openAiConn.send(cancelEvent)
-                    this.logger.log(`Canceled OpenAI response ${responseId} for ${channelId}`);
-                    currentSession.currentResponseId = ''
-                } else {
-                    this.logger.log(`[ServerVAD] Skipping manual cancel (handled by server VAD) for ${channelId}`);
+                if (responseId) {
+                    this.logger.log(`Current responseId: ${responseId}`)
+                    const cancelEvent = {
+                        type: 'response.cancel',
+                        response_id: responseId
+                    }
+
+                    if (!adapter.usesServerVad) {
+                        currentSession.openAiConn.send(cancelEvent)
+                        this.logger.log(`Canceled OpenAI response ${responseId} for ${channelId}`);
+                        currentSession.currentResponseId = ''
+                    } else {
+                        this.logger.log(`[ServerVAD] Skipping manual cancel (handled by server VAD) for ${channelId}`);
+                    }
                 }
-
-
-                // this.sessions.set(channelId, {
-                //     ...currentSession,
-                //     currentResponseId: ''
-                // })
-
+            } else {
+                this.logger.log(`[Interrupt disabled] Ignoring speech_started for ${channelId}`);
             }
         }
 

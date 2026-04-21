@@ -25,6 +25,10 @@ import { AddUrlDto, CreateKnowledgeBaseDto, UpdateKnowledgeBaseDto } from './dto
 export class KnowledgeController {
     constructor(private readonly knowledgeService: KnowledgeService) {}
 
+    private isAdmin(req: any): boolean {
+        return req.user?.roles?.some((role: any) => role.value === 'ADMIN') ?? false;
+    }
+
     // ── Knowledge Base CRUD ─────────────────────────────────
 
     @ApiOperation({ summary: 'Create a knowledge base' })
@@ -36,7 +40,7 @@ export class KnowledgeController {
     @ApiOperation({ summary: 'List all knowledge bases' })
     @Get()
     async getKnowledgeBases(@Req() req: any) {
-        return this.knowledgeService.getKnowledgeBases(req.user.id);
+        return this.knowledgeService.getKnowledgeBases(req.user.id, this.isAdmin(req));
     }
 
     @ApiOperation({ summary: 'Update a knowledge base' })
@@ -46,13 +50,13 @@ export class KnowledgeController {
         @Body() dto: UpdateKnowledgeBaseDto,
         @Req() req: any,
     ) {
-        return this.knowledgeService.updateKnowledgeBase(id, req.user.id, dto);
+        return this.knowledgeService.updateKnowledgeBase(id, req.user.id, dto, this.isAdmin(req));
     }
 
     @ApiOperation({ summary: 'Delete a knowledge base' })
     @Delete(':id')
     async deleteKnowledgeBase(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
-        await this.knowledgeService.deleteKnowledgeBase(id, req.user.id);
+        await this.knowledgeService.deleteKnowledgeBase(id, req.user.id, this.isAdmin(req));
         return { success: true };
     }
 
@@ -112,7 +116,7 @@ export class KnowledgeController {
         @Param('docId', ParseIntPipe) docId: number,
         @Req() req: any,
     ) {
-        await this.knowledgeService.deleteDocument(docId, req.user.id);
+        await this.knowledgeService.deleteDocument(docId, req.user.id, this.isAdmin(req));
         return { success: true };
     }
 

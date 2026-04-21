@@ -41,9 +41,13 @@ export class KnowledgeService {
         return this.kbModel.create({ userId, name, description } as any);
     }
 
-    async getKnowledgeBases(userId: number): Promise<KnowledgeBase[]> {
+    async getKnowledgeBases(userId: number, isAdmin?: boolean): Promise<KnowledgeBase[]> {
+        const where: any = {};
+        if (!isAdmin) {
+            where.userId = userId;
+        }
         return this.kbModel.findAll({
-            where: { userId },
+            where,
             order: [['createdAt', 'DESC']],
         });
     }
@@ -52,16 +56,16 @@ export class KnowledgeService {
         return this.kbModel.findByPk(id);
     }
 
-    async updateKnowledgeBase(id: number, userId: number, data: { name?: string; description?: string }): Promise<KnowledgeBase> {
+    async updateKnowledgeBase(id: number, userId: number, data: { name?: string; description?: string }, isAdmin?: boolean): Promise<KnowledgeBase> {
         const kb = await this.kbModel.findByPk(id);
-        if (!kb || kb.userId !== userId) throw new Error('Knowledge base not found');
+        if (!kb || (!isAdmin && kb.userId !== userId)) throw new Error('Knowledge base not found');
         await kb.update(data);
         return kb;
     }
 
-    async deleteKnowledgeBase(id: number, userId: number): Promise<void> {
+    async deleteKnowledgeBase(id: number, userId: number, isAdmin?: boolean): Promise<void> {
         const kb = await this.kbModel.findByPk(id);
-        if (!kb || kb.userId !== userId) throw new Error('Knowledge base not found');
+        if (!kb || (!isAdmin && kb.userId !== userId)) throw new Error('Knowledge base not found');
         await kb.destroy(); // cascades to documents → chunks
         this.logger.log(`Knowledge base ${id} deleted (${kb.name})`);
     }
@@ -124,9 +128,9 @@ export class KnowledgeService {
         return doc;
     }
 
-    async deleteDocument(documentId: number, userId: number): Promise<void> {
+    async deleteDocument(documentId: number, userId: number, isAdmin?: boolean): Promise<void> {
         const doc = await this.documentModel.findByPk(documentId);
-        if (!doc || doc.userId !== userId) throw new Error('Document not found');
+        if (!doc || (!isAdmin && doc.userId !== userId)) throw new Error('Document not found');
         const kbId = doc.knowledgeBaseId;
         await doc.destroy();
         await this.updateKbCounts(kbId);

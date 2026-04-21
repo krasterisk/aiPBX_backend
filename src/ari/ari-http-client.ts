@@ -145,7 +145,7 @@ export class AriHttpClient {
     }
 
     async redirectChannel(channelId: string, context: string, extension: string, priority: number = 1): Promise<void> {
-        await this.client.post(this.baseURL + `/channels/${channelId}/redirect`, {
+        await this.client.post(this.baseURL + `/channels/${channelId}/continue`, {
             context,
             extension,
             priority

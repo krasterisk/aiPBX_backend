@@ -24,7 +24,7 @@ export class SipTrunksController {
     @UseGuards(RolesGuard)
     @Get()
     findAll(@Req() request: RequestWithUser) {
-        return this.sipTrunksService.findAll(request.tokenUserId);
+        return this.sipTrunksService.findAll(request.tokenUserId, request.isAdmin);
     }
 
     @ApiOperation({ summary: "Get single SIP trunk" })
@@ -33,7 +33,7 @@ export class SipTrunksController {
     @UseGuards(RolesGuard)
     @Get(':id')
     findOne(@Param('id') id: number, @Req() request: RequestWithUser) {
-        return this.sipTrunksService.findOne(id, request.tokenUserId);
+        return this.sipTrunksService.findOne(id, request.tokenUserId, request.isAdmin);
     }
 
     @ApiOperation({ summary: "Create SIP trunk" })
@@ -42,7 +42,7 @@ export class SipTrunksController {
     @UseGuards(RolesGuard)
     @Post()
     create(@Body() dto: CreateSipTrunkDto, @Req() request: RequestWithUser) {
-        return this.sipTrunksService.create(dto, request.tokenUserId);
+        return this.sipTrunksService.create(dto, request.tokenUserId, request.isAdmin);
     }
 
     @ApiOperation({ summary: "Update SIP trunk" })
@@ -55,7 +55,7 @@ export class SipTrunksController {
         @Body() dto: UpdateSipTrunkDto,
         @Req() request: RequestWithUser,
     ) {
-        return this.sipTrunksService.update(id, dto, request.tokenUserId);
+        return this.sipTrunksService.update(id, dto, request.tokenUserId, request.isAdmin);
     }
 
     @ApiOperation({ summary: "Delete SIP trunk" })
@@ -64,7 +64,7 @@ export class SipTrunksController {
     @UseGuards(RolesGuard)
     @Delete(':id')
     remove(@Param('id') id: number, @Req() request: RequestWithUser) {
-        return this.sipTrunksService.remove(id, request.tokenUserId);
+        return this.sipTrunksService.remove(id, request.tokenUserId, request.isAdmin);
     }
 
     @ApiOperation({ summary: "Get SIP trunk status" })
@@ -73,6 +73,6 @@ export class SipTrunksController {
     @UseGuards(RolesGuard)
     @Get(':id/status')
     getStatus(@Param('id') id: number, @Req() request: RequestWithUser) {
-        return this.sipTrunksService.getStatus(id, request.tokenUserId);
+        return this.sipTrunksService.getStatus(id, request.tokenUserId, request.isAdmin);
     }
 }

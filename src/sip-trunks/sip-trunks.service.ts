@@ -20,9 +20,13 @@ export class SipTrunksService {
         private readonly httpService: HttpService,
     ) { }
 
-    async findAll(userId: string) {
+    async findAll(userId: string, isAdmin?: boolean) {
+        const where: any = {};
+        if (!isAdmin) {
+            where.userId = Number(userId);
+        }
         return this.sipTrunksRepository.findAll({
-            where: { userId: Number(userId) },
+            where,
             include: [
                 { model: Assistant, attributes: ['id', 'name', 'uniqueId'] },
                 { model: PbxServers, attributes: ['id', 'name', 'sip_host', 'location'] },
@@ -30,9 +34,13 @@ export class SipTrunksService {
         });
     }
 
-    async findOne(id: number, userId: string) {
+    async findOne(id: number, userId: string, isAdmin?: boolean) {
+        const where: any = { id };
+        if (!isAdmin) {
+            where.userId = Number(userId);
+        }
         const trunk = await this.sipTrunksRepository.findOne({
-            where: { id, userId: Number(userId) },
+            where,
             include: [
                 { model: Assistant, attributes: ['id', 'name', 'uniqueId'] },
                 { model: PbxServers, attributes: ['id', 'name', 'sip_host', 'location'] },
@@ -42,7 +50,7 @@ export class SipTrunksService {
         return trunk;
     }
 
-    async create(dto: CreateSipTrunkDto, userId: string) {
+    async create(dto: CreateSipTrunkDto, userId: string, isAdmin?: boolean) {
         try {
             const { assistantId, serverId, name, trunkType, sipServerAddress, transport,
                 authName, password, domain, callerId, providerIp, active, records } = dto;
@@ -124,11 +132,13 @@ export class SipTrunksService {
         }
     }
 
-    async update(id: number, dto: UpdateSipTrunkDto, userId: string) {
+    async update(id: number, dto: UpdateSipTrunkDto, userId: string, isAdmin?: boolean) {
         try {
-            const trunk = await this.sipTrunksRepository.findOne({
-                where: { id, userId: Number(userId) },
-            });
+            const where: any = { id };
+            if (!isAdmin) {
+                where.userId = Number(userId);
+            }
+            const trunk = await this.sipTrunksRepository.findOne({ where });
             if (!trunk) throw new HttpException('SIP Trunk not found', HttpStatus.NOT_FOUND);
 
             // Check authName uniqueness on update (if changed, registration only)
@@ -196,11 +206,13 @@ export class SipTrunksService {
         }
     }
 
-    async remove(id: number, userId: string) {
+    async remove(id: number, userId: string, isAdmin?: boolean) {
         try {
-            const trunk = await this.sipTrunksRepository.findOne({
-                where: { id, userId: Number(userId) },
-            });
+            const where: any = { id };
+            if (!isAdmin) {
+                where.userId = Number(userId);
+            }
+            const trunk = await this.sipTrunksRepository.findOne({ where });
             if (!trunk) throw new HttpException('SIP Trunk not found', HttpStatus.NOT_FOUND);
 
             const pbx = await this.pbxServersRepository.findOne({ where: { id: trunk.serverId } });
@@ -240,11 +252,13 @@ export class SipTrunksService {
         }
     }
 
-    async getStatus(id: number, userId: string) {
+    async getStatus(id: number, userId: string, isAdmin?: boolean) {
         try {
-            const trunk = await this.sipTrunksRepository.findOne({
-                where: { id, userId: Number(userId) },
-            });
+            const where: any = { id };
+            if (!isAdmin) {
+                where.userId = Number(userId);
+            }
+            const trunk = await this.sipTrunksRepository.findOne({ where });
             if (!trunk) throw new HttpException('SIP Trunk not found', HttpStatus.NOT_FOUND);
 
             const pbx = await this.pbxServersRepository.findOne({ where: { id: trunk.serverId } });

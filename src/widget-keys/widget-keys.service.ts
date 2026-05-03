@@ -164,7 +164,7 @@ export class WidgetKeysService {
             if (!assistant) {
                 throw new NotFoundException('Assistant not found');
             }
-            if (assistant.userId !== userId) {
+            if (!isAdmin && assistant.userId !== userId) {
                 throw new ForbiddenException('You can only use your own assistants');
             }
         }

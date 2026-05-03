@@ -631,6 +631,7 @@ export class OpenAiService implements OnModuleInit {
                 type: "conversation.item.create",
                 item: {
                     type: "message",
+                    object: "realtime.item",
                     role: "user",
                     content: [
                         {

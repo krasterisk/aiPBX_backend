@@ -297,7 +297,6 @@ export class YandexAdapter implements RealtimeModelAdapter {
                         format: {
                             type: 'audio/pcm',
                             rate: 24000,
-                            channels: 1,
                         },
                         turn_detection: {
                             type: 'server_vad',

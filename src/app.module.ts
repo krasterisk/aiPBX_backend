@@ -34,6 +34,7 @@ import { SipTrunksModule } from './sip-trunks/sip-trunks.module';
 import { WhisperModule } from './whisper/whisper.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { ChatModule } from './chat/chat.module';
+import { ApiKeyModule } from './api-keys/api-key.module';
 
 @Module({
     imports: [
@@ -81,6 +82,7 @@ import { ChatModule } from './chat/chat.module';
         WhisperModule,
         KnowledgeModule,
         ChatModule,
+        ApiKeyModule,
         ThrottlerModule.forRoot([{
             ttl: 60000,
             limit: 100,

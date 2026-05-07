@@ -41,6 +41,22 @@ export class AiModelsController {
         return this.aiModelService.getAll(isAdmin)
     }
 
+    // ── API Key — external services endpoint ─────────────────────────────────
+    // IMPORTANT: must be declared BEFORE @Get('/:id') to prevent route shadowing.
+    // NestJS matches routes in declaration order — '/:id' would capture 'external'
+    // and pass Number('external') = NaN to findOne.
+    @ApiOperation({
+        summary: 'List published AI models (API key)',
+        description: 'Endpoint for external services. Requires API key with scope models:read.',
+    })
+    @ApiSecurity('api-key')
+    @RequireApiKeyScope(API_KEY_SCOPES.MODELS_READ)
+    @UseGuards(ApiKeyGuard)
+    @Get('external')
+    getPublished() {
+        return this.aiModelService.getAll(false); // publish:true only
+    }
+
     @ApiOperation({ summary: "Get aiModel by id" })
     @ApiResponse({ status: 200, type: [aiModel] })
     @Roles('ADMIN', 'USER')
@@ -78,24 +94,5 @@ export class AiModelsController {
         return this.aiModelService.delete(ids)
     }
 
-    // ── API Key — external services endpoint ─────────────────────────────────
 
-    /**
-     * GET /api/aiModels/external
-     * Used by KrAsterisk (and any other external service) to list published models.
-     * Requires a valid API key with scope 'models:read'.
-     *
-     * Returns only publish:true models (same as non-admin JWT).
-     */
-    @ApiOperation({
-        summary: 'List published AI models (API key)',
-        description: 'Endpoint for external services. Requires API key with scope models:read.',
-    })
-    @ApiSecurity('api-key')
-    @RequireApiKeyScope(API_KEY_SCOPES.MODELS_READ)
-    @UseGuards(ApiKeyGuard)
-    @Get('external')
-    getPublished() {
-        return this.aiModelService.getAll(false); // publish:true only
-    }
 }

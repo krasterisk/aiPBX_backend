@@ -42,9 +42,8 @@ export class AiModelsController {
     }
 
     // ── API Key — external services endpoint ─────────────────────────────────
-    // IMPORTANT: must be declared BEFORE @Get('/:id') to prevent route shadowing.
-    // NestJS matches routes in declaration order — '/:id' would capture 'external'
-    // and pass Number('external') = NaN to findOne.
+    // IMPORTANT: static routes must be declared BEFORE @Get('/:id')
+
     @ApiOperation({
         summary: 'List published AI models (API key)',
         description: 'Endpoint for external services. Requires API key with scope models:read.',
@@ -54,7 +53,30 @@ export class AiModelsController {
     @UseGuards(ApiKeyGuard)
     @Get('external')
     getPublished() {
-        return this.aiModelService.getAll(false); // publish:true only
+        return this.aiModelService.getAll(false);
+    }
+
+    @ApiOperation({
+        summary: 'List live Ollama models (JWT)',
+        description: 'Returns models currently available in Ollama (/api/tags).',
+    })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get('ollama')
+    getOllamaModels() {
+        return this.aiModelService.getOllamaModels();
+    }
+
+    @ApiOperation({
+        summary: 'List live Ollama models (API key)',
+        description: 'For external services. Requires API key with scope models:read.',
+    })
+    @ApiSecurity('api-key')
+    @RequireApiKeyScope(API_KEY_SCOPES.MODELS_READ)
+    @UseGuards(ApiKeyGuard)
+    @Get('ollama/external')
+    getOllamaModelsExternal() {
+        return this.aiModelService.getOllamaModels();
     }
 
     @ApiOperation({ summary: "Get aiModel by id" })

@@ -13,13 +13,11 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles-auth.decorator';
 import { ChatService } from './chat.service';
 import { CreateChatDto, SendMessageDto, UpdateChatDto } from './dto/chat.dto';
-import { ApiKeyGuard } from '../api-keys/api-key.guard';
-import { RequireApiKeyScope, API_KEY_SCOPES } from '../api-keys/api-key-scope.decorator';
+import { JwtOrApiKeyGuard } from '../auth/jwt-or-api-key.guard';
 
 // ─── Route-level guards ────────────────────────────────────────────────────────
 
@@ -105,11 +103,10 @@ export class ChatController {
      */
     @ApiOperation({
         summary: 'Send message (SSE streaming response)',
-        description: 'Accepts JWT or API key Bearer token.',
+        description: 'Accepts JWT (regular users) OR API key Bearer token (external services).',
     })
     @ApiSecurity('api-key')
-    @RequireApiKeyScope(API_KEY_SCOPES.CHAT_MESSAGE)
-    @UseGuards(ApiKeyGuard)
+    @UseGuards(JwtOrApiKeyGuard)
     @Post(':id/message')
     async sendMessage(
         @Param('id', ParseIntPipe) id: number,

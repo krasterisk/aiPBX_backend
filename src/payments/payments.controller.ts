@@ -9,6 +9,7 @@ import { RolesGuard } from 'src/auth/roles.guard';
 import { GetPaymentsDto } from './dto/get-payments.dto';
 import { CreateRobokassaPaymentDto } from './dto/create-robokassa-payment.dto';
 import { ConfigService } from '@nestjs/config';
+import { SkipThrottle } from '@nestjs/throttler';
 
 @Controller('payments')
 export class PaymentsController {
@@ -18,16 +19,21 @@ export class PaymentsController {
         private configService: ConfigService,
     ) { }
 
-    @ApiOperation({ summary: "Get user payment history" })
+    @ApiOperation({ summary: "Get user payment history (admin: all or ?userId=tenant; user: own tenant only)" })
     @ApiResponse({ status: 200, type: [Payments] })
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Get()
     getUserPayments(@Req() req: any, @Query() query: GetPaymentsDto) {
+        const page = Number(query.page) > 0 ? Number(query.page) : 1;
+        const limit = Number(query.limit) > 0 ? Number(query.limit) : 10;
+        const filterUserId = typeof query.userId === 'string' ? query.userId.trim() : '';
         return this.paymentsService.getUserPayments(
             req.tokenUserId,
-            Number(query.page),
-            Number(query.limit)
+            page,
+            limit,
+            !!req.isAdmin,
+            filterUserId || undefined,
         );
     }
 
@@ -94,6 +100,15 @@ export class PaymentsController {
         const clientUrl = this.configService.get<string>('CLIENT_URL');
         const invId = query.InvId || '';
         res.redirect(`${clientUrl}/billing?provider=robokassa&status=fail&InvId=${invId}`);
+    }
+
+    @ApiOperation({ summary: 'Alfa bank / alfawebhook balance callback (form body, pbxBalanceUpdate compatible)' })
+    @SkipThrottle()
+    @Post('alfa-callback')
+    async alfaCallback(@Req() req: Request) {
+        const body = (req.body || {}) as Record<string, string | undefined>;
+        const headers = req.headers as Record<string, string | undefined>;
+        return this.paymentsService.handleAlfaBankCallback(body, headers);
     }
 
     @ApiOperation({ summary: "Get Robokassa payment status" })

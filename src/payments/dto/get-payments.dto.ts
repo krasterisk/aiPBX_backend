@@ -1,4 +1,4 @@
-import { IsOptional } from "class-validator";
+import { IsOptional, IsString } from "class-validator";
 
 export class GetPaymentsDto {
     @IsOptional()
@@ -6,4 +6,9 @@ export class GetPaymentsDto {
 
     @IsOptional()
     limit?: number | string = 10;
+
+    /** ADMIN only: filter by tenant owner user id; omit for all tenants' payments */
+    @IsOptional()
+    @IsString()
+    userId?: string;
 }

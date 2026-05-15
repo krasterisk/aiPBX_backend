@@ -3,12 +3,16 @@ import { AppModule } from "./app.module";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { ValidationPipe } from "@nestjs/common";
 import helmet from 'helmet';
+import * as express from 'express';
 
 async function start() {
     console.log(`${process.env.NODE_ENV}`)
     const PORT = process.env.PORT
     const app = await NestFactory.create(AppModule, { rawBody: true })
     app.setGlobalPrefix('api', { exclude: ['static/{*path}'] })
+
+    const httpServer = app.getHttpAdapter().getInstance();
+    httpServer.use('/api/payments/alfa-callback', express.urlencoded({ extended: false }));
 
     const config = new DocumentBuilder()
         .setTitle('AI PBX')

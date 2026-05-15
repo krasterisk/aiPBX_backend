@@ -124,7 +124,6 @@ export class UsersController {
     @Get('me')
     getMe(@Req() request: RequestWithUser) {
         const userId = request.tokenUserId
-        console.log("USER ME: ", userId)
         return this.userService.getMe(userId)
     }
 
@@ -160,8 +159,8 @@ export class UsersController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Patch()
-    updateUser(@Body() updates: Partial<User>) {
-        return this.userService.updateUser(updates)
+    updateUser(@Body() updates: Partial<User>, @Req() request: RequestWithUser) {
+        return this.userService.updateUser(updates, request.isAdmin)
     }
 
     @ApiOperation({ summary: "Get user by id" })

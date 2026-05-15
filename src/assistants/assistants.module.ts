@@ -10,6 +10,7 @@ import { Prices } from "../prices/prices.model";
 import { UsersModule } from "../users/users.module";
 import { BillingRecord } from "../billing/billing-record.model";
 import { FilesModule } from "../files/files.module";
+import { BillingModule } from "../billing/billing.module";
 
 @Module({
     providers: [AssistantsService],
@@ -21,6 +22,7 @@ import { FilesModule } from "../files/files.module";
         forwardRef(() => UsersModule),
         LoggerModule,
         FilesModule,
+        BillingModule,
     ],
     exports: [AssistantsService]
 })

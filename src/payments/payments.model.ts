@@ -1,7 +1,7 @@
 import { Column, DataType, Model, Table } from "sequelize-typescript";
 import { ApiProperty } from "@nestjs/swagger";
 
-interface CreatePayment {
+export interface CreatePayment {
     userId: string
     amount: number
     stripePaymentIntentId?: string
@@ -51,4 +51,24 @@ export class Payments extends Model<Payments, CreatePayment> {
     @ApiProperty({ example: 12345, description: "Robokassa Invoice ID" })
     @Column({ type: DataType.INTEGER, allowNull: true })
     robokassaInvId: number;
+
+    @ApiProperty({ required: false })
+    @Column({ type: DataType.STRING, allowNull: true })
+    alfaInvId: string | null;
+
+    @ApiProperty({ required: false })
+    @Column({ type: DataType.STRING, allowNull: true })
+    idempotencyKey: string | null;
+
+    @ApiProperty({ required: false })
+    @Column({ type: DataType.FLOAT, allowNull: true })
+    fxRateRubUsd: number | null;
+
+    @ApiProperty({ required: false })
+    @Column({ type: DataType.FLOAT, allowNull: true })
+    amountRub: number | null;
+
+    @ApiProperty({ required: false })
+    @Column({ type: DataType.UUID, allowNull: true })
+    organizationDocumentId: string | null;
 }

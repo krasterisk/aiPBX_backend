@@ -1,5 +1,7 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from "@nestjs/sequelize";
+import { InjectConnection } from '@nestjs/sequelize';
+import { Sequelize, Transaction } from 'sequelize';
 import { Payments } from "./payments.model";
 import { PaymentsDto } from "./dto/payments.dto";
 import { UsersService } from "../users/users.service";
@@ -8,6 +10,9 @@ import Stripe from 'stripe';
 import { TelegramService } from "../telegram/telegram.service";
 import { CurrencyService } from "../currency/currency.service";
 import { LoggerService } from "../logger/logger.service";
+import { InvoiceService } from '../accounting/invoice.service';
+import { CurrencyHistory } from '../accounting/currency-history.model';
+import { BalanceLedger } from '../accounting/balance-ledger.model';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -17,11 +22,15 @@ export class PaymentsService {
 
     constructor(
         @InjectModel(Payments) private paymentsRepository: typeof Payments,
+        @InjectModel(CurrencyHistory) private currencyHistoryRepository: typeof CurrencyHistory,
+        @InjectModel(BalanceLedger) private balanceLedgerRepository: typeof BalanceLedger,
+        @InjectConnection() private readonly sequelize: Sequelize,
         private readonly usersService: UsersService,
         private configService: ConfigService,
         private readonly telegramService: TelegramService,
         private readonly currencyService: CurrencyService,
         private readonly logService: LoggerService,
+        private readonly invoiceService: InvoiceService,
     ) {
         this.stripe = new Stripe(this.configService.get<string>('STRIPE_SECRET_KEY'), {
             apiVersion: '2026-01-28.clover',
@@ -36,10 +45,14 @@ export class PaymentsService {
                     throw new HttpException('[Payments]: UserId must be set', HttpStatus.BAD_REQUEST)
                 }
 
-                const isPayed = await this.usersService.updateUserBalance(payment.userId, payment.amount)
+                const result = await this.paymentsRepository.create(payment as any);
+                const isPayed = await this.usersService.updateUserBalance(payment.userId, payment.amount, {
+                    source: 'admin',
+                    externalId: `payment_${result.id}`,
+                    paymentId: String(result.id),
+                });
                 if (isPayed) {
-                    const result = await this.paymentsRepository.create(payment)
-                    payments.push(result)
+                    payments.push(result);
                 }
             }
             return payments
@@ -110,12 +123,34 @@ export class PaymentsService {
         return { received: true };
     }
 
-    async getUserPayments(userId: string, page: number = 1, limit: number = 10) {
+    /**
+     * @param tokenUserId — id из JWT
+     * @param isAdmin — если true: без filterUserId вернуть все платежи; с filterUserId — по владельцу тенанта
+     * @param filterUserId — только для админа: userId клиента (после resolveOwnerId)
+     */
+    async getUserPayments(
+        tokenUserId: string,
+        page: number = 1,
+        limit: number = 10,
+        isAdmin = false,
+        filterUserId?: string,
+    ) {
         try {
-            const ownerId = String(await this.usersService.resolveOwnerId(userId));
             const offset = (page - 1) * limit;
-            const payments = await this.paymentsRepository.findAndCountAll({
-                where: { userId: ownerId },
+            let where: { userId: string } | Record<string, never> = {};
+
+            if (isAdmin) {
+                if (filterUserId) {
+                    const ownerId = String(await this.usersService.resolveOwnerId(filterUserId));
+                    where = { userId: ownerId };
+                }
+            } else {
+                const ownerId = String(await this.usersService.resolveOwnerId(tokenUserId));
+                where = { userId: ownerId };
+            }
+
+            const result = await this.paymentsRepository.findAndCountAll({
+                where,
                 attributes: [
                     'id',
                     'amount',
@@ -124,13 +159,23 @@ export class PaymentsService {
                     'createdAt',
                     'paymentMethod',
                     ['paymentInfo', 'description'],
-                    'receiptUrl'
+                    'receiptUrl',
+                    'fxRateRubUsd',
+                    'amountRub',
                 ],
                 order: [['createdAt', 'DESC']],
                 limit,
                 offset
             });
-            return payments;
+            const rows = result.rows.map((row) => {
+                const plain = row.get({ plain: true });
+                const rubPerUsd = plain.fxRateRubUsd != null ? Number(plain.fxRateRubUsd) : null;
+                return {
+                    ...plain,
+                    fxRateUsdToCurrency: Number.isFinite(rubPerUsd) && rubPerUsd > 0 ? rubPerUsd : null,
+                };
+            });
+            return { count: result.count, rows };
         } catch (e) {
             console.error('[Payments] getUserPayments error:', e.message, e.sql || '');
             throw new HttpException('Error fetching payments: ' + e.message, HttpStatus.BAD_REQUEST);
@@ -156,7 +201,11 @@ export class PaymentsService {
                 amountToAdd = await this.currencyService.convertToUsd(payment.amount, payment.currency);
             }
 
-            await this.usersService.updateUserBalance(payment.userId, amountToAdd);
+            await this.usersService.updateUserBalance(payment.userId, amountToAdd, {
+                source: 'stripe',
+                externalId: paymentIntent.id,
+                paymentId: String(payment.id),
+            });
 
             await this.logService.logAction(
                 Number(payment.userId), 'update', 'payment', payment.id,
@@ -200,6 +249,7 @@ export class PaymentsService {
     async createRobokassaPayment(userId: string, amount: number, description?: string) {
         try {
             const ownerId = String(await this.usersService.resolveOwnerId(userId));
+            const { rate: rubPerUsd } = await this.currencyService.convertFromUsd(1, 'RUB');
             const payment = await this.paymentsRepository.create({
                 userId: ownerId,
                 amount,
@@ -207,6 +257,8 @@ export class PaymentsService {
                 status: 'pending',
                 paymentMethod: 'robokassa',
                 paymentInfo: description || 'Account top-up',
+                amountRub: amount,
+                fxRateRubUsd: rubPerUsd > 0 ? rubPerUsd : null,
             } as any);
 
             // Use payment.id as InvId
@@ -282,13 +334,21 @@ export class PaymentsService {
             return `OK${invId}`;
         }
 
-        payment.status = 'succeeded';
-        await payment.save();
-
         // Convert RUB → USD and add to balance
         const amount = parseFloat(outSum);
         const amountUsd = await this.currencyService.convertToUsd(amount, 'RUB');
-        await this.usersService.updateUserBalance(shpUserId, amountUsd);
+        const rubPerUsd = amountUsd > 0 ? amount / amountUsd : 0;
+
+        payment.status = 'succeeded';
+        payment.amountRub = amount;
+        payment.fxRateRubUsd = rubPerUsd > 0 ? rubPerUsd : payment.fxRateRubUsd;
+        await payment.save();
+
+        await this.usersService.updateUserBalance(shpUserId, amountUsd, {
+            source: 'robokassa',
+            externalId: String(invId),
+            paymentId: String(payment.id),
+        });
 
         await this.logService.logAction(
             Number(shpUserId), 'update', 'payment', invId,
@@ -319,7 +379,117 @@ export class PaymentsService {
         return payment;
     }
 
+    /**
+     * Form-encoded callback compatible with alfawebhook pbxBalanceUpdate (OutSumm, InvId, userId, pbxUrl, payerBankName).
+     */
+    async handleAlfaBankCallback(
+        body: Record<string, string | undefined>,
+        headers: Record<string, string | undefined>,
+    ): Promise<{ ok: boolean }> {
+        const secret = this.configService.get<string>('ALFA_CALLBACK_SECRET');
+        if (secret) {
+            const sig = headers['x-alfa-signature'] || headers['X-Alfa-Signature'];
+            const invIdForSig = String(body.InvId || '');
+            const expected = crypto.createHmac('sha256', secret).update(invIdForSig).digest('hex');
+            if (sig !== expected) {
+                throw new HttpException('Invalid signature', HttpStatus.UNAUTHORIZED);
+            }
+        }
+
+        const invId = String(body.InvId || '');
+        const userId = String(body.userId || '');
+        const outSumm = parseFloat(String(body.OutSumm || '0'));
+        if (!invId || !userId || Number.isNaN(outSumm) || outSumm <= 0) {
+            throw new HttpException('Invalid payload', HttpStatus.BAD_REQUEST);
+        }
+
+        const ownerId = await this.usersService.resolveOwnerId(userId);
+        const amountUsd = await this.currencyService.convertToUsd(outSumm, 'RUB');
+        const fxDate = new Date().toISOString().slice(0, 10);
+        const rubPerUsd = amountUsd > 0 ? outSumm / amountUsd : 0;
+
+        await this.sequelize.transaction(
+            { isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE },
+            async (transaction) => {
+            const existing = await this.balanceLedgerRepository.findOne({
+                where: { source: 'alfa_bank', externalId: invId },
+                transaction,
+                lock: transaction.LOCK.UPDATE,
+            });
+            if (existing) {
+                return;
+            }
+
+            const payment = await this.paymentsRepository.create(
+                {
+                    userId: String(ownerId),
+                    amount: amountUsd,
+                    currency: 'USD',
+                    status: 'succeeded',
+                    paymentMethod: 'alfa_bank_invoice',
+                    paymentInfo: `RUB ${outSumm.toFixed(2)} (InvId ${invId})`,
+                    alfaInvId: invId,
+                    idempotencyKey: `alfa:${invId}`,
+                    fxRateRubUsd: rubPerUsd > 0 ? rubPerUsd : null,
+                    amountRub: outSumm,
+                } as any,
+                { transaction },
+            );
+
+            await this.usersService.updateUserBalance(String(ownerId), amountUsd, {
+                source: 'alfa_bank',
+                externalId: invId,
+                paymentId: String(payment.id),
+                transaction,
+            });
+
+            try {
+                await this.invoiceService.createAdvanceAfterBankPayment({
+                    userId: Number(ownerId),
+                    amountRub: outSumm,
+                    paymentId: String(payment.id),
+                    externalTransactionId: invId,
+                    transaction,
+                });
+            } catch (e) {
+                this.logger.warn(`advance invoice: ${(e as Error).message}`);
+            }
+
+            if (rubPerUsd > 0) {
+                await this.currencyHistoryRepository
+                    .create(
+                        {
+                            atDate: fxDate,
+                            fromCurrency: 'USD',
+                            toCurrency: 'RUB',
+                            rate: rubPerUsd.toFixed(8),
+                        } as any,
+                        { transaction },
+                    )
+                    .catch(() => undefined);
+            }
+        });
+
+        await this.logService.logAction(
+            Number(ownerId),
+            'update',
+            'payment',
+            null,
+            `Alfa bank invoice credited: ${outSumm} RUB → ${amountUsd} USD (InvId=${invId})`,
+            null,
+            { invId, outSumm, amountUsd },
+            null,
+            'critical',
+        );
+
+        await this.telegramService.sendMessage(
+            `✅ Alfa bank payment\nUser: ${ownerId}\n${outSumm} RUB → ${amountUsd} USD\nInvId: ${invId}`,
+        );
+
+        return { ok: true };
+    }
+
     private generateRobokassaSignature(str: string): string {
         return crypto.createHash('sha512').update(str).digest('hex');
     }
-}
+}

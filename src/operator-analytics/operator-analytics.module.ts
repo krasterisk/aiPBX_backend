@@ -17,6 +17,7 @@ import { WhisperModule } from '../whisper/whisper.module';
 import { AiCdr } from '../ai-cdr/ai-cdr.model';
 import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
 import { BillingRecord } from '../billing/billing-record.model';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
     imports: [
@@ -25,6 +26,7 @@ import { BillingRecord } from '../billing/billing-record.model';
         UsersModule,
         AuthModule,
         WhisperModule,
+        BillingModule,
     ],
     controllers: [OperatorAnalyticsController],
     providers: [

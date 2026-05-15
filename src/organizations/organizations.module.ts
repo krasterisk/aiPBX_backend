@@ -5,6 +5,7 @@ import { OrganizationsController } from './organizations.controller';
 import { Organization } from './organizations.model';
 import { AuthModule } from "../auth/auth.module";
 import { LoggerModule } from "../logger/logger.module";
+import { AccountingModule } from "../accounting/accounting.module";
 
 @Module({
     providers: [OrganizationsService],
@@ -13,6 +14,7 @@ import { LoggerModule } from "../logger/logger.module";
         SequelizeModule.forFeature([Organization]),
         forwardRef(() => AuthModule),
         LoggerModule,
+        AccountingModule,
     ],
     exports: [OrganizationsService]
 })

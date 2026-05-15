@@ -14,6 +14,11 @@ interface CreateBillingRecord {
     textCost?: number;
     sttCost?: number;
     totalCost?: number;
+    currency?: string;
+    amountCurrency?: number | null;
+    fxRateUsdToCurrency?: number | null;
+    fxRateSource?: string | null;
+    fxCapturedAt?: Date | null;
 }
 
 @Table({ tableName: 'billingRecords' })
@@ -61,6 +66,26 @@ export class BillingRecord extends Model<BillingRecord, CreateBillingRecord> {
     @ApiProperty({ example: 0.010, description: 'STT cost' })
     @Column({ type: DataType.FLOAT, allowNull: false, defaultValue: 0 })
     sttCost: number;
+
+    @ApiProperty({ example: 'RUB', description: 'Tenant billing currency at charge time' })
+    @Column({ type: DataType.STRING(8), allowNull: false, defaultValue: 'USD' })
+    currency: string;
+
+    @ApiProperty({ example: 2.15, description: 'Total cost in tenant currency (fixed at charge time)' })
+    @Column({ type: DataType.DECIMAL(14, 4), allowNull: true })
+    amountCurrency: string | number | null;
+
+    @ApiProperty({ example: 90.5, description: 'USD to tenant currency rate used' })
+    @Column({ type: DataType.DECIMAL(18, 8), allowNull: true })
+    fxRateUsdToCurrency: string | number | null;
+
+    @ApiProperty({ example: 'rates', description: 'FX rate source: identity | rates | backfill | missing' })
+    @Column({ type: DataType.STRING(32), allowNull: true })
+    fxRateSource: string | null;
+
+    @ApiProperty({ description: 'When FX snapshot was captured' })
+    @Column({ type: DataType.DATE, allowNull: true })
+    fxCapturedAt: Date | null;
 
     @BelongsTo(() => AiCdr, { foreignKey: 'channelId', targetKey: 'channelId' })
     aiCdr: AiCdr;

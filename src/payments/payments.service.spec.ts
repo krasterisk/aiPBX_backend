@@ -208,7 +208,7 @@ describe('PaymentsService', () => {
                 count: 1,
             });
 
-            const result = await service.getUserPayments('10', 1, 10);
+            const result = await service.getUserPayments('10', 1, 10, false);
 
             expect(mockUsersService.resolveOwnerId).toHaveBeenCalledWith('10');
             expect(mockPaymentsRepo.findAndCountAll).toHaveBeenCalledWith(
@@ -222,8 +222,27 @@ describe('PaymentsService', () => {
             expect(result.count).toBe(1);
         });
 
+        it('should use empty where for admin without filterUserId', async () => {
+            mockPaymentsRepo.findAndCountAll.mockResolvedValue({ rows: [], count: 0 });
+            await service.getUserPayments('1', 1, 10, true, undefined);
+            expect(mockUsersService.resolveOwnerId).not.toHaveBeenCalled();
+            expect(mockPaymentsRepo.findAndCountAll).toHaveBeenCalledWith(
+                expect.objectContaining({ where: {} }),
+            );
+        });
+
+        it('should filter by resolved owner when admin passes filterUserId', async () => {
+            mockUsersService.resolveOwnerId.mockResolvedValue('7');
+            mockPaymentsRepo.findAndCountAll.mockResolvedValue({ rows: [], count: 0 });
+            await service.getUserPayments('1', 1, 10, true, '99');
+            expect(mockUsersService.resolveOwnerId).toHaveBeenCalledWith('99');
+            expect(mockPaymentsRepo.findAndCountAll).toHaveBeenCalledWith(
+                expect.objectContaining({ where: { userId: '7' } }),
+            );
+        });
+
         it('should calculate correct offset for page 2', async () => {
-            await service.getUserPayments('1', 2, 20);
+            await service.getUserPayments('1', 2, 20, false);
 
             expect(mockPaymentsRepo.findAndCountAll).toHaveBeenCalledWith(
                 expect.objectContaining({ offset: 20, limit: 20 }),

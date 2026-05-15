@@ -27,4 +27,6 @@ export interface BillingResult {
     textCost: number;
     analyticCost: number;
     totalCost: number;
+    amountCurrency: number | null;
+    costCurrency: string;
 }

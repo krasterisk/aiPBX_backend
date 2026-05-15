@@ -92,6 +92,8 @@ jobs:
             cd /app
 
             # ── Rebuild & restart only backend ──
+            # Чтобы PDF счетов не терялись при --force-recreate, на сервере в docker-compose.production.yml
+            # для backend стоит примонтировать volume на каталог static/org-documents (или весь static).
             echo "Building and deploying backend..."
             sudo docker compose -f docker-compose.production.yml --env-file .env.production up -d \
               --build \

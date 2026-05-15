@@ -15,6 +15,7 @@ import { BillingRecord } from "../billing/billing-record.model";
 import { AiAnalyticsService } from "../ai-analytics/ai-analytics.service";
 import { forwardRef } from "@nestjs/common";
 import { OperatorAnalytics } from "../operator-analytics/operator-analytics.model";
+import { isRubTenant } from '../shared/tenant/tenant-currency';
 
 interface AudioTranscriptionEvent {
     type: 'conversation.item.input_audio_transcription.completed';
@@ -58,6 +59,39 @@ export class AiCdrService {
     /** DATE(col) — extract date from timestamp */
     private sqlDate(col: string): string {
         return this.dialect === 'postgres' ? `${col}::date` : `DATE(${col})`;
+    }
+
+    /** Use billing FX snapshot on CDR row when aiCdr.amountCurrency was not persisted (legacy / migration gap). */
+    private applyBillingFxToCdrRow(row: {
+        cost?: number;
+        amountCurrency?: number | string | null;
+        costCurrency?: string | null;
+        billingRecords?: Array<{
+            totalCost?: number;
+            amountCurrency?: number | string | null;
+            currency?: string;
+        }>;
+    }): void {
+        const cdrAmount = Number(row.amountCurrency);
+        if (Number.isFinite(cdrAmount) && cdrAmount > 0) {
+            return;
+        }
+        const records = row.billingRecords;
+        if (!records?.length) {
+            return;
+        }
+        let amountCurrency = 0;
+        let currency: string | null = row.costCurrency ?? null;
+        for (const br of records) {
+            amountCurrency += Number(br.amountCurrency) || 0;
+            if (!currency && br.currency) {
+                currency = br.currency;
+            }
+        }
+        if (amountCurrency > 0) {
+            row.amountCurrency = parseFloat(amountCurrency.toFixed(4));
+            row.costCurrency = currency;
+        }
     }
 
     /** Group by day with a label */
@@ -138,7 +172,6 @@ export class AiCdrService {
             const duration = Math.floor((now.getTime() - createdAt.getTime()) / 1000);
 
             const billingResult = await this.billingService.finalizeCallBilling(channelId);
-            const cost = billingResult.totalCost;
 
             // Generate recordUrl
             let recordUrl = '';
@@ -156,7 +189,13 @@ export class AiCdrService {
                     }
                 }
             }
-            await aiCdr.update({ duration, cost, recordUrl })
+            await aiCdr.update({
+                duration,
+                cost: billingResult.totalCost,
+                costCurrency: billingResult.costCurrency,
+                amountCurrency: billingResult.amountCurrency,
+                recordUrl,
+            });
 
             if (assistantId) {
                 const assistant = await this.assistantRepository.findByPk(assistantId);
@@ -425,6 +464,14 @@ export class AiCdrService {
             } as any);
             const totalCost = parseFloat((totalCostRaw || 0).toFixed(2));
 
+            let totalAmountCurrency: number | null = null;
+            if (isRubTenant()) {
+                const sumClient = await this.aiCdrRepository.sum('amountCurrency', {
+                    where: sumWhereClause,
+                } as any);
+                totalAmountCurrency = parseFloat((Number(sumClient) || 0).toFixed(2));
+            }
+
             // Enrich rows with transcription from OperatorAnalytics
             // For records created via operator-analytics, channelId = OperatorAnalytics.id
             const analyticsIds = rows
@@ -444,10 +491,11 @@ export class AiCdrService {
             const enrichedRows = rows.map(row => {
                 const json = row.toJSON() as any;
                 json.transcription = transcriptionMap.get(row.channelId) || null;
+                this.applyBillingFxToCdrRow(json);
                 return json;
             });
 
-            return { count, totalCost, rows: enrichedRows }
+            return { count, totalCost, totalAmountCurrency, rows: enrichedRows }
 
         } catch (e) {
             this.logger.error('[AiCdr]: get() error', e instanceof Error ? e.stack : e);
@@ -521,8 +569,11 @@ export class AiCdrService {
             whereAddClause += `AND ${this.q('projectId')} = ${Number(projectId)} `;
         }
 
-        const attrPeriodClause = `${dopAttr}, COUNT(*) as "allCount", SUM(${this.q('tokens')}) as "tokensCount", SUM(${this.q('duration')}) as "durationCount", SUM(${this.q('cost')}) as "amount"`;
-        const attrTotalClause = `COUNT(*) as "allCount", SUM(${this.q('tokens')}) as "allTokensCount", SUM(${this.q('duration')}) as "allDurationCount", SUM(${this.q('cost')}) as "allCost"`;
+        const costSumExpr = isRubTenant()
+            ? `COALESCE(${this.q('amountCurrency')}, ${this.q('cost')})`
+            : this.q('cost');
+        const attrPeriodClause = `${dopAttr}, COUNT(*) as "allCount", SUM(${this.q('tokens')}) as "tokensCount", SUM(${this.q('duration')}) as "durationCount", SUM(${costSumExpr}) as "amount"`;
+        const attrTotalClause = `COUNT(*) as "allCount", SUM(${this.q('tokens')}) as "allTokensCount", SUM(${this.q('duration')}) as "allDurationCount", SUM(${costSumExpr}) as "allCost"`;
 
         const requestPeriod = `SELECT ${attrPeriodClause} FROM ${tbl} ${whereClause} ${whereAddClause} ${groupByClause}`;
         const request = `SELECT ${attrTotalClause} FROM ${tbl} ${whereClause} ${whereAddClause}`;

@@ -29,8 +29,12 @@ RUN npm config set fetch-retry-maxtimeout 120000 && \
     npm ci --omit=dev && npm cache clean --force
 # Копируем билд и статику
 COPY --from=builder /app/dist ./dist
-RUN mkdir -p ./static ./public
+RUN mkdir -p ./static/fonts ./static/org-documents ./public
 COPY --from=builder /app/public ./public
+# Шрифт и печать для PDF счёта (коммитятся в git) — иначе при каждом recreate контейнера пропадут
+COPY --from=builder /app/static/fonts ./static/fonts
+COPY --from=builder /app/static/invoice-pechat.jpg ./static/invoice-pechat.jpg
+# Сюда пишутся выданные PDF (org-documents). Без volume на хосте файлы живут только в слое контейнера.
 RUN chown -R node:node ./static ./public
 # Переменные окружения передаются через docker-compose (env_file),
 # НЕ копируем .production.env в образ!

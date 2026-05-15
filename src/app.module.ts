@@ -35,6 +35,7 @@ import { WhisperModule } from './whisper/whisper.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { ChatModule } from './chat/chat.module';
 import { ApiKeyModule } from './api-keys/api-key.module';
+import { AccountingModule } from "./accounting/accounting.module";
 
 @Module({
     imports: [
@@ -83,6 +84,7 @@ import { ApiKeyModule } from './api-keys/api-key.module';
         KnowledgeModule,
         ChatModule,
         ApiKeyModule,
+        AccountingModule,
         ThrottlerModule.forRoot([{
             ttl: 60000,
             limit: 100,

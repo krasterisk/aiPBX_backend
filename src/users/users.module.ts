@@ -12,18 +12,21 @@ import { PricesModule } from "../prices/prices.module";
 import { MailerModule } from "../mailer/mailer.module";
 import { Payments } from "../payments/payments.model";
 import { LoggerModule } from "../logger/logger.module";
+import { BalanceLedger } from "../accounting/balance-ledger.model";
+import { CurrencyModule } from "../currency/currency.module";
 
 @Module({
     controllers: [UsersController],
     providers: [UsersService],
     imports: [
-        SequelizeModule.forFeature([User, Rates, UserLimits, Payments]),
+        SequelizeModule.forFeature([User, Rates, UserLimits, Payments, BalanceLedger]),
         RolesModule,
         forwardRef(() => AuthModule),
         FilesModule,
         PricesModule,
         MailerModule,
         LoggerModule,
+        CurrencyModule,
     ],
     exports: [
         UsersService

@@ -162,9 +162,10 @@ export class ChatService {
     ): AsyncGenerator<{ type: string; data: any }> {
         const chat = await this.getById(chatId);
 
-        const systemPrompt = chat.instruction || 'You are a helpful assistant. Answer in the same language as the user.';
+        let systemPrompt = chat.instruction || 'You are a helpful assistant. Answer in the same language as the user.';
         const model = chat.model || this.defaultModel;
         const temperature = parseFloat(chat.temperature || '0.7');
+        const isGemma = this.isGemmaModel(model);
 
         // ── 1. Static tools from AiTool (webhook/kb tools) ──────────────────
         let tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [];
@@ -176,8 +177,18 @@ export class ChatService {
         const ephemeralConfigs: EphemeralMcpConfig[] = [];
         if (mcpServers?.length) {
             const mcpTools = await this.loadEphemeralMcpTools(mcpServers, ephemeralConfigs, signal);
+
+            // Все модели (включая Gemma 4 на Ollama 0.23.1+) получают tools через OpenAI API.
             tools = [...tools, ...mcpTools];
+
+            if (isGemma) {
+                // Для Gemma дополнительно добавляем список инструментов в системный промпт
+                // как подсказку — это помогает модели правильно называть инструменты.
+                const toolNames = mcpTools.map(t => `- ${t.function.name}: ${t.function.description}`).join('\n');
+                systemPrompt += `\n\n## Доступные инструменты\nПри необходимости используй ТОЛЬКО эти инструменты (точные имена):\n${toolNames}\nНЕ придумывай имена инструментов — используй только из этого списка.`;
+            }
         }
+
 
         const messages: ChatMessage[] = [
             { role: 'system', content: systemPrompt },
@@ -186,6 +197,12 @@ export class ChatService {
         ];
 
         yield* this.chatLoop(messages, tools, model, temperature, chat, ephemeralConfigs, signal);
+    }
+
+    /** Определяет, является ли модель Gemma (использует google:tool_code вместо OpenAI function calling) */
+    private isGemmaModel(model: string): boolean {
+        const lower = model.toLowerCase();
+        return lower.includes('gemma') || lower.includes('gemini');
     }
 
     // ── Ephemeral MCP — Tool Discovery ─────────────────────
@@ -273,6 +290,9 @@ export class ChatService {
                 params.tool_choice = 'auto';
             }
 
+            // Gemma: tool calls приходят как текст google:tool_code(...).
+            // Они будут перехвачены через fullText парсинг ниже если не попали в tool_calls.
+
             let fullText = '';
             const toolCallAccumulator = new Map<number, {
                 id: string;
@@ -345,7 +365,7 @@ export class ChatService {
                 return;
             }
 
-            // Process tool calls
+            // Process tool calls (standard OpenAI function calling)
             if ((finishReason === 'tool_calls' || finishReason === 'stop') && toolCallAccumulator.size > 0) {
                 const toolCalls = Array.from(toolCallAccumulator.values());
 
@@ -365,9 +385,34 @@ export class ChatService {
 
                     let result: string;
                     try {
+                        result = await this.dispatchToolCall(tc.name, tc.arguments, chat, ephemeralConfigs);
+                    } catch (err) {
+                        result = `Tool error: ${err.message}`;
+                    }
+
+                    messages.push({ role: 'tool', content: result, tool_call_id: tc.id, name: tc.name });
+                    yield { type: 'tool_result', data: { name: tc.name, result: result.substring(0, 200) } };
+                }
+
+                continue;
+            }
+
+            // Gemma text-based tool call parsing: google:tool_code({...})
+            // Gemma writes tool calls as plain text when tools aren't passed via API
+            const gemmaToolCalls = this.parseGemmaToolCalls(fullText);
+            if (gemmaToolCalls.length > 0) {
+                messages.push({ role: 'assistant', content: fullText });
+
+                for (const gc of gemmaToolCalls) {
+                    const fakeId = `gemma_${Date.now()}`;
+                    this.logger.log(`[Chat ${chat.id}] Gemma tool_code: ${gc.toolName}(${JSON.stringify(gc.toolInput)})`);
+                    yield { type: 'tool_call', data: { name: gc.toolName, arguments: JSON.stringify(gc.toolInput) } };
+
+                    let result: string;
+                    try {
                         result = await this.dispatchToolCall(
-                            tc.name,
-                            tc.arguments,
+                            'google:tool_code',
+                            JSON.stringify({ tool_name: gc.toolName, tool_input: gc.toolInput }),
                             chat,
                             ephemeralConfigs,
                         );
@@ -375,14 +420,8 @@ export class ChatService {
                         result = `Tool error: ${err.message}`;
                     }
 
-                    messages.push({
-                        role: 'tool',
-                        content: result,
-                        tool_call_id: tc.id,
-                        name: tc.name,
-                    });
-
-                    yield { type: 'tool_result', data: { name: tc.name, result: result.substring(0, 200) } };
+                    messages.push({ role: 'tool', content: result, tool_call_id: fakeId, name: gc.toolName });
+                    yield { type: 'tool_result', data: { name: gc.toolName, result: result.substring(0, 200) } };
                 }
 
                 continue;
@@ -398,6 +437,29 @@ export class ChatService {
     // ── Tool Dispatch ───────────────────────────────────────
 
     /**
+     * Parse google:tool_code({...}) calls from Gemma plain-text response.
+     * Gemma writes these when tools list is injected into system prompt.
+     */
+    private parseGemmaToolCalls(text: string): Array<{ toolName: string; toolInput: any }> {
+        const results: Array<{ toolName: string; toolInput: any }> = [];
+        // Match: google:tool_code({...}) possibly multiline
+        const regex = /google:tool_code\(({[\s\S]*?})\)/g;
+        let match: RegExpExecArray | null;
+        while ((match = regex.exec(text)) !== null) {
+            try {
+                const parsed = JSON.parse(match[1]);
+                if (parsed.tool_name) {
+                    results.push({
+                        toolName: parsed.tool_name,
+                        toolInput: parsed.tool_input || parsed.arguments || {},
+                    });
+                }
+            } catch { /* skip malformed */ }
+        }
+        return results;
+    }
+
+    /**
      * Route a tool call to the correct handler:
      *   1. Ephemeral MCP (mcp_e{idx}_{toolName}) → mcpCallTool() to the correct server
      *   2. Everything else → AiToolsHandlersService (webhook / KB tools)
@@ -408,6 +470,30 @@ export class ChatService {
         chat: Chat,
         ephemeralConfigs: EphemeralMcpConfig[],
     ): Promise<string> {
+        // ── Route 0: google:tool_code (Gemma/Gemini native format) ─────────────
+        // Gemma models use google:tool_code instead of standard function calling.
+        // They wrap tool calls as: google:tool_code({"tool_name":"...", "tool_input":{...}})
+        // We extract tool_name + tool_input and try to route to the correct MCP tool.
+        if (toolName === 'google:tool_code' || toolName.startsWith('google:')) {
+            const args = this.parseArguments(rawArguments);
+            const innerName: string = args.tool_name || args.name || '';
+            const innerArgs = args.tool_input || args.arguments || args.params || {};
+
+            if (innerName && ephemeralConfigs.length > 0) {
+                // Try direct match first, then fuzzy match
+                const bestMatch = await this.findBestMcpTool(innerName, ephemeralConfigs[0]);
+                if (bestMatch) {
+                    this.logger.log(`[google:tool_code] Mapped "${innerName}" → MCP "${bestMatch}" on ${ephemeralConfigs[0].url}`);
+                    const result = await this.mcpCallTool(ephemeralConfigs[0], bestMatch, innerArgs);
+                    const content = result?.content;
+                    if (Array.isArray(content)) return content.map((c: any) => c.text || '').join('\n');
+                    return typeof result === 'string' ? result : JSON.stringify(result);
+                }
+                return `Function call failed: tool "${innerName}" not found. Available MCP tools can be listed via tools/list.`;
+            }
+            return 'Function call failed: google:tool_code received but no MCP servers configured or tool_name missing.';
+        }
+
         // ── Route 1: Ephemeral MCP tool ─────────────────────────────────────
         const mcpMatch = toolName.match(/^mcp_e(\d+)_(.+)$/);
         if (mcpMatch) {
@@ -419,22 +505,154 @@ export class ChatService {
                 throw new Error(`Ephemeral MCP server #${serverIdx} not found in this request context`);
             }
 
-            this.logger.log(
-                `[MCP e${serverIdx}] Calling ${realToolName} on ${config.url}`,
-            );
+            this.logger.log(`[MCP e${serverIdx}] Calling ${realToolName} on ${config.url}`);
 
             const args = this.parseArguments(rawArguments);
             const result = await this.mcpCallTool(config, realToolName, args);
+            const content = result?.content;
+            if (Array.isArray(content)) return content.map((c: any) => c.text || '').join('\n');
             return typeof result === 'string' ? result : JSON.stringify(result);
         }
 
         // ── Route 2: Local webhook / KB tool ────────────────────────────────
-        return this.toolsHandlerService.functionHandler(
-            toolName,
-            rawArguments,
-            { userId: chat.userId } as any,
-        );
+        // First try webhook handler. If it throws "not found", fall back to MCP fuzzy match.
+        try {
+            return await this.toolsHandlerService.functionHandler(
+                toolName,
+                rawArguments,
+                { userId: chat.userId } as any,
+            );
+        } catch (webhookErr) {
+            // ── Route 2.5: Fuzzy MCP fallback ───────────────────────────────
+            // Gemma sometimes calls tools with invented names (create_user, list_users, etc.)
+            // that don't match the mcp_e{idx}_ namespace but should map to real MCP tools.
+            if (ephemeralConfigs.length > 0) {
+                const bestMatch = await this.findBestMcpTool(toolName, ephemeralConfigs[0]);
+                if (bestMatch) {
+                    this.logger.warn(`[Fuzzy] "${toolName}" → MCP "${bestMatch}" (model used wrong tool name)`);
+                    const rawArgs = this.parseArguments(rawArguments);
+                    // Normalize common Gemma argument name inventions
+                    const normalizedArgs = this.normalizeMcpArgs(bestMatch, rawArgs);
+                    const result = await this.mcpCallTool(ephemeralConfigs[0], bestMatch, normalizedArgs);
+                    const content = result?.content;
+                    if (Array.isArray(content)) return content.map((c: any) => c.text || '').join('\n');
+                    return typeof result === 'string' ? result : JSON.stringify(result);
+                }
+            }
+            // No fuzzy match — return meaningful error to LLM
+            return `Function call failed: tool "${toolName}" not found. Use only the tools provided in the tools list.`;
+        }
     }
+
+    /**
+     * Normalize arg names that Gemma invents to the real MCP tool parameter names.
+     * e.g. create_user({user_id: "101"}) → create_endpoint({extension: "101"})
+     */
+    private normalizeMcpArgs(toolName: string, args: Record<string, any>): Record<string, any> {
+        const normalized = { ...args };
+
+        // Map common invented field names to real ones
+        const fieldMap: Record<string, string> = {
+            user_id: 'extension',
+            userId: 'extension',
+            number: 'extension',
+            exten: 'extension',
+            username: 'extension',
+            subscriber_id: 'extension',
+            name: toolName.includes('endpoint') || toolName.includes('user') ? 'extension' : 'name',
+        };
+
+        for (const [from, to] of Object.entries(fieldMap)) {
+            if (args[from] !== undefined && normalized[to] === undefined) {
+                normalized[to] = String(args[from]);
+                delete normalized[from];
+            }
+        }
+
+        return normalized;
+    }
+
+
+
+    /**
+     * Fuzzy-match a tool name to an available MCP tool.
+     * Maps model-invented names (create_user, add_subscriber) to real tool names (create_endpoint).
+     */
+    private async findBestMcpTool(requestedName: string, config: EphemeralMcpConfig): Promise<string | null> {
+        try {
+            const tools = await this.mcpListTools(config);
+            const names = tools.map((t: any) => t.name as string);
+
+            // ── Semantic alias table: model-invented names → real MCP tool names ──
+            // Add new entries when model invents new names
+            const ALIASES: Record<string, string> = {
+                create_user: 'create_endpoint',
+                add_user: 'create_endpoint',
+                add_subscriber: 'create_endpoint',
+                create_subscriber: 'create_endpoint',
+                add_extension: 'create_endpoint',
+                create_extension: 'create_endpoint',
+                list_users: 'get_pbx_state',
+                list_subscribers: 'get_pbx_state',
+                get_users: 'get_pbx_state',
+                get_subscribers: 'get_pbx_state',
+                list_extensions: 'get_pbx_state',
+                get_state: 'get_pbx_state',
+                delete_user: 'delete_endpoint',
+                remove_user: 'delete_endpoint',
+                remove_subscriber: 'delete_endpoint',
+                create_trunk_connection: 'create_trunk',
+                add_trunk: 'create_trunk',
+                delete_trunk_connection: 'delete_trunk',
+            };
+
+            // 1. Exact match
+            if (names.includes(requestedName)) return requestedName;
+
+            // 2. Strip namespace prefix — "user_manager.create_user" → "create_user"
+            //    Also handles "ns:tool_name", "prefix/tool_name" etc.
+            const stripped = requestedName
+                .replace(/^.*[.\/:]/g, '')  // remove everything up to last . / :
+                .toLowerCase();
+
+            // 3. Alias match (on original name OR stripped name)
+            const lower = requestedName.toLowerCase();
+            for (const [alias, real] of Object.entries(ALIASES)) {
+                if ((lower === alias || stripped === alias) && names.includes(real)) {
+                    return real;
+                }
+            }
+
+            // 4. Exact match on stripped name
+            const strippedMatch = names.find(n => n.toLowerCase() === stripped);
+            if (strippedMatch) return strippedMatch;
+
+            // 5. Substring match — try both full name and stripped name
+            const substringMatch = names.find(n => {
+                const nl = n.toLowerCase();
+                return nl.includes(lower) || lower.includes(nl) ||
+                       nl.includes(stripped) || stripped.includes(nl);
+            });
+            if (substringMatch) return substringMatch;
+
+            // 6. Keyword match — split on ALL separators including dots and colons
+            const keywords = lower.split(/[_\s.\/:]+/).filter(k => k.length > 2);
+            const strippedKeywords = stripped.split(/[_\s.\/:]+/).filter(k => k.length > 2);
+            const allKeywords = [...new Set([...keywords, ...strippedKeywords])];
+
+            const keywordMatch = names.find(n => {
+                const nWords = n.toLowerCase().split('_');
+                return allKeywords.some(kw => nWords.some(nw => nw.includes(kw) || kw.includes(nw)));
+            });
+            return keywordMatch || null;
+        } catch {
+            return null;
+        }
+    }
+
+
+
+
 
     // ── Ephemeral MCP — JSON-RPC calls ─────────────────────
 

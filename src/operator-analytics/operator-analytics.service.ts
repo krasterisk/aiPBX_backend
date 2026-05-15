@@ -12,6 +12,8 @@ import { User } from '../users/users.model';
 import { AiCdr } from '../ai-cdr/ai-cdr.model';
 import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
 import { BillingRecord } from '../billing/billing-record.model';
+import { BillingFxService } from '../billing/billing-fx.service';
+import { isRubTenant } from '../shared/tenant/tenant-currency';
 import {
     OperatorMetrics, CustomMetricDef, ITranscriptionProvider, TranscriptionResult,
     MetricDefinition, DefaultMetricKey, WebhookEvent, BatchStatus,
@@ -50,6 +52,7 @@ export class OperatorAnalyticsService {
         private readonly openAiSttProvider: OpenAiTranscriptionProvider,
         private readonly externalSttProvider: ExternalSttProvider,
         private readonly whisperService: WhisperService,
+        private readonly billingFx: BillingFxService,
     ) {
         const apiKey = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
         this.openAiClient = new OpenAI({
@@ -279,12 +282,15 @@ export class OperatorAnalyticsService {
             const assistantName = options.operatorName || 'Unknown Operator';
             const mergedMetrics = customMetricsResult ? { ...metrics, metrics: customMetricsResult } : metrics;
 
+            const cdrCost = await this.cdrCostFields(totalCost);
+            const billingFx = await this.billingFx.fieldsForUsdAmount(totalCost);
+
             await this.aiCdrRepository.create({
                 channelId,
                 projectId: record.projectId,
                 duration: Math.round(sttResult.duration),
                 userId: record.userId,
-                cost: totalCost,
+                ...cdrCost,
                 tokens: totalTokens,
                 assistantName: assistantName,
                 callerId: options.clientPhone || '',
@@ -313,6 +319,7 @@ export class OperatorAnalyticsService {
                 totalCost: totalCost,
                 sttCost: sttCost,
                 textCost: llmCost,
+                ...billingFx,
             });
 
             this.logger.log(`Analysis completed for "${filename}" (id=${record.id}), cost=${totalCost} (llm=${llmCost}, stt=${sttCost}), tokens=${totalTokens}`);
@@ -565,12 +572,15 @@ export class OperatorAnalyticsService {
             const assistantName = record.operatorName || 'Unknown Operator';
             const mergedMetrics = customMetricsResult ? { ...metrics, metrics: customMetricsResult } : metrics;
 
+            const cdrCost = await this.cdrCostFields(totalCost);
+            const billingFx = await this.billingFx.fieldsForUsdAmount(totalCost);
+
             await this.aiCdrRepository.create({
                 channelId,
                 projectId: record.projectId,
                 duration: Math.round(sttResult.duration),
                 userId: record.userId,
-                cost: totalCost,
+                ...cdrCost,
                 tokens: totalTokens,
                 assistantName: assistantName,
                 callerId: record.clientPhone || '',
@@ -599,6 +609,7 @@ export class OperatorAnalyticsService {
                 totalCost: totalCost,
                 sttCost: sttCost,
                 textCost: llmCost,
+                ...billingFx,
             });
 
             this.logger.log(`Background analysis completed for record #${recordId}`);
@@ -792,7 +803,16 @@ export class OperatorAnalyticsService {
             };
         }
 
-        const totalCost = records.reduce((sum, r) => sum + (r.cost || 0), 0);
+        const totalCostUsd = records.reduce((sum, r) => sum + Number(r.cost || 0), 0);
+        const totalAmountCurrency = isRubTenant()
+            ? records.reduce((sum, r) => {
+                const ac = Number(r.amountCurrency);
+                return sum + (Number.isFinite(ac) && ac > 0 ? ac : Number(r.cost || 0));
+            }, 0)
+            : null;
+        const totalCost = isRubTenant() && totalAmountCurrency != null
+            ? totalAmountCurrency
+            : totalCostUsd;
         const averageDuration = records.reduce((sum, r) => sum + (r.duration || 0), 0) / totalAnalyzed;
 
         // Aggregate metrics
@@ -840,7 +860,10 @@ export class OperatorAnalyticsService {
 
         return {
             totalAnalyzed,
-            totalCost: parseFloat(totalCost.toFixed(2)),
+            totalCost: parseFloat(totalCost.toFixed(isRubTenant() ? 2 : 4)),
+            totalAmountCurrency: totalAmountCurrency != null
+                ? parseFloat(totalAmountCurrency.toFixed(2))
+                : null,
             averageDuration: parseFloat(averageDuration.toFixed(2)),
             averageScore,
             successRate,
@@ -1249,6 +1272,15 @@ Write insights in Russian. Be specific and actionable.`;
         return result;
     }
 
+    private async cdrCostFields(totalCostUsd: number) {
+        const snap = await this.billingFx.captureSnapshot(totalCostUsd);
+        return {
+            cost: totalCostUsd,
+            costCurrency: snap.currency,
+            amountCurrency: snap.amountCurrency,
+        };
+    }
+
     /**
      * Charge user for insight generation using price.analytic rate.
      * Creates a BillingRecord and decrements user balance.
@@ -1265,9 +1297,8 @@ Write insights in Russian. Be specific and actionable.`;
         const cost = parseFloat((totalTokens * (price.analytic / 1_000_000)).toFixed(6));
 
         if (cost > 0) {
-            await this.usersService.decrementUserBalance(userId, cost);
-
-            await this.billingRecordRepository.create({
+            const billingFx = await this.billingFx.fieldsForUsdAmount(cost);
+            const rec = await this.billingRecordRepository.create({
                 channelId: `insight-${Date.now()}`,
                 type: 'insight',
                 userId: String(userId),
@@ -1276,6 +1307,12 @@ Write insights in Russian. Be specific and actionable.`;
                 totalTokens,
                 textCost: cost,
                 totalCost: cost,
+                ...billingFx,
+            });
+
+            await this.usersService.decrementUserBalance(userId, cost, {
+                source: 'usage_analytics',
+                externalId: `usage_insight_${rec.id}`,
             });
 
             this.logger.log(`Insight charged userId=${userId}: tokens=${totalTokens}, cost=${cost}, desc="${description}"`);
@@ -1467,7 +1504,10 @@ Write insights in Russian. Be specific and actionable.`;
         this.logger.log(`Billing: LLM=${llmCost} (${totalTokens} tokens) + STT=${sttCost} (${durationMinutes.toFixed(2)} min, provider=${sttProvider || 'unknown'}) = ${totalCost}`);
 
         if (totalCost > 0) {
-            await this.usersService.decrementUserBalance(userId, totalCost);
+            await this.usersService.decrementUserBalance(userId, totalCost, {
+                source: 'usage_analytics',
+                externalId: `usage_operator_${Date.now()}_${userId}`,
+            });
         }
 
         return { totalCost, llmCost, sttCost };

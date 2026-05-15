@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { HttpException, HttpStatus } from '@nestjs/common';
-import { getModelToken } from '@nestjs/sequelize';
+import { getModelToken, getConnectionToken } from '@nestjs/sequelize';
 import { UsersService } from './users.service';
 import { User } from './users.model';
 import { Rates } from '../currency/rates.model';
@@ -10,6 +10,8 @@ import { RolesService } from '../roles/roles.service';
 import { FilesService } from '../files/files.service';
 import { PricesService } from '../prices/prices.service';
 import { MailerService } from '../mailer/mailer.service';
+import { CurrencyService } from '../currency/currency.service';
+import { BalanceLedger } from '../accounting/balance-ledger.model';
 
 describe('UsersService', () => {
     let service: UsersService;
@@ -21,6 +23,8 @@ describe('UsersService', () => {
     let mockFilesService: any;
     let mockPricesService: any;
     let mockMailerService: any;
+    let mockCurrencyService: any;
+    const originalTenantCurrency = process.env.TENANT_CURRENCY;
 
     const mockUser = {
         id: 1,
@@ -75,6 +79,15 @@ describe('UsersService', () => {
             sendCriticalBalanceNotification: jest.fn(),
             sendZeroBalanceNotification: jest.fn(),
         };
+        mockCurrencyService = {
+            convertFromUsd: jest.fn(async (amountUsd: number, currency: string) => {
+                if (currency === 'RUB') {
+                    return { amount: Math.round(amountUsd * 90 * 100) / 100, rate: 90 };
+                }
+                return { amount: amountUsd, rate: 1 };
+            }),
+        };
+        process.env.TENANT_CURRENCY = 'USD';
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -87,10 +100,24 @@ describe('UsersService', () => {
                 { provide: FilesService, useValue: mockFilesService },
                 { provide: PricesService, useValue: mockPricesService },
                 { provide: MailerService, useValue: mockMailerService },
+                { provide: CurrencyService, useValue: mockCurrencyService },
+                { provide: getModelToken(BalanceLedger), useValue: { findOne: jest.fn(), create: jest.fn() } },
+                {
+                    provide: getConnectionToken(),
+                    useValue: {
+                        transaction: jest.fn(async (cb: (t: { LOCK: { UPDATE: string } }) => Promise<void>) =>
+                            cb({ LOCK: { UPDATE: 'UPDATE' } }),
+                        ),
+                    },
+                },
             ],
         }).compile();
 
         service = module.get<UsersService>(UsersService);
+    });
+
+    afterEach(() => {
+        process.env.TENANT_CURRENCY = originalTenantCurrency;
     });
 
     // ═══════════════════════════════════════════════════════════════════
@@ -348,14 +375,35 @@ describe('UsersService', () => {
     // ═══════════════════════════════════════════════════════════════════
 
     describe('getUserBalance', () => {
-        it('should return balance, currency and rate', async () => {
+        it('should return balance in tenant currency with balanceUsd ledger', async () => {
             mockUsersRepo.findByPk.mockResolvedValue({ id: 1, vpbx_user_id: null });
             mockUsersRepo.findOne.mockResolvedValue({ balance: 100, currency: 'USD' });
-            mockRatesRepo.findOne.mockResolvedValue({ currency: 'USD', rate: 1 });
 
             const result = await service.getUserBalance('1');
 
-            expect(result).toEqual({ balance: 100, currency: 'USD', rate: 1 });
+            expect(result).toEqual({
+                balance: 100,
+                balanceUsd: 100,
+                currency: 'USD',
+                rate: 1,
+            });
+            expect(mockCurrencyService.convertFromUsd).toHaveBeenCalledWith(100, 'USD');
+        });
+
+        it('should convert balance to RUB when TENANT_CURRENCY=RUB', async () => {
+            process.env.TENANT_CURRENCY = 'RUB';
+            mockUsersRepo.findByPk.mockResolvedValue({ id: 1, vpbx_user_id: null });
+            mockUsersRepo.findOne.mockResolvedValue({ balance: 10, currency: 'RUB' });
+
+            const result = await service.getUserBalance('1');
+
+            expect(result).toEqual({
+                balance: 900,
+                balanceUsd: 10,
+                currency: 'RUB',
+                rate: 90,
+            });
+            expect(mockCurrencyService.convertFromUsd).toHaveBeenCalledWith(10, 'RUB');
         });
 
         it('should throw 404 when user not found', async () => {
@@ -365,14 +413,16 @@ describe('UsersService', () => {
             await expect(service.getUserBalance('1')).rejects.toThrow('User not found');
         });
 
-        it('should default rate to 1 when currency rate not found', async () => {
+        it('should use convertFromUsd rate from CurrencyService', async () => {
+            mockCurrencyService.convertFromUsd.mockResolvedValue({ amount: 55, rate: 1.1 });
             mockUsersRepo.findByPk.mockResolvedValue({ id: 1, vpbx_user_id: null });
             mockUsersRepo.findOne.mockResolvedValue({ balance: 50, currency: 'EUR' });
-            mockRatesRepo.findOne.mockResolvedValue(null);
 
             const result = await service.getUserBalance('1');
 
-            expect(result.rate).toBe(1);
+            expect(result.balance).toBe(55);
+            expect(result.balanceUsd).toBe(50);
+            expect(result.rate).toBe(1.1);
         });
     });
 

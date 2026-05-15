@@ -15,6 +15,8 @@ interface CreateAiCdr {
     tokens?: number
     duration?: number
     cost?: number
+    costCurrency?: string | null
+    amountCurrency?: number | null
     userId?: string
     vPbxUserId?: string
     recordUrl?: string
@@ -44,9 +46,18 @@ export class AiCdr extends Model<AiCdr, CreateAiCdr> {
     @ApiProperty({ example: '10', description: "Call duration seconds" })
     @Column({ type: DataType.INTEGER, allowNull: true })
     duration: number
-    @ApiProperty({ example: '0.084', description: "Cached total cost" })
+    @ApiProperty({ example: '0.084', description: "Cached total cost in USD" })
     @Column({ type: DataType.FLOAT, allowNull: false, defaultValue: 0 })
     cost: number
+
+    @ApiProperty({ example: 'RUB', description: 'Currency code for amountCurrency' })
+    @Column({ type: DataType.STRING(8), allowNull: true })
+    costCurrency: string | null
+
+    @ApiProperty({ example: '7.56', description: 'Cached total cost in tenant currency at hangup' })
+    @Column({ type: DataType.DECIMAL(14, 4), allowNull: true })
+    amountCurrency: string | number | null
+
     @ApiProperty({ example: '1', description: "UserId" })
     @Column({ type: DataType.STRING, allowNull: true })
     userId: string

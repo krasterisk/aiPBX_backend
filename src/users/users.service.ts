@@ -1,5 +1,7 @@
 import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
+import { InjectConnection } from "@nestjs/sequelize";
+import { Sequelize, Transaction } from "sequelize";
 import { User } from "../users/users.model";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { CreateSubUserDto } from "./dto/create-sub-user.dto";
@@ -16,6 +18,25 @@ import { CreateUserLimitDto } from "./dto/create-user-limit.dto";
 import { MailerService } from "../mailer/mailer.service";
 import { Payments } from "../payments/payments.model";
 import { AdminTopUpDto } from "./dto/admin-top-up.dto";
+import { getTenantCurrency } from '../shared/tenant/tenant-currency';
+import { BalanceLedger, BalanceLedgerSource } from "../accounting/balance-ledger.model";
+import { CurrencyService } from '../currency/currency.service';
+
+export interface BalanceCreditOptions {
+    source?: BalanceLedgerSource;
+    externalId?: string | null;
+    paymentId?: string | null;
+    documentId?: string | null;
+    meta?: Record<string, unknown> | null;
+    transaction?: Transaction;
+}
+
+export interface BalanceDebitOptions {
+    source?: BalanceLedgerSource;
+    externalId?: string | null;
+    meta?: Record<string, unknown> | null;
+    transaction?: Transaction;
+}
 
 @Injectable()
 export class UsersService {
@@ -29,14 +50,21 @@ export class UsersService {
         private priceService: PricesService,
         @InjectModel(UserLimits) private userLimitsRepository: typeof UserLimits,
         @InjectModel(Payments) private paymentsRepository: typeof Payments,
-        private mailerService: MailerService
+        @InjectModel(BalanceLedger) private balanceLedgerRepository: typeof BalanceLedger,
+        @InjectConnection() private readonly sequelize: Sequelize,
+        private mailerService: MailerService,
+        private readonly currencyService: CurrencyService,
     ) {
     }
 
     async create(dto: CreateUserDto) {
         try {
             // создаём пользователя
-            const user = await this.usersRepository.create(dto);
+            const { currency: _dtoCurrency, ...createPayload } = dto as CreateUserDto & { currency?: string };
+            const user = await this.usersRepository.create({
+                ...createPayload,
+                currency: getTenantCurrency(),
+            } as any);
 
             if (!user) {
                 this.logger.warn("User not created");
@@ -115,6 +143,7 @@ export class UsersService {
                 password: dto.password || null,
                 vpbx_user_id: ownerUserId,
                 balance: 0,
+                currency: owner.currency || getTenantCurrency(),
             } as any);
 
             if (!user) {
@@ -397,71 +426,139 @@ export class UsersService {
         return user;
     }
 
-    async updateUserBalance(id: string, amountToAdd: number) {
-
-        if (!id && !amountToAdd) {
+    async updateUserBalance(id: string, amountToAdd: number, opts?: BalanceCreditOptions) {
+        if (id === undefined || id === null || id === '' || amountToAdd === undefined || amountToAdd === null) {
             this.logger.warn('id or amount not found');
-            return false
+            return false;
         }
         const ownerId = await this.resolveOwnerId(id);
-        const [affectedRows] = await this.usersRepository.increment('balance', {
-            by: amountToAdd,
-            where: { id: ownerId }
-        });
+        const source: BalanceLedgerSource = opts?.source ?? 'admin';
 
-        if (affectedRows.length === 0) {
-            this.logger.warn("User not found")
-            return false
+        const run = async (transaction: Transaction) => {
+            const user = await this.usersRepository.findByPk(ownerId, {
+                transaction,
+                lock: transaction.LOCK.UPDATE,
+            });
+            if (!user) {
+                this.logger.warn('User not found');
+                return false;
+            }
+
+            if (opts?.externalId) {
+                const existing = await this.balanceLedgerRepository.findOne({
+                    where: { source, externalId: opts.externalId },
+                    transaction,
+                });
+                if (existing) {
+                    return true;
+                }
+            }
+
+            const before = Number(user.balance);
+            const after = before + Number(amountToAdd);
+            await user.update({ balance: after }, { transaction });
+
+            await this.balanceLedgerRepository.create(
+                {
+                    userId: String(ownerId),
+                    direction: 'credit',
+                    amountUsd: Math.abs(Number(amountToAdd)).toFixed(4),
+                    balanceBeforeUsd: before.toFixed(4),
+                    balanceAfterUsd: after.toFixed(4),
+                    source,
+                    externalId: opts?.externalId ?? null,
+                    paymentId: opts?.paymentId ?? null,
+                    documentId: opts?.documentId ?? null,
+                    meta: opts?.meta ?? null,
+                },
+                { transaction },
+            );
+            return true;
+        };
+
+        if (opts?.transaction) {
+            return run(opts.transaction);
         }
-        return true
+        return this.sequelize.transaction((t) => run(t));
     }
 
-    async decrementUserBalance(id: string, amountToDec: number) {
-        if (!id && !amountToDec) {
+    async decrementUserBalance(id: string, amountToDec: number, opts?: BalanceDebitOptions) {
+        if (id === undefined || id === null || id === '' || !amountToDec) {
             this.logger.warn('id or amount not found');
-            return false
+            return false;
         }
         const ownerId = await this.resolveOwnerId(id);
-        const limit = await this.userLimitsRepository.findOne({ where: { userId: ownerId } });
+        const source: BalanceLedgerSource = opts?.source ?? 'usage_realtime';
 
-        await this.usersRepository.decrement('balance', {
-            by: amountToDec,
-            where: { id: ownerId }
-        });
-
-
-        const user = await this.usersRepository.findByPk(ownerId, { attributes: ['balance', 'email'] });
-
-        if (!user) {
-            this.logger.warn('User not found');
-            return false
-        }
-
-        const newBalance = user.balance;
-        const oldBalanceApprox = newBalance + amountToDec;
-
-        if (limit && limit.emails && limit.emails.length > 0) {
-            // Check if we crossed the threshold downwards
-            if (oldBalanceApprox >= limit.limitAmount && newBalance < limit.limitAmount) {
-                this.mailerService.sendLowBalanceNotification(limit.emails, newBalance, limit.limitAmount);
+        const run = async (transaction: Transaction) => {
+            const user = await this.usersRepository.findByPk(ownerId, {
+                transaction,
+                lock: transaction.LOCK.UPDATE,
+                attributes: ['id', 'balance', 'email'],
+            });
+            if (!user) {
+                this.logger.warn('User not found');
+                return false;
             }
-        }
 
-        // Check if we crossed $3 threshold downwards
-        if (oldBalanceApprox > 3 && newBalance <= 3) {
-            const limitEmails = limit?.emails || [];
-            const recipients = [...new Set([...limitEmails, user.email])].filter(Boolean);
-            this.mailerService.sendCriticalBalanceNotification(recipients, newBalance);
-        }
+            if (opts?.externalId) {
+                const existing = await this.balanceLedgerRepository.findOne({
+                    where: { source, externalId: opts.externalId },
+                    transaction,
+                });
+                if (existing) {
+                    return true;
+                }
+            }
 
-        // Check if we crossed zero downwards
-        if (oldBalanceApprox > 0 && newBalance <= 0) {
-            const limitEmails = limit?.emails || [];
-            const recipients = [...new Set([...limitEmails, user.email])].filter(Boolean);
-            this.mailerService.sendZeroBalanceNotification(recipients, newBalance);
-        }
+            const limit = await this.userLimitsRepository.findOne({ where: { userId: ownerId }, transaction });
 
-        return true
+            const before = Number(user.balance);
+            const after = before - Number(amountToDec);
+            await user.update({ balance: after }, { transaction });
+
+            await this.balanceLedgerRepository.create(
+                {
+                    userId: String(ownerId),
+                    direction: 'debit',
+                    amountUsd: Math.abs(Number(amountToDec)).toFixed(4),
+                    balanceBeforeUsd: before.toFixed(4),
+                    balanceAfterUsd: after.toFixed(4),
+                    source,
+                    externalId: opts?.externalId ?? null,
+                    meta: opts?.meta ?? null,
+                },
+                { transaction },
+            );
+
+            const newBalance = after;
+            const oldBalanceApprox = before;
+
+            if (limit && limit.emails && limit.emails.length > 0) {
+                if (oldBalanceApprox >= limit.limitAmount && newBalance < limit.limitAmount) {
+                    this.mailerService.sendLowBalanceNotification(limit.emails, newBalance, limit.limitAmount);
+                }
+            }
+
+            if (oldBalanceApprox > 3 && newBalance <= 3) {
+                const limitEmails = limit?.emails || [];
+                const recipients = [...new Set([...limitEmails, user.email])].filter(Boolean);
+                this.mailerService.sendCriticalBalanceNotification(recipients, newBalance);
+            }
+
+            if (oldBalanceApprox > 0 && newBalance <= 0) {
+                const limitEmails = limit?.emails || [];
+                const recipients = [...new Set([...limitEmails, user.email])].filter(Boolean);
+                this.mailerService.sendZeroBalanceNotification(recipients, newBalance);
+            }
+
+            return true;
+        };
+
+        if (opts?.transaction) {
+            return run(opts.transaction);
+        }
+        return this.sequelize.transaction((t) => run(t));
     }
 
     async getUserByUsername(username: string) {
@@ -504,17 +601,16 @@ export class UsersService {
             throw new HttpException('User not found', HttpStatus.NOT_FOUND);
         }
 
-        const currency = user.currency || 'USD'
-
-        const currencyRate = await this.ratesRepository.findOne({
-            where: { currency }
-        });
+        const balanceUsd = Number(user.balance) || 0;
+        const displayCurrency = getTenantCurrency();
+        const { amount: balance, rate } = await this.currencyService.convertFromUsd(balanceUsd, displayCurrency);
 
         return {
-            balance: user.balance,
-            currency: user.currency,
-            rate: currencyRate?.rate ?? 1
-        }
+            balance,
+            balanceUsd,
+            currency: displayCurrency,
+            rate,
+        };
     }
 
 
@@ -650,7 +746,7 @@ export class UsersService {
         throw new HttpException("User or Role not found", HttpStatus.NOT_FOUND);
     }
 
-    async updateUser(updates: any) {
+    async updateUser(updates: any, isAdmin = true) {
         const user = await this.usersRepository.findByPk(updates.id, {
             include: { all: true }
         });
@@ -660,7 +756,16 @@ export class UsersService {
             throw new HttpException("User not found", HttpStatus.NOT_FOUND);
         }
 
-        await user.update(updates);
+        const payload = { ...updates };
+        if (!isAdmin && 'currency' in payload) {
+            delete payload.currency;
+        } else if (isAdmin && payload.currency != null && payload.currency !== user.currency) {
+            this.logger.warn(
+                `Admin changed user ${user.id} currency ${user.currency} → ${payload.currency}`,
+            );
+        }
+
+        await user.update(payload);
 
         if (updates.roles && Array.isArray(updates.roles)) {
             const roleValues = updates.roles.map(r => r.value);
@@ -819,19 +924,23 @@ export class UsersService {
         }
 
         const currency = dto.currency || 'USD';
-        const isUpdated = await this.updateUserBalance(dto.userId, dto.amount);
-        if (!isUpdated) {
-            throw new HttpException('Failed to update balance', HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-
         const payment = await this.paymentsRepository.create({
-            userId: dto.userId,
+            userId: String(dto.userId),
             amount: dto.amount,
             currency,
             status: 'succeeded',
             paymentMethod: dto.paymentMethod,
             paymentInfo: dto.paymentInfo || 'Admin manual top-up',
         } as any);
+
+        const isUpdated = await this.updateUserBalance(String(dto.userId), dto.amount, {
+            source: 'admin',
+            externalId: `payment_${payment.id}`,
+            paymentId: String(payment.id),
+        });
+        if (!isUpdated) {
+            throw new HttpException('Failed to update balance', HttpStatus.INTERNAL_SERVER_ERROR);
+        }
 
         this.logger.log(`Admin top-up: User ${dto.userId}, amount ${dto.amount} ${currency}, method: ${dto.paymentMethod}`);
 

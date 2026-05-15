@@ -6,6 +6,7 @@ import { Prices } from '../prices/prices.model';
 import { BillingRecord } from './billing-record.model';
 import { UsersService } from '../users/users.service';
 import { LoggerService } from '../logger/logger.service';
+import { BillingFxService } from './billing-fx.service';
 import { OpenAiUsage } from './interfaces/openai-usage.interface';
 
 describe('BillingService', () => {
@@ -15,6 +16,7 @@ describe('BillingService', () => {
     let mockBillingRecordRepository: any;
     let mockUsersService: any;
     let mockLoggerService: any;
+    let mockBillingFxService: any;
 
     const mockCdr = {
         channelId: 'test-channel-123',
@@ -33,12 +35,14 @@ describe('BillingService', () => {
     };
 
     const mockRecord = {
+        id: 42,
         audioTokens: 0,
         textTokens: 0,
         totalTokens: 0,
         audioCost: 0,
         textCost: 0,
         totalCost: 0,
+        amountCurrency: null,
         increment: jest.fn().mockResolvedValue(undefined),
         update: jest.fn().mockResolvedValue(undefined),
     };
@@ -52,6 +56,23 @@ describe('BillingService', () => {
         };
         mockUsersService = { decrementUserBalance: jest.fn().mockResolvedValue(true) };
         mockLoggerService = { logAction: jest.fn().mockResolvedValue(undefined) };
+        mockBillingFxService = {
+            captureSnapshot: jest.fn().mockImplementation((amountUsd: number) => Promise.resolve({
+                currency: 'USD',
+                amountCurrency: amountUsd,
+                rate: 1,
+                source: 'identity',
+                capturedAt: new Date(),
+            })),
+            toFxFields: jest.fn().mockReturnValue({
+                currency: 'USD',
+                amountCurrency: 0,
+                fxRateUsdToCurrency: 1,
+                fxRateSource: 'identity',
+                fxCapturedAt: new Date(),
+            }),
+            backfillAllMissing: jest.fn().mockResolvedValue(0),
+        };
 
         mockCdr.increment.mockClear();
         mockCdr.update.mockClear();
@@ -70,6 +91,7 @@ describe('BillingService', () => {
                 { provide: getModelToken(BillingRecord), useValue: mockBillingRecordRepository },
                 { provide: UsersService, useValue: mockUsersService },
                 { provide: LoggerService, useValue: mockLoggerService },
+                { provide: BillingFxService, useValue: mockBillingFxService },
             ],
         }).compile();
 
@@ -94,7 +116,13 @@ describe('BillingService', () => {
 
             expect(mockBillingRecordRepository.findOrCreate).toHaveBeenCalledWith({
                 where: { channelId: 'test-channel-123', type: 'realtime' },
-                defaults: { channelId: 'test-channel-123', type: 'realtime', userId: '1', description: 'Realtime call' },
+                defaults: expect.objectContaining({
+                    channelId: 'test-channel-123',
+                    type: 'realtime',
+                    userId: '1',
+                    description: 'Realtime call',
+                    currency: expect.any(String),
+                }),
             });
             expect(mockRecord.increment).toHaveBeenCalledWith({
                 audioTokens: 836,       // 600 + 236
@@ -149,6 +177,7 @@ describe('BillingService', () => {
             mockPricesRepository.findOne.mockResolvedValue(mockPrice);
             mockBillingRecordRepository.findOne
                 .mockResolvedValueOnce(realtimeRecord)
+                .mockResolvedValueOnce(null)
                 .mockResolvedValueOnce(analyticRecord);
 
             const result = await service.finalizeCallBilling('test-channel-123');
@@ -168,15 +197,19 @@ describe('BillingService', () => {
             mockPricesRepository.findOne.mockResolvedValue(mockPrice);
             mockBillingRecordRepository.findOne
                 .mockResolvedValueOnce(realtimeRecord)
+                .mockResolvedValueOnce(null)
                 .mockResolvedValueOnce(null);
 
             await service.finalizeCallBilling('test-channel-123');
 
-            expect(realtimeRecord.update).toHaveBeenCalledWith({
-                audioCost: expect.closeTo(0.02926, 5),
-                textCost: expect.closeTo(0.0302, 5),
-                totalCost: expect.closeTo(0.05946, 5),
-            });
+            expect(realtimeRecord.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    audioCost: expect.closeTo(0.02926, 5),
+                    textCost: expect.closeTo(0.0302, 5),
+                    totalCost: expect.closeTo(0.05946, 5),
+                }),
+            );
+            expect(mockBillingFxService.captureSnapshot).toHaveBeenCalled();
         });
 
         it('should deduct only realtime cost from balance', async () => {
@@ -184,11 +217,14 @@ describe('BillingService', () => {
             mockPricesRepository.findOne.mockResolvedValue(mockPrice);
             mockBillingRecordRepository.findOne
                 .mockResolvedValueOnce(realtimeRecord)
+                .mockResolvedValueOnce(null)
                 .mockResolvedValueOnce(null);
 
             const result = await service.finalizeCallBilling('test-channel-123');
             expect(mockUsersService.decrementUserBalance).toHaveBeenCalledWith(
-                '1', result.audioCost + result.textCost,
+                '1',
+                result.audioCost + result.textCost,
+                expect.objectContaining({ source: 'usage_realtime' }),
             );
         });
 
@@ -211,6 +247,7 @@ describe('BillingService', () => {
             mockPricesRepository.findOne.mockResolvedValue(mockPrice);
             mockBillingRecordRepository.findOne
                 .mockResolvedValueOnce(null)
+                .mockResolvedValueOnce(null)
                 .mockResolvedValueOnce(null);
 
             const result = await service.finalizeCallBilling('test-channel-123');
@@ -230,8 +267,15 @@ describe('BillingService', () => {
 
             expect(mockBillingRecordRepository.findOrCreate).toHaveBeenCalledWith({
                 where: { channelId: 'test-channel-123', type: 'analytic' },
-                defaults: { channelId: 'test-channel-123', type: 'analytic', userId: '1', description: 'Call analytics' },
+                defaults: expect.objectContaining({
+                    channelId: 'test-channel-123',
+                    type: 'analytic',
+                    userId: '1',
+                    description: 'Call analytics',
+                    currency: expect.any(String),
+                }),
             });
+            expect(mockRecord.update).toHaveBeenCalled();
             expect(mockRecord.increment).toHaveBeenCalledWith({
                 textTokens: 1000,
                 totalTokens: 1000,
@@ -251,7 +295,11 @@ describe('BillingService', () => {
             mockAiCdrRepository.findOne.mockResolvedValue(mockCdr);
             mockPricesRepository.findOne.mockResolvedValue(mockPrice);
             await service.chargeAnalytics('test-channel-123', 1000);
-            expect(mockUsersService.decrementUserBalance).toHaveBeenCalledWith('1', 0.002);
+            expect(mockUsersService.decrementUserBalance).toHaveBeenCalledWith(
+                '1',
+                0.002,
+                expect.objectContaining({ source: 'usage_analytics' }),
+            );
         });
 
         it('should return 0 when CDR not found', async () => {

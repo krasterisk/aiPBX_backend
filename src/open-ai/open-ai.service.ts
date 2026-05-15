@@ -76,9 +76,10 @@ export class OpenAiService implements OnModuleInit {
         }
 
         const balanceData = await this.usersService.getUserBalance(String(assistant.userId));
-        if (balanceData.balance <= 0) {
-            this.logger.warn(`User ${assistant.userId} has insufficient balance: ${balanceData.balance}. Connection rejected.`);
-            throw new Error(`Insufficient balance: ${balanceData.balance}`);
+        const ledgerUsd = balanceData.balanceUsd ?? balanceData.balance;
+        if (ledgerUsd <= 0) {
+            this.logger.warn(`User ${assistant.userId} has insufficient balance: ${ledgerUsd} USD. Connection rejected.`);
+            throw new Error(`Insufficient balance: ${ledgerUsd}`);
         }
 
         const connection = new OpenAiConnection(

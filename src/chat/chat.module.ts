@@ -8,6 +8,7 @@ import { ChatController } from './chat.controller';
 import { AiToolsHandlersModule } from '../ai-tools-handlers/ai-tools-handlers.module';
 import { AuthModule } from '../auth/auth.module';
 import { ApiKeyModule } from '../api-keys/api-key.module';
+import { JwtOrApiKeyGuard } from '../auth/jwt-or-api-key.guard';
 
 @Module({
     imports: [
@@ -21,7 +22,7 @@ import { ApiKeyModule } from '../api-keys/api-key.module';
         ApiKeyModule,
     ],
     controllers: [ChatController],
-    providers: [ChatService],
+    providers: [ChatService, JwtOrApiKeyGuard],
     exports: [ChatService],
 })
 export class ChatModule {}

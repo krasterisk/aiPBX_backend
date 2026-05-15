@@ -18,7 +18,7 @@ export class KnowledgeChunk extends Model<KnowledgeChunk> {
     // for insert/search operations. This field is not mapped here.
 
     @ApiProperty({ description: 'Metadata (page, heading, position)' })
-    @Column({ type: DataType.JSONB, allowNull: true })
+    @Column({ type: DataType.JSON, allowNull: true })
     metadata: Record<string, any>;
 
     @ForeignKey(() => KnowledgeDocument)

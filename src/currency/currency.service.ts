@@ -85,4 +85,28 @@ export class CurrencyService {
 
         return rateRecord.rate;
     }
+
+    /** Ledger USD → display currency (same formula as billing FX snapshot). */
+    async convertFromUsd(
+        amountUsd: number,
+        currency: string,
+    ): Promise<{ amount: number; rate: number }> {
+        const usd = Number(amountUsd) || 0;
+        const ccy = (currency || 'USD').toUpperCase();
+        if (ccy === 'USD') {
+            return { amount: Math.round(usd * 100) / 100, rate: 1 };
+        }
+
+        const rateCurrency = await this.ratesRepository.findOne({ where: { currency: ccy } });
+        const rateUsd = await this.ratesRepository.findOne({ where: { currency: 'USD' } });
+
+        if (!rateCurrency?.rate || !rateUsd?.rate) {
+            this.logger.warn(`Cannot convert USD→${ccy}: rates missing, returning USD amount`);
+            return { amount: Math.round(usd * 100) / 100, rate: 1 };
+        }
+
+        const rate = rateCurrency.rate / rateUsd.rate;
+        const amount = Math.round(usd * rate * 100) / 100;
+        return { amount, rate };
+    }
 }

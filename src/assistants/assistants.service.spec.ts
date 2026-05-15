@@ -12,6 +12,7 @@ import { Prices } from '../prices/prices.model';
 import { BillingRecord } from '../billing/billing-record.model';
 import { OpenAiService } from '../open-ai/open-ai.service';
 import { UsersService } from '../users/users.service';
+import { BillingFxService } from '../billing/billing-fx.service';
 
 describe('AssistantsService', () => {
     let service: AssistantsService;
@@ -66,6 +67,18 @@ describe('AssistantsService', () => {
                 { provide: getModelToken(BillingRecord), useValue: mockBillingRecordRepo },
                 { provide: OpenAiService, useValue: mockOpenAiService },
                 { provide: UsersService, useValue: mockUsersService },
+                {
+                    provide: BillingFxService,
+                    useValue: {
+                        fieldsForUsdAmount: jest.fn(async (amountUsd: number) => ({
+                            currency: 'USD',
+                            amountCurrency: amountUsd,
+                            fxRateUsdToCurrency: 1,
+                            fxRateSource: 'identity',
+                            fxCapturedAt: new Date(),
+                        })),
+                    },
+                },
             ],
         }).compile();
 
@@ -359,6 +372,10 @@ describe('AssistantsService', () => {
                     totalTokens: 1000,
                     textCost: 0.005,
                     totalCost: 0.005,
+                    currency: 'USD',
+                    amountCurrency: 0.005,
+                    fxRateUsdToCurrency: 1,
+                    fxRateSource: 'identity',
                 }),
             );
         });

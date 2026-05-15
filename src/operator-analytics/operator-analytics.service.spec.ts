@@ -9,6 +9,7 @@ import { OperatorApiToken } from './operator-api-token.model';
 import { AiCdr } from '../ai-cdr/ai-cdr.model';
 import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
 import { BillingRecord } from '../billing/billing-record.model';
+import { BillingFxService } from '../billing/billing-fx.service';
 import { Prices } from '../prices/prices.model';
 import { User } from '../users/users.model';
 import { UsersService } from '../users/users.service';
@@ -152,6 +153,32 @@ describe('OperatorAnalyticsService', () => {
                 { provide: OpenAiTranscriptionProvider, useValue: mockOpenAiStt },
                 { provide: ExternalSttProvider, useValue: mockExternalStt },
                 { provide: WhisperService, useValue: mockWhisperService },
+                {
+                    provide: BillingFxService,
+                    useValue: {
+                        captureSnapshot: jest.fn(async (amountUsd: number) => ({
+                            currency: 'USD',
+                            amountCurrency: amountUsd,
+                            rate: 1,
+                            source: 'identity',
+                            capturedAt: new Date(),
+                        })),
+                        toFxFields: jest.fn((snap: { currency: string; amountCurrency: number; rate: number; source: string; capturedAt: Date }) => ({
+                            currency: snap.currency,
+                            amountCurrency: snap.amountCurrency,
+                            fxRateUsdToCurrency: snap.rate,
+                            fxRateSource: snap.source,
+                            fxCapturedAt: snap.capturedAt,
+                        })),
+                        fieldsForUsdAmount: jest.fn(async (amountUsd: number) => ({
+                            currency: 'USD',
+                            amountCurrency: amountUsd,
+                            fxRateUsdToCurrency: 1,
+                            fxRateSource: 'identity',
+                            fxCapturedAt: new Date(),
+                        })),
+                    },
+                },
             ],
         }).compile();
 

@@ -1,9 +1,10 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { BillingService } from './billing.service';
 import { Roles } from '../auth/roles-auth.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { GetBillingDto } from './dto/get-billing.dto';
+import { BackfillFxDto } from './dto/backfill-fx.dto';
 
 @ApiTags('Billing')
 @Controller('billing')
@@ -21,5 +22,14 @@ export class BillingController {
             req.isAdmin,
             req.vpbxUserId || req.tokenUserId,
         );
+    }
+
+    @ApiOperation({ summary: 'Backfill FX snapshot fields on legacy billing records (admin)' })
+    @ApiResponse({ status: 200, description: 'Number of records updated' })
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
+    @Post('admin/backfill-fx')
+    async backfillFx(@Query() query: BackfillFxDto) {
+        return this.billingService.backfillFxSnapshots(5000, query.userId);
     }
 }

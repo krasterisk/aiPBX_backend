@@ -89,7 +89,7 @@ describe('OpenAiService', () => {
         };
         mockAiToolsHandlersService = {};
         mockUsersService = {
-            getUserBalance: jest.fn().mockResolvedValue({ balance: 100 }),
+            getUserBalance: jest.fn().mockResolvedValue({ balance: 100, balanceUsd: 100, currency: 'USD', rate: 1 }),
         };
         mockAudioService = {
             resampleLinear: jest.fn().mockReturnValue(Buffer.alloc(10)),
@@ -149,13 +149,13 @@ describe('OpenAiService', () => {
         });
 
         it('should throw error when user balance is zero or negative', async () => {
-            mockUsersService.getUserBalance.mockResolvedValue({ balance: 0 });
+            mockUsersService.getUserBalance.mockResolvedValue({ balance: 0, balanceUsd: 0, currency: 'USD', rate: 1 });
             await expect(service.createConnection('ch-2', mockAssistant))
                 .rejects.toThrow('Insufficient balance');
         });
 
         it('should throw error when user balance is negative', async () => {
-            mockUsersService.getUserBalance.mockResolvedValue({ balance: -5 });
+            mockUsersService.getUserBalance.mockResolvedValue({ balance: -450, balanceUsd: -5, currency: 'RUB', rate: 90 });
             await expect(service.createConnection('ch-3', mockAssistant))
                 .rejects.toThrow('Insufficient balance');
         });

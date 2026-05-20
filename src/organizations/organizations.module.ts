@@ -3,6 +3,7 @@ import { SequelizeModule } from "@nestjs/sequelize";
 import { OrganizationsService } from './organizations.service';
 import { OrganizationsController } from './organizations.controller';
 import { Organization } from './organizations.model';
+import { User } from '../users/users.model';
 import { AuthModule } from "../auth/auth.module";
 import { LoggerModule } from "../logger/logger.module";
 import { AccountingModule } from "../accounting/accounting.module";
@@ -11,7 +12,7 @@ import { AccountingModule } from "../accounting/accounting.module";
     providers: [OrganizationsService],
     controllers: [OrganizationsController],
     imports: [
-        SequelizeModule.forFeature([Organization]),
+        SequelizeModule.forFeature([Organization, User]),
         forwardRef(() => AuthModule),
         LoggerModule,
         AccountingModule,

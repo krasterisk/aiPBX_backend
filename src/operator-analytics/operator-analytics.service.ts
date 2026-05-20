@@ -354,6 +354,8 @@ export class OperatorAnalyticsService {
             projectId?: number;
         } = {},
     ): Promise<OperatorAnalytics> {
+        await this.checkBalance(userId);
+
         const url = this.sanitizeUrl(rawUrl);
         this.logger.log(`Downloading file from URL: ${url}`);
 
@@ -379,8 +381,13 @@ export class OperatorAnalyticsService {
     }
 
     async processUrlInBackground(recordId: number, rawUrl: string, provider?: string): Promise<void> {
+        const record = await this.analyticsRepository.findByPk(recordId);
+        if (!record) return;
+
         const url = this.sanitizeUrl(rawUrl);
         try {
+            await this.checkBalance(record.userId);
+
             this.logger.log(`Background: downloading file from URL: ${url}`);
             const response = await axios.get(url, {
                 responseType: 'arraybuffer',
@@ -395,16 +402,21 @@ export class OperatorAnalyticsService {
             }
             await this.processInBackground(recordId, buffer, provider);
         } catch (e) {
-            this.logger.error(`Background URL download failed for record #${recordId}: ${e.message}`);
-            const record = await this.analyticsRepository.findByPk(recordId);
-            if (record) {
-                await record.update({ status: AnalyticsStatus.ERROR, errorMessage: e.message });
+            const isBalanceError = e instanceof HttpException && e.getStatus() === HttpStatus.PAYMENT_REQUIRED;
+            const errorMessage = isBalanceError
+                ? ((e.getResponse() as { message?: string })?.message || e.message)
+                : e.message;
+            const logLabel = isBalanceError ? 'Background analysis failed' : 'Background URL download failed';
+            this.logger.error(`${logLabel} for record #${recordId}: ${errorMessage}`);
+            const recordOnError = await this.analyticsRepository.findByPk(recordId);
+            if (recordOnError) {
+                await recordOnError.update({ status: AnalyticsStatus.ERROR, errorMessage });
 
-                if (record.projectId) {
-                    const project = await this.projectRepository.findByPk(record.projectId);
+                if (recordOnError.projectId) {
+                    const project = await this.projectRepository.findByPk(recordOnError.projectId);
                     if (project) {
                         this.callWebhook(project, 'analysis.error', {
-                            recordId, error: e.message,
+                            recordId, error: errorMessage,
                         }).catch(() => { });
                     }
                 }

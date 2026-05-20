@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateInvoiceDto {
     @ApiProperty({ example: 10000 })
@@ -12,4 +12,18 @@ export class CreateInvoiceDto {
     @IsString()
     @MaxLength(500)
     subject?: string | null;
+
+    @ApiProperty({ required: false, description: 'Issuer our-organization id (admin override)' })
+    @IsOptional()
+    @IsInt()
+    ourOrganizationId?: number | null;
+
+    @ApiProperty({
+        required: false,
+        default: false,
+        description: 'Create invoice in SBIS (EDO). If false, only local PDF is generated.',
+    })
+    @IsOptional()
+    @IsBoolean()
+    sendViaEdo?: boolean;
 }

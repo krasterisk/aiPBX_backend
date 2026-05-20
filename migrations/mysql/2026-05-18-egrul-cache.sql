@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS egrul_cache (
+    inn VARCHAR(12) NOT NULL PRIMARY KEY,
+    kpp VARCHAR(9) NULL,
+    payload JSON NOT NULL,
+    source VARCHAR(32) NOT NULL DEFAULT 'saby_edo',
+    fetchedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expiresAt DATETIME NOT NULL,
+    createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_egrul_cache_expires (expiresAt)
+);

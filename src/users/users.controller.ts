@@ -27,6 +27,12 @@ import { ValidationPipe } from "../pipes/validation.pipe";
 import { CreateUserLimitDto } from "./dto/create-user-limit.dto";
 import { CreateSubUserDto } from "./dto/create-sub-user.dto";
 import { UserLimits } from "./user-limits.model";
+import { BalanceThresholdAlert } from "./balance-threshold-alert.model";
+import { BalanceThresholdAlertsService } from "./balance-threshold-alerts.service";
+import {
+    CreateBalanceThresholdAlertDto,
+    UpdateBalanceThresholdAlertDto,
+} from "./dto/balance-threshold-alert.dto";
 import { AdminTopUpDto } from "./dto/admin-top-up.dto";
 import { LoggerService } from "../logger/logger.service";
 
@@ -40,9 +46,32 @@ interface RequestWithUser extends Request {
 @Controller('users')
 export class UsersController {
 
-    constructor(private userService: UsersService,
+    constructor(
+        private userService: UsersService,
         private authService: AuthService,
-        private loggerService: LoggerService) { }
+        private loggerService: LoggerService,
+        private balanceAlertsService: BalanceThresholdAlertsService,
+    ) { }
+
+    private parsePositiveUserId(value: string | undefined, label: string): number {
+        const n = Number(value);
+        if (!value || !Number.isFinite(n) || n <= 0) {
+            throw new HttpException(`Invalid ${label}`, HttpStatus.BAD_REQUEST);
+        }
+        return n;
+    }
+
+    private async resolveOwnerUserId(
+        request: RequestWithUser,
+        ownerUserIdParam?: string,
+    ): Promise<number> {
+        if (request.isAdmin && ownerUserIdParam) {
+            const id = this.parsePositiveUserId(ownerUserIdParam, 'ownerUserId');
+            return this.userService.resolveOwnerId(id);
+        }
+        const tokenId = this.parsePositiveUserId(request.tokenUserId, 'user id');
+        return this.userService.resolveOwnerId(tokenId);
+    }
 
     @ApiOperation({ summary: "Admin: top up user balance" })
     @ApiResponse({ status: 200, description: 'Balance topped up successfully' })
@@ -93,6 +122,87 @@ export class UsersController {
     getSubUsers(@Req() request: RequestWithUser) {
         const ownerUserId = Number(request.vpbxUserId || request.tokenUserId);
         return this.userService.getSubUsers(ownerUserId);
+    }
+
+    @ApiOperation({ summary: 'List tenant members (owner + sub-users)' })
+    @ApiResponse({ status: 200, type: [User] })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get('tenant-members')
+    async getTenantMembers(
+        @Req() request: RequestWithUser,
+        @Query('ownerUserId') ownerUserId?: string,
+    ) {
+        const ownerId = await this.resolveOwnerUserId(request, ownerUserId);
+        return this.balanceAlertsService.getTenantMembers(ownerId);
+    }
+
+    @ApiOperation({ summary: 'List balance threshold alerts for tenant' })
+    @ApiResponse({ status: 200, type: [BalanceThresholdAlert] })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get('balance-alerts')
+    async listBalanceAlerts(
+        @Req() request: RequestWithUser,
+        @Query('ownerUserId') ownerUserId?: string,
+    ) {
+        const ownerId = await this.resolveOwnerUserId(request, ownerUserId);
+        return this.balanceAlertsService.listForOwner(ownerId);
+    }
+
+    @ApiOperation({ summary: 'Create balance threshold alert' })
+    @ApiResponse({ status: 201, type: BalanceThresholdAlert })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Post('balance-alerts')
+    @UsePipes(ValidationPipe)
+    async createBalanceAlert(
+        @Body() dto: CreateBalanceThresholdAlertDto,
+        @Req() request: RequestWithUser,
+    ) {
+        const ownerId = await this.resolveOwnerUserId(request, dto.ownerUserId);
+        const emails = await this.balanceAlertsService.enrichEmailsFromUserIds(
+            dto.notifyUserIds ?? [],
+            dto.emails,
+        );
+        return this.balanceAlertsService.create(ownerId, { ...dto, emails });
+    }
+
+    @ApiOperation({ summary: 'Update balance threshold alert' })
+    @ApiResponse({ status: 200, type: BalanceThresholdAlert })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Patch('balance-alerts/:id')
+    @UsePipes(ValidationPipe)
+    async updateBalanceAlert(
+        @Param('id') id: string,
+        @Body() dto: UpdateBalanceThresholdAlertDto,
+        @Req() request: RequestWithUser,
+        @Query('ownerUserId') ownerUserId?: string,
+    ) {
+        const ownerId = await this.resolveOwnerUserId(request, ownerUserId);
+        if (dto.emails !== undefined || dto.notifyUserIds !== undefined) {
+            const emails = await this.balanceAlertsService.enrichEmailsFromUserIds(
+                dto.notifyUserIds ?? [],
+                dto.emails ?? [],
+            );
+            dto.emails = emails;
+        }
+        return this.balanceAlertsService.update(Number(id), ownerId, dto);
+    }
+
+    @ApiOperation({ summary: 'Delete balance threshold alert' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Delete('balance-alerts/:id')
+    async deleteBalanceAlert(
+        @Param('id') id: string,
+        @Req() request: RequestWithUser,
+        @Query('ownerUserId') ownerUserId?: string,
+    ) {
+        const ownerId = await this.resolveOwnerUserId(request, ownerUserId);
+        await this.balanceAlertsService.remove(Number(id), ownerId);
+        return { success: true };
     }
 
     @ApiOperation({ summary: "Get users by page" })

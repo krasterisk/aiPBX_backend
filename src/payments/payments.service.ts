@@ -443,16 +443,19 @@ export class PaymentsService {
                 transaction,
             });
 
-            try {
-                await this.invoiceService.createAdvanceAfterBankPayment({
-                    userId: Number(ownerId),
-                    amountRub: outSumm,
-                    paymentId: String(payment.id),
-                    externalTransactionId: invId,
-                    transaction,
-                });
-            } catch (e) {
-                this.logger.warn(`advance invoice: ${(e as Error).message}`);
+            // На УСН без НДС авансовые СФ не требуются; включить через BILLING_CREATE_ADVANCE_INVOICE=true (ОСНО).
+            if (process.env.BILLING_CREATE_ADVANCE_INVOICE === 'true') {
+                try {
+                    await this.invoiceService.createAdvanceAfterBankPayment({
+                        userId: Number(ownerId),
+                        amountRub: outSumm,
+                        paymentId: String(payment.id),
+                        externalTransactionId: invId,
+                        transaction,
+                    });
+                } catch (e) {
+                    this.logger.warn(`advance invoice: ${(e as Error).message}`);
+                }
             }
 
             if (rubPerUsd > 0) {

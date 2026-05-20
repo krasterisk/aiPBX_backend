@@ -70,4 +70,12 @@ export class User extends Model<User, UserCreationAttrs> {
     @ApiProperty({ example: '4', description: "VPBX cabinet id" })
     @Column({ type: DataType.INTEGER, unique: false, allowNull: true })
     vpbx_user_id: number
+
+    @ApiProperty({ example: 1, description: 'Default issuer organization for invoices / closing docs (admin)' })
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    ourOrganizationId: number | null
+
+    @ApiProperty({ example: 'AIPBX-00000042', description: 'Personal account number for bank payments (tenant owner)' })
+    @Column({ type: DataType.STRING(32), allowNull: true, unique: true })
+    personalAccountNumber: string | null
 }

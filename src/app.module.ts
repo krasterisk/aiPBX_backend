@@ -9,6 +9,7 @@ import { FilesModule } from './files/files.module';
 import { ServeStaticModule } from "@nestjs/serve-static";
 import * as path from 'path';
 import { getDatabaseConfig } from "./config/database.config";
+import { resolveEnvFilePaths } from "./config/env-files";
 import { AriModule } from "./ari/ari.module";
 import { AssistantsModule } from "./assistants/assistants.module";
 import { EventEmitterModule } from "@nestjs/event-emitter";
@@ -36,12 +37,15 @@ import { KnowledgeModule } from './knowledge/knowledge.module';
 import { ChatModule } from './chat/chat.module';
 import { ApiKeyModule } from './api-keys/api-key.module';
 import { AccountingModule } from "./accounting/accounting.module";
+import { LegalModule } from "./legal/legal.module";
+import { OurOrganizationsModule } from "./our-organizations/our-organizations.module";
 
 @Module({
     imports: [
         ScheduleModule.forRoot(),
         ConfigModule.forRoot({
-            envFilePath: `.${process.env.NODE_ENV}.env`
+            isGlobal: true,
+            envFilePath: resolveEnvFilePaths(),
         }),
         ServeStaticModule.forRoot({
             rootPath: path.resolve(process.cwd(), 'static'),
@@ -85,6 +89,8 @@ import { AccountingModule } from "./accounting/accounting.module";
         ChatModule,
         ApiKeyModule,
         AccountingModule,
+        LegalModule,
+        OurOrganizationsModule,
         ThrottlerModule.forRoot([{
             ttl: 60000,
             limit: 100,

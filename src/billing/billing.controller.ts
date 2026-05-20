@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { BillingService } from './billing.service';
+import { BillingRunwayService } from './billing-runway.service';
 import { Roles } from '../auth/roles-auth.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { GetBillingDto } from './dto/get-billing.dto';
@@ -9,7 +10,10 @@ import { BackfillFxDto } from './dto/backfill-fx.dto';
 @ApiTags('Billing')
 @Controller('billing')
 export class BillingController {
-    constructor(private readonly billingService: BillingService) {}
+    constructor(
+        private readonly billingService: BillingService,
+        private readonly billingRunwayService: BillingRunwayService,
+    ) {}
 
     @ApiOperation({ summary: 'Get billing history with pagination' })
     @ApiResponse({ status: 200, description: 'Paginated billing records' })
@@ -31,5 +35,14 @@ export class BillingController {
     @Post('admin/backfill-fx')
     async backfillFx(@Query() query: BackfillFxDto) {
         return this.billingService.backfillFxSnapshots(5000, query.userId);
+    }
+
+    @ApiOperation({ summary: 'Run balance runway check now (admin, RU billing deployments)' })
+    @ApiResponse({ status: 200, description: 'Processed tenant owners' })
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
+    @Post('admin/runway-check')
+    async runRunwayCheck() {
+        return this.billingRunwayService.runDailyCheck();
     }
 }

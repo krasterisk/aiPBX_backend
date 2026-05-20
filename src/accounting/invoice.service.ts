@@ -6,17 +6,31 @@ import { Sequelize } from 'sequelize';
 import { Organization } from '../organizations/organizations.model';
 import { OrganizationDocument } from './organization-document.model';
 import { DocumentCounterService } from './document-counter.service';
-import { resolveInvoiceSubject } from './subject-resolver';
-import { DOC_TYPE_INVOICE, DOC_TYPE_ADVANCE_SF } from './billing.constants';
+import { formatInvoiceLineItemSubject, resolveInvoiceSubject } from './subject-resolver';
+import { DOC_TYPE_INVOICE } from './billing.constants';
 import { renderInvoicePdfToFile, type InvoiceIssuerRequisites } from './pdf/invoice-pdf';
 import { AlfawebhookClient } from './alfawebhook-client.service';
 import { extractOrganizationDocumentId } from './document-id.util';
+import { SbisService } from './sbis.service';
+import type { SbisInvoiceDraftInput } from './sbis.types';
+import { OurOrganizationsService } from '../our-organizations/our-organizations.service';
+import { User } from '../users/users.model';
+import { OurOrganization } from '../our-organizations/our-organization.model';
+import { buildInvoicePaymentPurpose, ensureOwnerPersonalAccount } from '../users/personal-account.util';
+import {
+    isInvoiceBillingEnabled,
+    isInvoiceBillingHostAllowed,
+} from '../shared/tenant/invoice-billing-context';
 
 export interface CreateInvoiceInput {
     userId: number;
     organizationId: number;
     amountRub: number;
     subjectOverride?: string | null;
+    /** Admin override: issuer legal entity for this invoice */
+    ourOrganizationId?: number | null;
+    /** Create draft in SBIS (EDO); otherwise local PDF only */
+    sendViaEdo?: boolean;
 }
 
 @Injectable()
@@ -28,6 +42,9 @@ export class InvoiceService {
         @InjectModel(OrganizationDocument) private readonly docModel: typeof OrganizationDocument,
         private readonly counters: DocumentCounterService,
         private readonly alfawebhook: AlfawebhookClient,
+        private readonly sbis: SbisService,
+        private readonly ourOrganizationsService: OurOrganizationsService,
+        @InjectModel(User) private readonly userModel: typeof User,
         @InjectConnection() private readonly sequelize: Sequelize,
     ) {}
 
@@ -37,15 +54,13 @@ export class InvoiceService {
         });
     }
 
+    /**
+     * HTTP requests: Host / X-Forwarded-Host must match INVOICE_BILLING_ALLOWED_HOSTS.
+     * Server-side invoices (balance alerts): no Host header — allowed when
+     * INVOICE_BILLING_DEFAULT_HOST is unset; if set, that host is checked against the allowlist.
+     */
     isHostAllowedForRuBilling(hostHeader?: string): boolean {
-        const raw = process.env.INVOICE_BILLING_ALLOWED_HOSTS;
-        if (!raw || raw === '*') return true;
-        const host = (hostHeader || '').split(':')[0].toLowerCase();
-        return raw
-            .split(',')
-            .map((s) => s.trim().toLowerCase())
-            .filter(Boolean)
-            .some((h) => host === h || host.endsWith(`.${h}`));
+        return isInvoiceBillingHostAllowed(hostHeader);
     }
 
     getDefaultSubjectFromEnv(): string {
@@ -59,9 +74,13 @@ export class InvoiceService {
         documentId: string;
         number: string;
         pdfUrl: string;
+        pdfRelativePath: string;
         paymentPurpose: string;
         subject: string;
     }> {
+        if (!isInvoiceBillingEnabled()) {
+            throw new HttpException('Invoice billing is not enabled for this deployment', HttpStatus.FORBIDDEN);
+        }
         if (!this.isHostAllowedForRuBilling(hostHeader)) {
             throw new HttpException('Invoice billing is not enabled for this host', HttpStatus.FORBIDDEN);
         }
@@ -81,15 +100,31 @@ export class InvoiceService {
             organizationSubject: org.subject,
             envDefault: this.getDefaultSubjectFromEnv() || null,
         });
+        const personalAccountNumber = await ensureOwnerPersonalAccount(this.userModel, input.userId);
+        const lineItemSubject = formatInvoiceLineItemSubject(subject, personalAccountNumber);
+
+        const issuerOrg = await this.resolveIssuer(input);
+        const issuerRequisites = this.buildIssuerRequisitesForPdf(issuerOrg);
+        if (input.sendViaEdo && !this.sbis.isConfigured()) {
+            throw new HttpException(
+                'SBIS is not configured; cannot send invoice via EDO',
+                HttpStatus.SERVICE_UNAVAILABLE,
+            );
+        }
 
         const year = new Date().getFullYear();
         const series = this.counters.defaultSeries();
 
-        const { docId, number, paymentPurpose, documentDate } = await this.sequelize.transaction(async (transaction) => {
+        const { docId, number, paymentPurpose, documentDate, sbisDraft, pdfRelativePath } =
+            await this.sequelize.transaction(async (transaction) => {
             const seq = await this.counters.nextNumber('invoice', year, transaction);
-            const numberInner = this.counters.formatDocumentNumber(series, DOC_TYPE_INVOICE, year, seq);
+            const numberInner = this.counters.formatInvoiceNumber(seq);
             const documentDateInner = new Date().toISOString().slice(0, 10);
-            const paymentPurposeInner = `Оплата по счёту №${numberInner} за услуги AI PBX`;
+            const paymentPurposeInner = buildInvoicePaymentPurpose(
+                numberInner,
+                documentDateInner,
+                personalAccountNumber,
+            );
 
             const vatMode = (process.env.SBIS_VAT_MODE || 'none').trim() || 'none';
             const idempotencyKey = `inv:${input.organizationId}:${numberInner}`;
@@ -110,7 +145,7 @@ export class InvoiceService {
                     vatMode,
                     vatAmount: '0',
                     status: 'issued',
-                    subject,
+                    subject: lineItemSubject,
                     idempotencyKey,
                 },
                 { transaction },
@@ -125,14 +160,13 @@ export class InvoiceService {
                     number: numberInner,
                     documentDate: documentDateInner,
                     amountRub: input.amountRub,
-                    subject,
+                    subject: lineItemSubject,
                     paymentPurpose: paymentPurposeInner,
                     payer: org,
-                    issuer: this.buildIssuerRequisitesForPdf(),
+                    issuer: issuerRequisites,
                 },
                 fileName,
             );
-
             await docRow.update({ pdfPath: relativePath }, { transaction });
 
             return {
@@ -140,8 +174,29 @@ export class InvoiceService {
                 number: numberInner,
                 paymentPurpose: paymentPurposeInner,
                 documentDate: documentDateInner,
+                pdfRelativePath: relativePath,
+                sbisDraft:
+                    input.sendViaEdo
+                        ? {
+                              counterpartyInn: org.tin,
+                              counterpartyName: org.name,
+                              counterpartyKpp: org.kpp,
+                              legalForm: (org.legalForm as 'ul' | 'ip') || undefined,
+                              ourOrganizationInn: issuerOrg?.tin,
+                              ourOrganizationKpp: issuerOrg?.kpp,
+                              number: numberInner,
+                              documentDate: documentDateInner,
+                              amountRub: input.amountRub,
+                              subject: lineItemSubject,
+                              paymentPurpose: paymentPurposeInner,
+                          }
+                        : null,
             };
         });
+
+        if (sbisDraft) {
+            this.enqueueInvoiceSbisDraft(docId, sbisDraft);
+        }
 
         try {
             await this.alfawebhook.ensureClientRegistered(org, String(input.userId), subject);
@@ -158,21 +213,79 @@ export class InvoiceService {
             documentId: docId,
             number,
             pdfUrl,
+            pdfRelativePath,
             paymentPurpose,
-            subject,
+            subject: lineItemSubject,
         };
     }
 
-    private buildIssuerRequisitesForPdf(): InvoiceIssuerRequisites {
-        const name = process.env.SBIS_OUR_NAME || 'AI PBX';
-        const inn = process.env.SBIS_OUR_INN || '';
-        const kpp = process.env.SBIS_OUR_KPP || '';
-        const addr = process.env.SBIS_OUR_ADDRESS || '';
-        const bank = process.env.SBIS_OUR_BANK_NAME || process.env.ALFA_BANK_NAME || '';
-        const bankBranch = (process.env.SBIS_OUR_BANK_BRANCH_NAME || '').trim() || bank || '—';
-        const bic = process.env.SBIS_OUR_BANK_BIC || process.env.ALFA_BANK_BIC || '';
-        const settlement = process.env.SBIS_OUR_BANK_ACCOUNT || process.env.ALFA_BANK_ACCOUNT || '';
-        const corr = process.env.SBIS_OUR_CORR_ACCOUNT || process.env.ALFA_CORR_ACCOUNT || '';
+    private async resolveIssuer(input: CreateInvoiceInput): Promise<OurOrganization | null> {
+        if (input.ourOrganizationId != null) {
+            const forced = await this.ourOrganizationsService.findById(input.ourOrganizationId);
+            if (!forced) {
+                throw new HttpException('Our organization not found', HttpStatus.BAD_REQUEST);
+            }
+            return forced;
+        }
+        return this.resolveIssuerForUser(input.userId);
+    }
+
+    private async resolveIssuerForUser(userId: number): Promise<OurOrganization | null> {
+        const user = await this.userModel.findByPk(userId, { attributes: ['id', 'ourOrganizationId', 'vpbx_user_id'] });
+        if (!user) return this.ourOrganizationsService.getPrimary();
+        const ownerId = user.vpbx_user_id ?? user.id;
+        const owner = user.vpbx_user_id
+            ? await this.userModel.findByPk(ownerId, { attributes: ['id', 'ourOrganizationId'] })
+            : user;
+        return this.ourOrganizationsService.resolveForUser(owner?.ourOrganizationId ?? null);
+    }
+
+    /** SBIS draft after HTTP response; local PDF is already stored. */
+    private enqueueInvoiceSbisDraft(docId: string, draftInput: SbisInvoiceDraftInput): void {
+        void (async () => {
+            try {
+                const draft = await this.sbis.createInvoiceDraft(draftInput);
+                await this.docModel.update(
+                    {
+                        sbisId: draft.documentId,
+                        sbisUrl: draft.sbisUrl,
+                        sbisDocNum: draft.sbisNumber,
+                        sbisStatus: 'draft',
+                        sbisLastError: null,
+                    },
+                    { where: { id: docId } },
+                );
+            } catch (e) {
+                const message = (e as Error).message;
+                this.logger.warn(`SBIS invoice draft failed for ${docId}: ${message}`);
+                const row = await this.docModel.findByPk(docId, { attributes: ['sbisAttemptCount'] });
+                await this.docModel.update(
+                    {
+                        sbisLastError: message.slice(0, 500),
+                        sbisAttemptCount: (row?.sbisAttemptCount ?? 0) + 1,
+                    },
+                    { where: { id: docId } },
+                );
+            }
+        })();
+    }
+
+    private buildIssuerRequisitesForPdf(org: OurOrganization | null): InvoiceIssuerRequisites {
+        const name = org?.name || process.env.SBIS_OUR_NAME || 'AI PBX';
+        const inn = org?.tin || process.env.SBIS_OUR_INN || '';
+        const kpp = org?.kpp || process.env.SBIS_OUR_KPP || '';
+        const addr = org?.address || process.env.SBIS_OUR_ADDRESS || '';
+        const bank = org?.bankName || process.env.SBIS_OUR_BANK_NAME || process.env.ALFA_BANK_NAME || '';
+        const bankBranch =
+            (org?.bankBranchName || '').trim() ||
+            (process.env.SBIS_OUR_BANK_BRANCH_NAME || '').trim() ||
+            bank ||
+            '';
+        const bic = org?.bankBic || process.env.SBIS_OUR_BANK_BIC || process.env.ALFA_BANK_BIC || '';
+        const settlement =
+            org?.bankAccount || process.env.SBIS_OUR_BANK_ACCOUNT || process.env.ALFA_BANK_ACCOUNT || '';
+        const corr =
+            org?.bankCorrAccount || process.env.SBIS_OUR_CORR_ACCOUNT || process.env.ALFA_CORR_ACCOUNT || '';
         const supplierParts = [name, inn ? `ИНН ${inn}` : '', kpp ? `КПП ${kpp}` : '', addr].filter(Boolean);
         return {
             bankBranchName: bankBranch,
@@ -187,7 +300,7 @@ export class InvoiceService {
     }
 
     /**
-     * Creates advance_invoice (авансовая СФ) linked to the latest matching open invoice when possible.
+     * USN: no advance SF — mark matching invoice paid when bank payment is identified.
      */
     async createAdvanceAfterBankPayment(input: {
         userId: number;
@@ -208,70 +321,10 @@ export class InvoiceService {
             transaction: input.transaction,
         });
 
-        const org = inv
-            ? await this.orgModel.findByPk(inv.organizationId, { transaction: input.transaction })
-            : await this.orgModel.findOne({
-                  where: { userId: input.userId },
-                  order: [['id', 'DESC']],
-                  transaction: input.transaction,
-              });
-
-        if (!org) {
-            this.logger.warn(`createAdvanceAfterBankPayment: no organization for user ${input.userId}`);
-            return null;
-        }
-
-        const subject = resolveInvoiceSubject({
-            organizationSubject: org.subject,
-            envDefault: this.getDefaultSubjectFromEnv() || null,
-        });
-
-        const year = new Date().getFullYear();
-        const series = this.counters.defaultSeries();
-        const seq = await this.counters.nextNumber('advance_invoice', year, input.transaction);
-        const number = this.counters.formatDocumentNumber(series, DOC_TYPE_ADVANCE_SF, year, seq);
-        const documentDate = new Date().toISOString().slice(0, 10);
-        const vatMode = (process.env.SBIS_VAT_MODE || 'none').trim() || 'none';
-
-        const doc = await this.docModel.create(
-            {
-                userId: String(input.userId),
-                organizationId: org.id,
-                type: 'advance_invoice',
-                number,
-                series,
-                documentDate,
-                amountRub: amountStr,
-                vatMode,
-                vatAmount: '0',
-                status: 'issued',
-                subject,
-                paymentId: input.paymentId,
-                externalTransactionId: input.externalTransactionId,
-                relatedInvoiceId: inv?.id ?? null,
-            },
-            { transaction: input.transaction },
-        );
-
-        const { renderSfPdfToFile } = await import('./pdf/sf-pdf');
-        const fileName = `${doc.id}-advance.pdf`;
-        const relativePath = await renderSfPdfToFile(
-            {
-                number,
-                documentDate,
-                amountRub: input.amountRub,
-                subject,
-                customerName: org.name,
-                advance: true,
-            },
-            fileName,
-        );
-        await doc.update({ pdfPath: relativePath }, { transaction: input.transaction });
-
         if (inv) {
             await inv.update({ status: 'paid' }, { transaction: input.transaction });
         }
 
-        return doc;
+        return null;
     }
 }

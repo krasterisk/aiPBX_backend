@@ -12,6 +12,13 @@ import { TelegramAuthDto } from "./dto/telegram.auth.dto";
 import { ActivationDto } from "../users/dto/activation.dto";
 import { TelegramService } from "../telegram/telegram.service";
 import { LoggerService } from "../logger/logger.service";
+import { LegalAcceptanceService } from "../legal/legal-acceptance.service";
+import { LegalAcceptanceItemDto } from "../legal/dto/legal-acceptance.dto";
+
+export interface AuthRequestContext {
+    ip?: string | null;
+    userAgent?: string | null;
+}
 
 @Injectable()
 export class AuthService {
@@ -24,11 +31,30 @@ export class AuthService {
         private mailerService: MailerService,
         private telegramService: TelegramService,
         private readonly logService: LoggerService,
+        private readonly legalAcceptanceService: LegalAcceptanceService,
     ) {
         this.googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
     }
 
-    async login(userDto: CreateUserDto) {
+    private async safeRecordAcceptance(
+        userId: string | number | null | undefined,
+        items: LegalAcceptanceItemDto[] | undefined,
+        source: 'login' | 'signup' | 'activation',
+        ctx?: AuthRequestContext,
+    ): Promise<void> {
+        if (!userId || !items?.length) return;
+        try {
+            await this.legalAcceptanceService.recordBatch(userId, items, {
+                ip: ctx?.ip ?? null,
+                userAgent: ctx?.userAgent ?? null,
+                source,
+            });
+        } catch (e) {
+            this.logger.warn(`Failed to record legal acceptance: ${(e as Error)?.message}`);
+        }
+    }
+
+    async login(userDto: CreateUserDto, ctx?: AuthRequestContext) {
 
         if (!userDto.email) {
             this.logger.warn("Email is empty")
@@ -41,6 +67,11 @@ export class AuthService {
             this.logger.warn("Email not found!")
             throw new HttpException('Email not found!', HttpStatus.BAD_REQUEST)
         }
+
+        // Согласие фиксируется уже на этапе login (до активации) — пользователь
+        // явно отметил чекбокс на форме. Если активация не пройдёт, запись всё
+        // равно зафиксирована для аудита факта volenta'ы.
+        await this.safeRecordAcceptance(candidate.id, userDto.legalAcceptance, 'login', ctx)
 
         const activationCode = ("" + Math.floor(100000 + Math.random() * 900000)).substring(0, 6);
         const activationExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
@@ -61,7 +92,7 @@ export class AuthService {
 
     }
 
-    async signup(userDto: CreateUserDto) {
+    async signup(userDto: CreateUserDto, ctx?: AuthRequestContext) {
 
         if (!userDto.email) {
             this.logger.warn("Email is empty")
@@ -70,7 +101,6 @@ export class AuthService {
 
         const candidate = await this.userService.getCandidateByEmail(userDto.email)
 
-        // Пользователь уже существует — регистрация запрещена
         if (candidate) {
             this.logger.warn("Email already exists!", candidate.email)
             throw new HttpException('User already exists!', HttpStatus.BAD_REQUEST)
@@ -98,12 +128,14 @@ export class AuthService {
             throw new HttpException('Signup error!', HttpStatus.BAD_REQUEST)
         }
 
+        await this.safeRecordAcceptance(user.id, userDto.legalAcceptance, 'signup', ctx)
+
         await this.mailerService.sendActivationMail(userDto.email, activationCode)
 
         return { success: true }
     }
 
-    async activate(activation: ActivationDto) {
+    async activate(activation: ActivationDto, ctx?: AuthRequestContext) {
         if (!activation.activationCode) {
             this.logger.warn("Activation error: no code", activation)
             throw new HttpException('Activation error!', HttpStatus.BAD_REQUEST)
@@ -153,6 +185,7 @@ export class AuthService {
 
         if (token) {
             await this.authLog(candidate, activation)
+            await this.safeRecordAcceptance(candidate.id, activation.legalAcceptance, 'activation', ctx)
             return { token, user: candidate };
         }
 
@@ -211,12 +244,11 @@ export class AuthService {
     }
 
 
-    async loginWithGoogle(idToken: string) {
+    async loginWithGoogle(idToken: string, legalAcceptance?: LegalAcceptanceItemDto[], ctx?: AuthRequestContext) {
         try {
             const gdata = await this.checkGoogleToken(idToken)
             const { sub: googleId, email, name, picture } = gdata;
 
-            // Ищем юзера в базе
             const user = await this.userService.getCandidateByEmail(email);
 
             if (!user) {
@@ -229,11 +261,11 @@ export class AuthService {
             user.authType = 'google';
             await user.save()
 
-            // Генерируем JWT
             const token = await this.generateToken(user)
 
             if (token) {
                 await this.authLog(user, { type: 'login' })
+                await this.safeRecordAcceptance(user.id, legalAcceptance, 'login', ctx)
                 this.logger.log(`User successfully login via ${user.authType}`, user.email)
                 return { token, user };
             }
@@ -246,19 +278,17 @@ export class AuthService {
         }
     }
 
-    async signupWithGoogle(idToken: string) {
+    async signupWithGoogle(idToken: string, legalAcceptance?: LegalAcceptanceItemDto[], ctx?: AuthRequestContext) {
         try {
             const gdata = await this.checkGoogleToken(idToken)
             const { sub: googleId, email, name, picture } = gdata;
 
-            // Ищем юзера в базе
             const candidateUser = await this.userService.getCandidateByEmail(email);
             if (candidateUser) {
                 this.logger.warn('Google email already exist')
                 throw new UnauthorizedException('Email already exist');
             }
 
-            // создаём
             const user = await this.userService.create({
                 email,
                 name,
@@ -269,10 +299,10 @@ export class AuthService {
                 avatar: picture,
             });
 
-            // Генерируем JWT
             const token = await this.generateToken(user)
             if (token) {
                 await this.authLog(user, { type: 'signup' })
+                await this.safeRecordAcceptance(user.id, legalAcceptance, 'signup', ctx)
                 this.logger.log('User successfully signup via google', user.email)
                 return { token, user };
             }
@@ -338,7 +368,7 @@ export class AuthService {
     }
 
 
-    async signupWithTelegram(data: TelegramAuthDto) {
+    async signupWithTelegram(data: TelegramAuthDto, ctx?: AuthRequestContext) {
 
         if (!this.checkTgHash(data)) {
             this.logger.error('Telegram Authorization Error')
@@ -370,6 +400,7 @@ export class AuthService {
 
         if (token) {
             await this.authLog(user, { type: 'signup' })
+            await this.safeRecordAcceptance(user.id, data.legalAcceptance, 'signup', ctx)
             this.logger.log('User successfully signup via telegram', user.name)
             return { token, user };
         }
@@ -378,7 +409,7 @@ export class AuthService {
         throw new HttpException('Authorization error', HttpStatus.BAD_REQUEST);
     }
 
-    async loginWithTelegram(data: TelegramAuthDto) {
+    async loginWithTelegram(data: TelegramAuthDto, ctx?: AuthRequestContext) {
 
         if (!this.checkTgHash(data)) {
             this.logger.error('Telegram Authorization Error')
@@ -406,6 +437,7 @@ export class AuthService {
 
         if (token) {
             await this.authLog(user, { type: 'login' })
+            await this.safeRecordAcceptance(user.id, data.legalAcceptance, 'login', ctx)
             this.logger.log(`User successfully login via ${user.authType}`, user.email)
             return { token, user };
         }

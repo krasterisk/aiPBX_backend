@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { HttpModule } from '@nestjs/axios';
 import { Organization } from '../organizations/organizations.model';
@@ -15,6 +16,11 @@ import { AlfawebhookClient } from './alfawebhook-client.service';
 import { SbisService } from './sbis.service';
 import { OrganizationDocumentsService } from './organization-documents.service';
 import { ClosingTask } from './closing.task';
+import { EgrulCache } from './egrul-cache.model';
+import { SbisController } from './sbis.controller';
+import { OurOrganization } from '../our-organizations/our-organization.model';
+import { OurOrganizationsModule } from '../our-organizations/our-organizations.module';
+import { User } from '../users/users.model';
 
 @Module({
     imports: [
@@ -26,10 +32,16 @@ import { ClosingTask } from './closing.task';
             BalanceLedger,
             CurrencyHistory,
             BillingRecord,
+            EgrulCache,
+            OurOrganization,
+            User,
         ]),
         CurrencyModule,
-        BillingModule,
+        forwardRef(() => BillingModule),
+        OurOrganizationsModule,
+        forwardRef(() => AuthModule),
     ],
+    controllers: [SbisController],
     providers: [
         DocumentCounterService,
         AlfawebhookClient,

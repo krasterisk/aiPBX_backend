@@ -682,6 +682,17 @@ describe('OperatorAnalyticsService', () => {
                 expect.objectContaining({ filename: 'call-123.wav' }),
             );
         });
+
+        it('should reject before download when balance is zero', async () => {
+            mockUserRepo.findByPk.mockResolvedValue({ balance: 0 });
+
+            await expect(
+                service.analyzeUrl('https://example.com/audio/call.mp3', '1'),
+            ).rejects.toMatchObject({ status: HttpStatus.PAYMENT_REQUIRED });
+
+            expect(axiosGetSpy).not.toHaveBeenCalled();
+            expect(mockAnalyticsRepo.create).not.toHaveBeenCalled();
+        });
     });
 
     // ═════════════════════════════════════════════════════════════════
@@ -793,6 +804,25 @@ describe('OperatorAnalyticsService', () => {
 
         afterEach(() => {
             axiosGetSpy?.mockRestore();
+        });
+
+        it('should reject before download when balance is zero', async () => {
+            mockUserRepo.findByPk.mockResolvedValue({ balance: 0 });
+            mockAnalyticsRepo.findByPk.mockResolvedValue({
+                ...mockRecord,
+                update: jest.fn().mockResolvedValue(undefined),
+            });
+
+            await service.processUrlInBackground(1, 'https://example.com/call.mp3');
+
+            expect(axiosGetSpy).not.toHaveBeenCalled();
+            const record = await mockAnalyticsRepo.findByPk(1);
+            expect(record.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    status: AnalyticsStatus.ERROR,
+                    errorMessage: 'Insufficient balance',
+                }),
+            );
         });
 
         it('should download URL with correct options', async () => {

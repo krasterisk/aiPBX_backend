@@ -12,7 +12,7 @@ export type BalanceLedgerSource =
     | 'correction'
     | 'refund';
 
-@Table({ tableName: 'balance_ledger' })
+@Table({ tableName: 'balance_ledger', updatedAt: false })
 export class BalanceLedger extends Model<BalanceLedger> {
     @Column({ type: DataType.BIGINT, primaryKey: true, autoIncrement: true })
     declare id: number;

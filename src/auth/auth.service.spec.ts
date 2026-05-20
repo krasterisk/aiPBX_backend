@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
+import { LegalAcceptanceService } from '../legal/legal-acceptance.service';
 import { UsersService } from '../users/users.service';
 import { MailerService } from '../mailer/mailer.service';
 import { TelegramService } from '../telegram/telegram.service';
@@ -65,6 +66,10 @@ describe('AuthService', () => {
                 { provide: MailerService, useValue: mockMailerService },
                 { provide: TelegramService, useValue: mockTelegramService },
                 { provide: LoggerService, useValue: mockLogService },
+                {
+                    provide: LegalAcceptanceService,
+                    useValue: { recordBatch: jest.fn().mockResolvedValue(undefined) },
+                },
             ],
         }).compile();
 

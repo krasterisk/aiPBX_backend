@@ -13,3 +13,12 @@ export function resolveInvoiceSubject(input: SubjectResolveInput): string {
     if (trimmed(input.envDefault)) return trimmed(input.envDefault);
     return HARDCODED_SUBJECT_FALLBACK;
 }
+
+/** Line item on invoice PDF / SBIS: base nomenclature + personal account for identification. */
+export function formatInvoiceLineItemSubject(subject: string, personalAccountNumber?: string | null): string {
+    const base = subject.trim();
+    const pa = (personalAccountNumber || '').trim();
+    if (!base) return pa ? `Пополнение лицевого счёта ${pa}` : '';
+    if (!pa || base.includes(pa)) return base;
+    return `${base} (л/с ${pa})`;
+}

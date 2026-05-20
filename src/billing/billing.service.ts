@@ -806,5 +806,19 @@ export class BillingService {
 
     }
 
+    /** Sum USD spend for tenant members since a date (for runway forecast). */
+    async sumTenantSpendUsd(memberUserIds: string[], since: Date): Promise<number> {
+        const ids = memberUserIds.length ? memberUserIds : [];
+        if (!ids.length) {
+            return 0;
+        }
+        const where = {
+            userId: { [Op.in]: ids },
+            createdAt: { [Op.gte]: since },
+        };
+        const raw = await this.billingRecordRepository.sum('totalCost', { where } as any);
+        return parseFloat((Number(raw) || 0).toFixed(6));
+    }
+
 }
 

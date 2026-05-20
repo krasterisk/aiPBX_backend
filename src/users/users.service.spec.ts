@@ -12,6 +12,8 @@ import { PricesService } from '../prices/prices.service';
 import { MailerService } from '../mailer/mailer.service';
 import { CurrencyService } from '../currency/currency.service';
 import { BalanceLedger } from '../accounting/balance-ledger.model';
+import { BalanceThresholdAlertsService } from './balance-threshold-alerts.service';
+import { OurOrganizationsService } from '../our-organizations/our-organizations.service';
 
 describe('UsersService', () => {
     let service: UsersService;
@@ -24,7 +26,18 @@ describe('UsersService', () => {
     let mockPricesService: any;
     let mockMailerService: any;
     let mockCurrencyService: any;
+    let mockBalanceThresholdAlertsService: {
+        listForOwner: jest.Mock;
+        processBalanceCrossing: jest.Mock;
+    };
     const originalTenantCurrency = process.env.TENANT_CURRENCY;
+
+    const ledgerUser = (balance: number, email = 'user@test.com') => ({
+        id: 1,
+        balance,
+        email,
+        update: jest.fn().mockResolvedValue(undefined),
+    });
 
     const mockUser = {
         id: 1,
@@ -87,6 +100,10 @@ describe('UsersService', () => {
                 return { amount: amountUsd, rate: 1 };
             }),
         };
+        mockBalanceThresholdAlertsService = {
+            listForOwner: jest.fn().mockResolvedValue([]),
+            processBalanceCrossing: jest.fn().mockResolvedValue(undefined),
+        };
         process.env.TENANT_CURRENCY = 'USD';
 
         const module: TestingModule = await Test.createTestingModule({
@@ -101,6 +118,11 @@ describe('UsersService', () => {
                 { provide: PricesService, useValue: mockPricesService },
                 { provide: MailerService, useValue: mockMailerService },
                 { provide: CurrencyService, useValue: mockCurrencyService },
+                {
+                    provide: BalanceThresholdAlertsService,
+                    useValue: mockBalanceThresholdAlertsService,
+                },
+                { provide: OurOrganizationsService, useValue: {} },
                 { provide: getModelToken(BalanceLedger), useValue: { findOne: jest.fn(), create: jest.fn() } },
                 {
                     provide: getConnectionToken(),
@@ -188,47 +210,41 @@ describe('UsersService', () => {
     // ═══════════════════════════════════════════════════════════════════
 
     describe('decrementUserBalance', () => {
-        it('should decrement balance by amount', async () => {
+        beforeEach(() => {
+            mockBalanceThresholdAlertsService.listForOwner.mockResolvedValue([]);
+            mockBalanceThresholdAlertsService.processBalanceCrossing.mockResolvedValue(undefined);
+        });
+
+        it('should decrement balance via user.update inside transaction', async () => {
+            const user = ledgerUser(100);
             mockUsersRepo.findByPk
-                .mockResolvedValueOnce({ id: 1, vpbx_user_id: null }) // resolveOwnerId
-                .mockResolvedValueOnce({ balance: 90, email: 'test@test.com' }); // after decrement
+                .mockResolvedValueOnce({ id: 1, vpbx_user_id: null })
+                .mockResolvedValueOnce(user);
 
             await service.decrementUserBalance('1', 10);
 
-            expect(mockUsersRepo.decrement).toHaveBeenCalledWith('balance', {
-                by: 10,
-                where: { id: 1 },
-            });
+            expect(user.update).toHaveBeenCalledWith({ balance: 90 }, expect.any(Object));
         });
 
-        it('should send low balance notification when crossing limit threshold', async () => {
+        it('should delegate threshold crossing to BalanceThresholdAlertsService', async () => {
             mockUsersRepo.findByPk
                 .mockResolvedValueOnce({ id: 1, vpbx_user_id: null })
-                .mockResolvedValueOnce({ balance: 8, email: 'user@test.com' });
+                .mockResolvedValueOnce(ledgerUser(13));
 
-            mockUserLimitsRepo.findOne.mockResolvedValue({
-                limitAmount: 10,
-                emails: ['admin@test.com'],
-            });
-
-            // oldBalanceApprox = 8 + 5 = 13 >= 10, newBalance = 8 < 10 → notification
             await service.decrementUserBalance('1', 5);
 
-            expect(mockMailerService.sendLowBalanceNotification).toHaveBeenCalledWith(
-                ['admin@test.com'],
+            expect(mockBalanceThresholdAlertsService.processBalanceCrossing).toHaveBeenCalledWith(
+                1,
+                13,
                 8,
-                10,
             );
         });
 
         it('should send critical balance notification when crossing $3 threshold', async () => {
             mockUsersRepo.findByPk
                 .mockResolvedValueOnce({ id: 1, vpbx_user_id: null })
-                .mockResolvedValueOnce({ balance: 2.5, email: 'user@test.com' });
+                .mockResolvedValueOnce(ledgerUser(4.5));
 
-            mockUserLimitsRepo.findOne.mockResolvedValue(null);
-
-            // oldBalanceApprox = 2.5 + 2 = 4.5 > 3, newBalance = 2.5 <= 3
             await service.decrementUserBalance('1', 2);
 
             expect(mockMailerService.sendCriticalBalanceNotification).toHaveBeenCalledWith(
@@ -238,15 +254,13 @@ describe('UsersService', () => {
         });
 
         it('should send zero balance notification when crossing $0 threshold', async () => {
+            mockBalanceThresholdAlertsService.listForOwner.mockResolvedValue([
+                { emails: ['admin@test.com'] },
+            ]);
             mockUsersRepo.findByPk
                 .mockResolvedValueOnce({ id: 1, vpbx_user_id: null })
-                .mockResolvedValueOnce({ balance: -1, email: 'user@test.com' });
+                .mockResolvedValueOnce(ledgerUser(4));
 
-            mockUserLimitsRepo.findOne.mockResolvedValue({
-                emails: ['admin@test.com'],
-            });
-
-            // oldBalanceApprox = -1 + 5 = 4 > 0, newBalance = -1 <= 0
             await service.decrementUserBalance('1', 5);
 
             expect(mockMailerService.sendZeroBalanceNotification).toHaveBeenCalledWith(
@@ -255,19 +269,13 @@ describe('UsersService', () => {
             );
         });
 
-        it('should NOT send notification when balance stays above threshold', async () => {
+        it('should not call critical/zero mailers when balance stays high', async () => {
             mockUsersRepo.findByPk
                 .mockResolvedValueOnce({ id: 1, vpbx_user_id: null })
-                .mockResolvedValueOnce({ balance: 50, email: 'user@test.com' });
-
-            mockUserLimitsRepo.findOne.mockResolvedValue({
-                limitAmount: 10,
-                emails: ['admin@test.com'],
-            });
+                .mockResolvedValueOnce(ledgerUser(50));
 
             await service.decrementUserBalance('1', 5);
 
-            expect(mockMailerService.sendLowBalanceNotification).not.toHaveBeenCalled();
             expect(mockMailerService.sendCriticalBalanceNotification).not.toHaveBeenCalled();
             expect(mockMailerService.sendZeroBalanceNotification).not.toHaveBeenCalled();
         });

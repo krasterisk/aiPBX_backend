@@ -81,6 +81,29 @@ function hrBlack(doc: any, x: number, y: number, w: number): void {
     doc.restore();
 }
 
+/** Height needed to render multi-line text at given width (invoice line item). */
+function textBlockHeight(doc: any, text: string, width: number, fontSize: number): number {
+    doc.font(INVOICE_FONT_REG_NAME).fontSize(fontSize);
+    return doc.heightOfString(text, { width: Math.max(4, width) });
+}
+
+/** Draw image within max box, keep aspect ratio (no vertical squash). Returns drawn height. */
+function drawImageFitBox(
+    doc: any,
+    imagePath: string,
+    x: number,
+    y: number,
+    maxW: number,
+    maxH: number,
+): number {
+    const img = doc.openImage(imagePath);
+    const scale = Math.min(maxW / img.width, maxH / img.height);
+    const w = img.width * scale;
+    const h = img.height * scale;
+    doc.image(imagePath, x, y, { width: w, height: h });
+    return h;
+}
+
 function writePdfToPath(params: InvoicePdfParams, outPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
         const fontPath = resolveInvoicePdfFontPath();
@@ -101,16 +124,12 @@ function writePdfToPath(params: InvoicePdfParams, outPath: string): Promise<void
 
         doc.font(INVOICE_FONT_REG_NAME).fillColor('#000000');
 
-        /* --- Верхние предупреждения (как в chet2pdf) --- */
-        doc.fontSize(9).text(
-            'Внимание! Оплата данного счета означает согласие с условиями договора.',
-            margin,
-            y,
-            { width: W, align: 'right' },
-        );
-        y += mm(6);
-        doc.text('Счет действителен к оплате в течении трех дней.', margin, y, { width: W, align: 'right' });
-        y += mm(8);
+        /* --- Предупреждение об акцепте оферты (см. PublicOfferPage §3) --- */
+        const offerNotice =
+            (process.env.INVOICE_OFFER_NOTICE || '').trim() ||
+            'Внимание! Оплата данного счёта означает согласие с условиями договора-оферты, размещённой на сайте aipbx.ru.';
+        doc.fontSize(9).text(offerNotice, margin, y, { width: W, align: 'center' });
+        y += mm(10);
 
         doc.fontSize(10).font(INVOICE_FONT_REG_NAME).text('Образец заполнения платежного поручения', margin, y, {
             width: W,
@@ -215,31 +234,41 @@ function writePdfToPath(params: InvoicePdfParams, outPath: string): Promise<void
         doc.rect(x, y, colSum, rowH).stroke();
         doc.text('Сумма', x + 2, y + 2, { width: colSum - 4, align: 'right' });
         y += rowH;
+
+        const cellPad = 2;
+        const subjectFs = 8;
+        const nameInnerW = Math.max(4, colName - cellPad * 2);
+        const subjectInnerH = textBlockHeight(doc, params.subject, nameInnerW, subjectFs);
+        const dataRowH = Math.max(rowH, subjectInnerH + cellPad * 2);
+
         x = margin;
-        doc.rect(x, y, colNo, rowH).stroke();
-        doc.fontSize(9).text('1', x + 2, y + 2, { width: colNo - 4, align: 'center' });
+        doc.rect(x, y, colNo, dataRowH).stroke();
+        doc.fontSize(9).text('1', x + cellPad, y + cellPad, { width: colNo - cellPad * 2, align: 'center' });
         x += colNo;
-        doc.rect(x, y, colName, rowH).stroke();
-        doc.fontSize(8).text(params.subject, x + 2, y + 2, { width: colName - 4, height: rowH - 4 });
+        doc.rect(x, y, colName, dataRowH).stroke();
+        doc.fontSize(subjectFs).text(params.subject, x + cellPad, y + cellPad, { width: nameInnerW });
         x += colName;
-        doc.rect(x, y, colQty, rowH).stroke();
-        doc.text('1', x + 2, y + 2, { width: colQty - 4, align: 'right' });
+        doc.rect(x, y, colQty, dataRowH).stroke();
+        doc.text('1', x + cellPad, y + cellPad, { width: colQty - cellPad * 2, align: 'right' });
         x += colQty;
-        doc.rect(x, y, colUnit, rowH).stroke();
-        doc.text('шт', x + 2, y + 2, { width: colUnit - 4 });
+        doc.rect(x, y, colUnit, dataRowH).stroke();
+        doc.text('шт', x + cellPad, y + cellPad, { width: colUnit - cellPad * 2 });
         x += colUnit;
-        doc.rect(x, y, colPrice, rowH).stroke();
-        doc.text(sumStr, x + 2, y + 2, { width: colPrice - 4, align: 'right' });
+        doc.rect(x, y, colPrice, dataRowH).stroke();
+        doc.text(sumStr, x + cellPad, y + cellPad, { width: colPrice - cellPad * 2, align: 'right' });
         x += colPrice;
-        doc.rect(x, y, colSum, rowH).stroke();
-        doc.text(sumStr, x + 2, y + 2, { width: colSum - 4, align: 'right' });
-        y += rowH + mm(3);
+        doc.rect(x, y, colSum, dataRowH).stroke();
+        doc.text(sumStr, x + cellPad, y + cellPad, { width: colSum - cellPad * 2, align: 'right' });
+        y += dataRowH + mm(3);
 
         /* --- Итого --- */
         doc.fontSize(9);
         const tw = colPrice + colSum;
         doc.font(INVOICE_FONT_REG_NAME).text('Итого:', margin + W - tw, y, { width: colPrice - 2, align: 'right' });
         doc.text(sumStr, margin + W - colSum, y, { width: colSum - 2, align: 'right' });
+        y += mm(5);
+        doc.text('В том числе НДС:', margin + W - tw, y, { width: colPrice - 2, align: 'right' });
+        doc.text('без НДС', margin + W - colSum, y, { width: colSum - 2, align: 'right' });
         y += mm(8);
 
         doc.fontSize(9).text(`Всего наименований 1 на сумму ${sumStr} рублей (${words})`, margin, y, {
@@ -258,8 +287,8 @@ function writePdfToPath(params: InvoicePdfParams, outPath: string): Promise<void
         const stampPath = join(process.cwd(), 'static', 'invoice-pechat.jpg');
         if (existsSync(stampPath)) {
             try {
-                doc.image(stampPath, margin, y, { width: W, height: mm(35) });
-                y += mm(38);
+                const stampH = drawImageFitBox(doc, stampPath, margin, y, W * 1.1, mm(45) * 1.1);
+                y += stampH + mm(3);
             } catch {
                 /* ignore broken image */
             }

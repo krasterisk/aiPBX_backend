@@ -1,3 +1,5 @@
+import { LegalAcceptanceItemDto } from "../../legal/dto/legal-acceptance.dto";
+
 export class TelegramAuthDto {
   id: number;           // Telegram user ID
   first_name: string;
@@ -6,4 +8,5 @@ export class TelegramAuthDto {
   photo_url?: string;
   auth_date: number;     // UNIX timestamp
   hash: string;          // подпись для проверки
+  legalAcceptance?: LegalAcceptanceItemDto[];
 }

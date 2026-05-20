@@ -34,6 +34,8 @@ COPY --from=builder /app/public ./public
 # Шрифт и печать для PDF счёта (коммитятся в git) — иначе при каждом recreate контейнера пропадут
 COPY --from=builder /app/static/fonts ./static/fonts
 COPY --from=builder /app/static/invoice-pechat.jpg ./static/invoice-pechat.jpg
+# Логотип для billing-писем (src/mailer/assets → dist/mailer/assets при nest build)
+COPY --from=builder /app/dist/mailer/assets ./dist/mailer/assets
 # Сюда пишутся выданные PDF (org-documents). Без volume на хосте файлы живут только в слое контейнера.
 RUN chown -R node:node ./static ./public
 # Переменные окружения передаются через docker-compose (env_file),

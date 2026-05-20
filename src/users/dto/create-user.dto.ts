@@ -1,6 +1,8 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsBoolean, IsEmail, IsNumber, IsString, Length } from "class-validator";
+import { IsArray, IsBoolean, IsEmail, IsNumber, IsOptional, IsString, Length, ValidateNested } from 'class-validator';
+import { Type } from "class-transformer";
 import { CreateRoleDto } from "../../roles/dto/create-role.dto";
+import { LegalAcceptanceItemDto } from "../../legal/dto/legal-acceptance.dto";
 
 export class CreateUserDto {
     @ApiProperty({ example: 'name', description: "Customer name" })
@@ -47,4 +49,20 @@ export class CreateUserDto {
     readonly roles?: CreateRoleDto[]
     @ApiProperty({ example: '4', description: "Parent user ID (for sub-users)", required: false })
     readonly vpbx_user_id?: number
+
+    @ApiProperty({ example: 1, description: 'Our organization id for billing issuer (admin)', required: false })
+    @IsOptional()
+    @IsNumber()
+    readonly ourOrganizationId?: number | null
+
+    @ApiProperty({
+        description: "Legal documents acceptance batch (offer/privacy policy)",
+        required: false,
+        type: [LegalAcceptanceItemDto],
+    })
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => LegalAcceptanceItemDto)
+    readonly legalAcceptance?: LegalAcceptanceItemDto[]
 }

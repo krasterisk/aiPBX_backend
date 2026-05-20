@@ -38,6 +38,14 @@ export class DocumentCounterService {
         return `${series}-${typeCode}-${year}-${padded}`;
     }
 
+    /** Payment invoice number shown on PDF, e.g. AIPBX-00001 */
+    formatInvoiceNumber(seq: number): string {
+        const prefix = (process.env.INVOICE_NUMBER_PREFIX || 'AIPBX').trim() || 'AIPBX';
+        const width = Number(process.env.INVOICE_NUMBER_PAD || 5);
+        const pad = Number.isFinite(width) && width > 0 ? width : 5;
+        return `${prefix}-${String(seq).padStart(pad, '0')}`;
+    }
+
     defaultSeries(): string {
         return process.env.DOCUMENT_SERIES || DOCUMENT_SERIES_DEFAULT;
     }

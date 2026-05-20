@@ -65,8 +65,15 @@ export class OrganizationsController {
     @Get()
     getAll(@Req() req: any, @Query('userId') listUserId?: string) {
         const fromToken = Number(req.tokenUserId);
+        if (!Number.isFinite(fromToken)) {
+            throw new ForbiddenException('Invalid session');
+        }
         if (req.isAdmin && listUserId != null && listUserId !== '') {
-            return this.organizationService.getAll(Number(listUserId));
+            const targetId = Number(listUserId);
+            if (!Number.isFinite(targetId)) {
+                throw new ForbiddenException('Invalid userId');
+            }
+            return this.organizationService.getAll(targetId);
         }
         return this.organizationService.getAll(fromToken);
     }
@@ -93,12 +100,17 @@ export class OrganizationsController {
         const orgId = Number(id);
         const hostHeader = xfHost || host;
         const org = await this.organizationService.getOne(Number(req.tokenUserId), orgId, !!req.isAdmin);
+        if (dto.ourOrganizationId != null && !req.isAdmin) {
+            throw new ForbiddenException('ourOrganizationId is allowed for admins only');
+        }
         const result = await this.invoiceService.issueInvoice(
             {
                 userId: Number(org.userId),
                 organizationId: orgId,
                 amountRub: dto.amountRub,
                 subjectOverride: dto.subject,
+                ourOrganizationId: req.isAdmin ? dto.ourOrganizationId ?? undefined : undefined,
+                sendViaEdo: !!dto.sendViaEdo,
             },
             hostHeader,
         );

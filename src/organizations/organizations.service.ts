@@ -2,11 +2,26 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { InjectModel } from "@nestjs/sequelize";
 import { Organization } from "./organizations.model";
 import { CreateOrganizationDto } from "./dto/create-organization.dto";
+import { User } from '../users/users.model';
 
 @Injectable()
 export class OrganizationsService {
 
-    constructor(@InjectModel(Organization) private organizationRepository: typeof Organization) { }
+    constructor(
+        @InjectModel(Organization) private organizationRepository: typeof Organization,
+        @InjectModel(User) private readonly userModel: typeof User,
+    ) { }
+
+    /** Tenant owner: sub-users inherit organizations of vpbx_user_id parent. */
+    async resolveOwnerUserId(userId: number): Promise<number> {
+        const user = await this.userModel.findByPk(userId, {
+            attributes: ['id', 'vpbx_user_id'],
+        });
+        if (!user) {
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
+        return user.vpbx_user_id ?? user.id;
+    }
 
     private normalizeDto(dto: CreateOrganizationDto): Partial<CreateOrganizationDto> {
         const { ownerUserId: _drop, ...d } = dto as CreateOrganizationDto & { ownerUserId?: number };
@@ -57,9 +72,10 @@ export class OrganizationsService {
 
     async create(ownerUserId: number, dto: CreateOrganizationDto) {
         try {
+            const tenantOwnerId = await this.resolveOwnerUserId(ownerUserId);
             const clean = this.normalizeDto(dto) as CreateOrganizationDto;
             this.assertRuRequisites(clean);
-            const organization = await this.organizationRepository.create({ ...clean, userId: ownerUserId } as any);
+            const organization = await this.organizationRepository.create({ ...clean, userId: tenantOwnerId } as any);
             return organization;
         } catch (e) {
             if (e instanceof HttpException) throw e;
@@ -69,9 +85,10 @@ export class OrganizationsService {
 
     async getAll(userId: number) {
         try {
+            const tenantOwnerId = await this.resolveOwnerUserId(userId);
             const organizations = await this.organizationRepository.findAndCountAll({
-                where: { userId },
-                order: [['createdAt', 'DESC']]
+                where: { userId: tenantOwnerId },
+                order: [['createdAt', 'DESC']],
             });
             return organizations;
         } catch (e) {
@@ -87,7 +104,8 @@ export class OrganizationsService {
             }
             return organization;
         }
-        const organization = await this.organizationRepository.findOne({ where: { id, userId: actingUserId } });
+        const tenantOwnerId = await this.resolveOwnerUserId(actingUserId);
+        const organization = await this.organizationRepository.findOne({ where: { id, userId: tenantOwnerId } });
         if (!organization) {
             throw new HttpException("Organization not found", HttpStatus.NOT_FOUND);
         }

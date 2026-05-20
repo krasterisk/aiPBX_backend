@@ -67,6 +67,7 @@ CREATE INDEX IF NOT EXISTS idx_org_docs_ext_txn ON "organization_documents" ("ex
 CREATE UNIQUE INDEX IF NOT EXISTS idx_org_docs_idempotency ON "organization_documents" ("idempotencyKey") WHERE "idempotencyKey" IS NOT NULL;
 
 -- append-only balance movements (USD amounts; credits positive direction stored explicitly)
+-- No updatedAt: Sequelize model uses @Table({ updatedAt: false })
 CREATE TABLE IF NOT EXISTS "balance_ledger" (
     "id" BIGSERIAL PRIMARY KEY,
     "userId" VARCHAR(64) NOT NULL,

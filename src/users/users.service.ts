@@ -4,6 +4,7 @@ import { InjectConnection } from "@nestjs/sequelize";
 import { Sequelize, Transaction } from "sequelize";
 import { User } from "../users/users.model";
 import { CreateUserDto } from "./dto/create-user.dto";
+import { OurOrganizationsService } from "../our-organizations/our-organizations.service";
 import { CreateSubUserDto } from "./dto/create-sub-user.dto";
 import { RolesService } from "../roles/roles.service";
 import { AddRoleDto } from "./dto/add-role.dto";
@@ -21,6 +22,9 @@ import { AdminTopUpDto } from "./dto/admin-top-up.dto";
 import { getTenantCurrency } from '../shared/tenant/tenant-currency';
 import { BalanceLedger, BalanceLedgerSource } from "../accounting/balance-ledger.model";
 import { CurrencyService } from '../currency/currency.service';
+import { ensureOwnerPersonalAccount, formatPersonalAccountNumber } from './personal-account.util';
+import { BalanceThresholdAlertsService } from './balance-threshold-alerts.service';
+import { parseUserId } from './user-id.util';
 
 export interface BalanceCreditOptions {
     source?: BalanceLedgerSource;
@@ -54,6 +58,8 @@ export class UsersService {
         @InjectConnection() private readonly sequelize: Sequelize,
         private mailerService: MailerService,
         private readonly currencyService: CurrencyService,
+        private readonly ourOrganizationsService: OurOrganizationsService,
+        private readonly balanceThresholdAlertsService: BalanceThresholdAlertsService,
     ) {
     }
 
@@ -61,9 +67,14 @@ export class UsersService {
         try {
             // создаём пользователя
             const { currency: _dtoCurrency, ...createPayload } = dto as CreateUserDto & { currency?: string };
+            let ourOrganizationId = dto.ourOrganizationId ?? null;
+            if (ourOrganizationId == null) {
+                ourOrganizationId = await this.ourOrganizationsService.getPrimaryId();
+            }
             const user = await this.usersRepository.create({
                 ...createPayload,
                 currency: getTenantCurrency(),
+                ourOrganizationId,
             } as any);
 
             if (!user) {
@@ -83,6 +94,12 @@ export class UsersService {
             }
 
             await user.$set("roles", validRoles.map(r => r.id));
+
+            if (user.vpbx_user_id == null) {
+                await user.update({
+                    personalAccountNumber: formatPersonalAccountNumber(user.id),
+                });
+            }
 
             const price: CreatePriceDto = {
                 userId: user.id,
@@ -120,8 +137,9 @@ export class UsersService {
 
     async createSubUser(ownerUserId: number, dto: CreateSubUserDto) {
         try {
+            const parsedOwnerId = parseUserId(ownerUserId, 'Owner user ID');
             // Проверяем, что owner существует и является root user
-            const owner = await this.usersRepository.findByPk(ownerUserId);
+            const owner = await this.usersRepository.findByPk(parsedOwnerId);
             if (!owner) {
                 throw new HttpException('Owner user not found', HttpStatus.NOT_FOUND);
             }
@@ -141,9 +159,10 @@ export class UsersService {
             const user = await this.usersRepository.create({
                 email: dto.email,
                 password: dto.password || null,
-                vpbx_user_id: ownerUserId,
+                vpbx_user_id: parsedOwnerId,
                 balance: 0,
                 currency: owner.currency || getTenantCurrency(),
+                ourOrganizationId: owner.ourOrganizationId ?? await this.ourOrganizationsService.getPrimaryId(),
             } as any);
 
             if (!user) {
@@ -165,7 +184,7 @@ export class UsersService {
             // Копируем цены owner
             let ownerPrice = null;
             try {
-                ownerPrice = await this.priceService.findByUserId(ownerUserId);
+                ownerPrice = await this.priceService.findByUserId(parsedOwnerId);
             } catch {}
             const price: CreatePriceDto = {
                 userId: user.id,
@@ -176,7 +195,7 @@ export class UsersService {
             };
             await this.priceService.create(price);
 
-            this.logger.log(`Sub-user ${dto.email} created for owner #${ownerUserId}`);
+            this.logger.log(`Sub-user ${dto.email} created for owner #${parsedOwnerId}`);
 
             // Возвращаем пользователя с ролями
             return await this.usersRepository.findByPk(user.id, {
@@ -201,8 +220,9 @@ export class UsersService {
     }
 
     async getSubUsers(ownerUserId: number) {
+        const parsedOwnerId = parseUserId(ownerUserId, 'Owner user ID');
         return this.usersRepository.findAll({
-            where: { vpbx_user_id: ownerUserId },
+            where: { vpbx_user_id: parsedOwnerId },
             include: { all: true },
             attributes: {
                 exclude: [
@@ -219,7 +239,8 @@ export class UsersService {
     }
 
     async resolveOwnerId(userId: string | number): Promise<number> {
-        const user = await this.usersRepository.findByPk(userId, {
+        const parsedId = parseUserId(userId);
+        const user = await this.usersRepository.findByPk(parsedId, {
             attributes: ['id', 'vpbx_user_id'],
         });
         if (!user) {
@@ -511,8 +532,6 @@ export class UsersService {
                 }
             }
 
-            const limit = await this.userLimitsRepository.findOne({ where: { userId: ownerId }, transaction });
-
             const before = Number(user.balance);
             const after = before - Number(amountToDec);
             await user.update({ balance: after }, { transaction });
@@ -534,21 +553,26 @@ export class UsersService {
             const newBalance = after;
             const oldBalanceApprox = before;
 
-            if (limit && limit.emails && limit.emails.length > 0) {
-                if (oldBalanceApprox >= limit.limitAmount && newBalance < limit.limitAmount) {
-                    this.mailerService.sendLowBalanceNotification(limit.emails, newBalance, limit.limitAmount);
-                }
+            const tenantAlerts = await this.balanceThresholdAlertsService.listForOwner(ownerId);
+            const allNotifyEmails = [
+                ...new Set(tenantAlerts.flatMap((a) => a.emails || [])),
+            ].filter(Boolean);
+
+            if (oldBalanceApprox >= 0 && newBalance >= 0) {
+                void this.balanceThresholdAlertsService.processBalanceCrossing(
+                    ownerId,
+                    oldBalanceApprox,
+                    newBalance,
+                );
             }
 
             if (oldBalanceApprox > 3 && newBalance <= 3) {
-                const limitEmails = limit?.emails || [];
-                const recipients = [...new Set([...limitEmails, user.email])].filter(Boolean);
+                const recipients = [...new Set([...allNotifyEmails, user.email])].filter(Boolean);
                 this.mailerService.sendCriticalBalanceNotification(recipients, newBalance);
             }
 
             if (oldBalanceApprox > 0 && newBalance <= 0) {
-                const limitEmails = limit?.emails || [];
-                const recipients = [...new Set([...limitEmails, user.email])].filter(Boolean);
+                const recipients = [...new Set([...allNotifyEmails, user.email])].filter(Boolean);
                 this.mailerService.sendZeroBalanceNotification(recipients, newBalance);
             }
 
@@ -604,12 +628,14 @@ export class UsersService {
         const balanceUsd = Number(user.balance) || 0;
         const displayCurrency = getTenantCurrency();
         const { amount: balance, rate } = await this.currencyService.convertFromUsd(balanceUsd, displayCurrency);
+        const personalAccountNumber = await ensureOwnerPersonalAccount(this.usersRepository, Number(ownerId));
 
         return {
             balance,
             balanceUsd,
             currency: displayCurrency,
             rate,
+            personalAccountNumber,
         };
     }
 
@@ -620,8 +646,10 @@ export class UsersService {
             throw new HttpException('User not found', HttpStatus.NOT_FOUND);
         }
 
+        const userId = parseUserId(id);
+
         const user = await this.usersRepository.findOne({
-            where: { id },
+            where: { id: userId },
             include: { all: true },
             attributes: {
                 exclude: [
@@ -757,9 +785,10 @@ export class UsersService {
         }
 
         const payload = { ...updates };
-        if (!isAdmin && 'currency' in payload) {
+        if (!isAdmin) {
             delete payload.currency;
-        } else if (isAdmin && payload.currency != null && payload.currency !== user.currency) {
+            delete payload.ourOrganizationId;
+        } else if (payload.currency != null && payload.currency !== user.currency) {
             this.logger.warn(
                 `Admin changed user ${user.id} currency ${user.currency} → ${payload.currency}`,
             );

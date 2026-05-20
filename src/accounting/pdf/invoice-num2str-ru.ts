@@ -49,7 +49,7 @@ const hundred = [
     'восемьсот',
     'девятьсот',
 ];
-/** [именительный ед, род ед, род мн, род для цифр 1-9 внутри триады] — как в PHP */
+/** [именительный ед, род ед, род мн, род для цифр 1-9 внутри триады] */
 const unit: [string, string, string, number][] = [
     ['копейка', 'копейки', 'копеек', 1],
     ['рубль', 'рубля', 'рублей', 0],
@@ -58,28 +58,37 @@ const unit: [string, string, string, number][] = [
     ['миллиард', 'миллиарда', 'миллиардов', 0],
 ];
 
+function triadToWords(v: string, gender: number): string[] {
+    const i1 = parseInt(v[0], 10);
+    const i2 = parseInt(v[1], 10);
+    const i3 = parseInt(v[2], 10);
+    const parts: string[] = [];
+    if (i1 > 0) parts.push(hundred[i1]);
+    if (i2 > 1) {
+        parts.push(`${tens[i2]} ${ten[gender][i3]}`.trim());
+    } else if (i2 === 1) {
+        parts.push(a20[i3]);
+    } else if (i3 > 0) {
+        parts.push(ten[gender][i3]);
+    }
+    return parts;
+}
+
 export function amountInWordsRu(amount: number): string {
-    const [rubRaw, kop] = amount.toFixed(2).split('.');
-    const rub = rubRaw.padStart(15, '0');
+    const fixed = Math.round(amount * 100) / 100;
+    const rubInt = Math.floor(fixed);
+    const kopInt = Math.round((fixed - rubInt) * 100);
+    const kop = String(kopInt).padStart(2, '0');
     const out: string[] = [];
-    const rubInt = parseInt(rub, 10);
-    const kopInt = parseInt(kop, 10);
 
     if (rubInt > 0) {
-        for (let chunkIdx = 0; chunkIdx < 5; chunkIdx++) {
+        const rub = String(rubInt).padStart(12, '0');
+        for (let chunkIdx = 0; chunkIdx < 4; chunkIdx++) {
             const v = rub.slice(chunkIdx * 3, chunkIdx * 3 + 3);
             if (!parseInt(v, 10)) continue;
-            const uk = unit.length - chunkIdx - 1;
+            const uk = 4 - chunkIdx;
             const gender = unit[uk][3];
-            const i1 = parseInt(v[0], 10);
-            const i2 = parseInt(v[1], 10);
-            const i3 = parseInt(v[2], 10);
-            out.push(hundred[i1] || '');
-            if (i2 > 1) {
-                out.push(`${tens[i2]} ${ten[gender][i3]}`.trim());
-            } else {
-                out.push(i2 > 0 ? a20[i3] : ten[gender][i3]);
-            }
+            out.push(...triadToWords(v, gender));
             if (uk > 1) {
                 out.push(morph(parseInt(v, 10), unit[uk][0], unit[uk][1], unit[uk][2]));
             }
@@ -87,6 +96,7 @@ export function amountInWordsRu(amount: number): string {
     } else {
         out.push(nul);
     }
+
     out.push(morph(rubInt, unit[1][0], unit[1][1], unit[1][2]));
     out.push(`${kop} ${morph(kopInt, unit[0][0], unit[0][1], unit[0][2])}`);
     return out

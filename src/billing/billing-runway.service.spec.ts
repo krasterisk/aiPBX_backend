@@ -79,6 +79,18 @@ describe('BillingRunwayService', () => {
         expect(runwayNotifyRepo.upsert).toHaveBeenCalled();
     });
 
+    it('skips owners with zero or negative balance', async () => {
+        usersRepo.findAll.mockResolvedValueOnce([
+            { id: 1, email: 'blocked@test.com', balance: -1 },
+        ]);
+
+        const result = await service.runDailyCheck();
+
+        expect(result.notified).toBe(0);
+        expect(mailerService.sendBalanceRunwayNotification).not.toHaveBeenCalled();
+        expect(billingService.sumTenantSpendUsd).not.toHaveBeenCalled();
+    });
+
     it('skips when billing disabled on USD production', async () => {
         process.env.TENANT_CURRENCY = 'USD';
         process.env.NODE_ENV = 'production';

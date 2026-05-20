@@ -15,6 +15,7 @@ import {
     UpdateBalanceThresholdAlertDto,
 } from './dto/balance-threshold-alert.dto';
 import { roundUpToNearest50Rub, sumTenantSpendLast30DaysRub } from './balance-alert-billing.util';
+import { isBalanceDepleted } from './balance-notification.util';
 import { isInvoiceBillingEnabled } from '../shared/tenant/invoice-billing-context';
 
 @Injectable()
@@ -183,6 +184,10 @@ export class BalanceThresholdAlertsService {
         newBalance: number,
         hostHeader?: string,
     ): Promise<void> {
+        if (isBalanceDepleted(newBalance) || isBalanceDepleted(oldBalance)) {
+            return;
+        }
+
         const alerts = await this.alertRepo.findAll({ where: { ownerUserId } });
         if (!alerts.length) return;
 

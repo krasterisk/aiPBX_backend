@@ -279,6 +279,18 @@ describe('UsersService', () => {
             expect(mockMailerService.sendCriticalBalanceNotification).not.toHaveBeenCalled();
             expect(mockMailerService.sendZeroBalanceNotification).not.toHaveBeenCalled();
         });
+
+        it('should not send balance alerts when tenant is already blocked (balance ≤ 0)', async () => {
+            mockUsersRepo.findByPk
+                .mockResolvedValueOnce({ id: 1, vpbx_user_id: null })
+                .mockResolvedValueOnce(ledgerUser(-3));
+
+            await service.decrementUserBalance('1', 2);
+
+            expect(mockBalanceThresholdAlertsService.processBalanceCrossing).not.toHaveBeenCalled();
+            expect(mockMailerService.sendCriticalBalanceNotification).not.toHaveBeenCalled();
+            expect(mockMailerService.sendZeroBalanceNotification).not.toHaveBeenCalled();
+        });
     });
 
     // ═══════════════════════════════════════════════════════════════════

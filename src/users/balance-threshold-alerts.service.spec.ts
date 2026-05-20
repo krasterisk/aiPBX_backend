@@ -166,6 +166,16 @@ describe('BalanceThresholdAlertsService', () => {
             expect(mailerService.sendLowBalanceNotification).not.toHaveBeenCalled();
         });
 
+        it('does not notify when balance is already depleted (≤0)', async () => {
+            alertRepo.findAll.mockResolvedValue([alertRow]);
+
+            await service.processBalanceCrossing(10, 150, 0);
+            await service.processBalanceCrossing(10, -2, -5);
+
+            expect(mailerService.sendLowBalanceNotification).not.toHaveBeenCalled();
+            expect(alertRow.update).not.toHaveBeenCalled();
+        });
+
         it('issues invoice and attaches PDF when sendInvoice is enabled', async () => {
             const invoiceAlert = {
                 ...alertRow,

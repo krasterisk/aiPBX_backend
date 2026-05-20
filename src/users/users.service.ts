@@ -24,6 +24,7 @@ import { BalanceLedger, BalanceLedgerSource } from "../accounting/balance-ledger
 import { CurrencyService } from '../currency/currency.service';
 import { ensureOwnerPersonalAccount, formatPersonalAccountNumber } from './personal-account.util';
 import { BalanceThresholdAlertsService } from './balance-threshold-alerts.service';
+import { isBalanceDepleted } from './balance-notification.util';
 import { parseUserId } from './user-id.util';
 
 export interface BalanceCreditOptions {
@@ -558,7 +559,10 @@ export class UsersService {
                 ...new Set(tenantAlerts.flatMap((a) => a.emails || [])),
             ].filter(Boolean);
 
-            if (oldBalanceApprox >= 0 && newBalance >= 0) {
+            const wasDepleted = isBalanceDepleted(oldBalanceApprox);
+            const isDepleted = isBalanceDepleted(newBalance);
+
+            if (!wasDepleted && !isDepleted) {
                 void this.balanceThresholdAlertsService.processBalanceCrossing(
                     ownerId,
                     oldBalanceApprox,
@@ -566,12 +570,12 @@ export class UsersService {
                 );
             }
 
-            if (oldBalanceApprox > 3 && newBalance <= 3) {
+            if (!wasDepleted && !isDepleted && oldBalanceApprox > 3 && newBalance <= 3) {
                 const recipients = [...new Set([...allNotifyEmails, user.email])].filter(Boolean);
                 this.mailerService.sendCriticalBalanceNotification(recipients, newBalance);
             }
 
-            if (oldBalanceApprox > 0 && newBalance <= 0) {
+            if (!wasDepleted && oldBalanceApprox > 0 && isDepleted) {
                 const recipients = [...new Set([...allNotifyEmails, user.email])].filter(Boolean);
                 this.mailerService.sendZeroBalanceNotification(recipients, newBalance);
             }

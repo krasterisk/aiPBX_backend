@@ -12,6 +12,7 @@ import { CurrencyService } from '../currency/currency.service';
 import { MailerService } from '../mailer/mailer.service';
 import { InvoiceService } from '../accounting/invoice.service';
 import { isInvoiceBillingEnabled } from '../shared/tenant/invoice-billing-context';
+import { isBalanceDepleted } from '../users/balance-notification.util';
 import {
     calcDailyBurnUsd,
     calcDaysRemaining,
@@ -111,7 +112,7 @@ export class BillingRunwayService {
     ): Promise<boolean> {
         const ownerId = Number(owner.id);
         const balanceUsd = Number(owner.balance) || 0;
-        if (balanceUsd <= 0) {
+        if (isBalanceDepleted(balanceUsd)) {
             return false;
         }
 

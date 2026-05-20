@@ -15,6 +15,12 @@ export interface CounterpartyLookupResult {
     fromCache: boolean;
 }
 
+/** SBIS counterparty lookup API response (discriminated by status). */
+export type CounterpartyLookupApiResult =
+    | { status: 'single'; data: CounterpartyLookupResult }
+    | { status: 'choose'; inn: string; candidates: CounterpartyLookupResult[] }
+    | { status: 'requires_kpp'; inn: string };
+
 export interface SbisInvoiceDraftInput {
     counterpartyInn: string;
     counterpartyName: string;

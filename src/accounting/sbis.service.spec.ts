@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { HttpService } from '@nestjs/axios';
 import { getModelToken } from '@nestjs/sequelize';
+import { HttpException, HttpStatus } from '@nestjs/common';
 import { of } from 'rxjs';
 import { SbisService } from './sbis.service';
 import { EgrulCache } from './egrul-cache.model';
@@ -35,6 +36,8 @@ describe('SbisService', () => {
         }).compile();
 
         service = moduleRef.get(SbisService);
+        (service as unknown as { sessionId: string | null }).sessionId = null;
+        (service as unknown as { sessionExpiresAt: number }).sessionExpiresAt = 0;
         egrulFindByPk.mockResolvedValue(null);
         egrulUpsert.mockResolvedValue([{}, true]);
     });
@@ -87,11 +90,284 @@ describe('SbisService', () => {
                 }),
             );
 
-        const r = await service.lookupCounterparty('7707083893');
-        expect(r.name).toBe('ООО Тест');
-        expect(r.kpp).toBe('770101001');
-        expect(r.inn).toBe('7707083893');
+        const r = await service.lookupCounterparty('7707083893', '770101001');
+        expect(r.status).toBe('single');
+        if (r.status !== 'single') throw new Error('expected single');
+        expect(r.data.name).toBe('ООО Тест');
+        expect(r.data.kpp).toBe('770101001');
+        expect(r.data.inn).toBe('7707083893');
         expect(egrulUpsert).toHaveBeenCalled();
+
+        const findRpc = httpPost.mock.calls[1][1];
+        expect(findRpc.method).toBe('Контрагент.ПоИННКППКФ');
+        expect(findRpc.params).toEqual({ params: { ИНН: '7707083893', КПП: '770101001' } });
+
+        const infoRpc = httpPost.mock.calls[2][1];
+        expect(infoRpc.method).toBe('СБИС.ИнформацияОКонтрагенте');
+        expect(infoRpc.params).toEqual({
+            Участник: { СвЮЛ: { ИНН: '7707083893', КПП: '770101001' } },
+        });
+    });
+
+    it('maps СБИС.ИнформацияОКонтрагенте response from Участник', async () => {
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        error: { message: 'find failed' },
+                    },
+                }),
+            )
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Участник: {
+                                СвЮЛ: {
+                                    Название: 'ООО Участник',
+                                    КПП: '246501001',
+                                    ИНН: '2465147176',
+                                },
+                            },
+                        },
+                    },
+                }),
+            );
+
+        const r = await service.lookupCounterparty('2465147176', '246501001');
+        expect(r.status).toBe('single');
+        if (r.status !== 'single') throw new Error('expected single');
+        expect(r.data.name).toBe('ООО Участник');
+        expect(r.data.kpp).toBe('246501001');
+    });
+
+    it('lookupCounterparty by INN only tries alternate param variant after requisites error', async () => {
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        error: {
+                            details: 'В объекте нет поля d',
+                            message: 'Внутренняя ошибка сервера.',
+                        },
+                    },
+                    status: 200,
+                }),
+            )
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: [
+                            { СвЮЛ: { Название: 'ООО Филиал A', КПП: '246501001' } },
+                            { СвЮЛ: { Название: 'ООО Филиал B', КПП: '246502002' } },
+                        ],
+                    },
+                }),
+            );
+
+        const r = await service.lookupCounterparty('2465147176');
+        expect(r.status).toBe('choose');
+        if (r.status !== 'choose') throw new Error('expected choose');
+        expect(r.candidates).toHaveLength(2);
+        expect(httpPost).toHaveBeenCalledTimes(3);
+    });
+
+    it('lookupCounterparty by INN only returns choose when multiple branches found', async () => {
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: [
+                            {
+                                СвЮЛ: {
+                                    Название: 'ООО Филиал 1',
+                                    КПП: '246501001',
+                                },
+                            },
+                            {
+                                СвЮЛ: {
+                                    Название: 'ООО Филиал 2',
+                                    КПП: '246502002',
+                                },
+                            },
+                        ],
+                    },
+                }),
+            );
+
+        const r = await service.lookupCounterparty('2465147176');
+        expect(r).toEqual({
+            status: 'choose',
+            inn: '2465147176',
+            candidates: expect.arrayContaining([
+                expect.objectContaining({ name: 'ООО Филиал 1', kpp: '246501001' }),
+                expect.objectContaining({ name: 'ООО Филиал 2', kpp: '246502002' }),
+            ]),
+        });
+        expect(httpPost).toHaveBeenCalledTimes(2);
+    });
+
+    it('lookupCounterparty by INN only returns requires_kpp on SBIS "нет поля d" error', async () => {
+        const sbisError = {
+            code: -32602,
+            message: 'Внутренняя ошибка сервера.\nПопробуйте выполнить операцию позднее.',
+            details: 'В объекте нет поля d',
+            type: 'error',
+        };
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(of({ data: { error: sbisError }, status: 200 }))
+            .mockReturnValueOnce(of({ data: { error: sbisError }, status: 200 }))
+            .mockReturnValueOnce(of({ data: { error: sbisError }, status: 200 }));
+
+        const r = await service.lookupCounterparty('2465147176');
+        expect(r).toEqual({ status: 'requires_kpp', inn: '2465147176' });
+    });
+
+    it('rejects KPP that is a prefix of INN', async () => {
+        const r = await service.lookupCounterparty('2465147176', '246514717');
+        expect(r).toEqual({ status: 'requires_kpp', inn: '2465147176' });
+        expect(httpPost).not.toHaveBeenCalled();
+    });
+
+    it('prefers KPP from SBIS response over invalid request KPP', async () => {
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(of({ data: { error: { message: 'find failed' } } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Участник: {
+                                СвЮЛ: {
+                                    Название: 'ООО Участник',
+                                    КПП: '246501001',
+                                    ИНН: '2465147176',
+                                },
+                            },
+                        },
+                    },
+                }),
+            );
+
+        const r = await service.lookupCounterparty('2465147176', '246501001');
+        expect(r.status).toBe('single');
+        if (r.status !== 'single') throw new Error('expected single');
+        expect(r.data.kpp).toBe('246501001');
+    });
+
+    it('rejects invalid KPP length for legal entity', async () => {
+        const r = await service.lookupCounterparty('2465147176', '123');
+        expect(r).toEqual({ status: 'requires_kpp', inn: '2465147176' });
+        expect(httpPost).not.toHaveBeenCalled();
+    });
+
+    it('lookupCounterparty by INN only returns requires_kpp when no branches found', async () => {
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {},
+                    },
+                }),
+            );
+
+        const r = await service.lookupCounterparty('2465147176');
+        expect(r).toEqual({ status: 'requires_kpp', inn: '2465147176' });
+    });
+
+    it('lookupCounterparty by INN only enriches single branch with full lookup', async () => {
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            СвЮЛ: {
+                                Название: 'ООО Один',
+                                КПП: '246501001',
+                            },
+                        },
+                    },
+                }),
+            )
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            '@Лицо': '99',
+                            СвЮЛ: {
+                                Название: 'ООО Один',
+                                КПП: '246501001',
+                                ОГРН: '1022465010001',
+                            },
+                        },
+                    },
+                }),
+            )
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Участник: {
+                                СвЮЛ: {
+                                    Название: 'ООО Один',
+                                    КПП: '246501001',
+                                    ОГРН: '1022465010001',
+                                },
+                            },
+                        },
+                    },
+                }),
+            );
+
+        const r = await service.lookupCounterparty('2465147176');
+        expect(r.status).toBe('single');
+        if (r.status !== 'single') throw new Error('expected single');
+        expect(r.data.name).toBe('ООО Один');
+        expect(r.data.kpp).toBe('246501001');
+        expect(r.data.ogrn).toBe('1022465010001');
+    });
+
+    it('lookupCounterparty returns 502 when SBIS RPC fails for both methods', async () => {
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        error: {
+                            code: -32000,
+                            message: 'Внутренняя ошибка сервера. Попробуйте выполнить операцию позднее.',
+                        },
+                    },
+                    status: 200,
+                }),
+            )
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        error: {
+                            message: 'Внутренняя ошибка сервера.',
+                        },
+                    },
+                    status: 200,
+                }),
+            );
+
+        await expect(service.lookupCounterparty('2465147176', '246501001')).rejects.toMatchObject({
+            status: HttpStatus.BAD_GATEWAY,
+            response: expect.objectContaining({
+                inn: '2465147176',
+                sbisErrors: expect.arrayContaining([
+                    expect.objectContaining({ method: 'Контрагент.ПоИННКППКФ' }),
+                    expect.objectContaining({ method: 'СБИС.ИнформацияОКонтрагенте' }),
+                ]),
+            }),
+        });
     });
 
     it('returns null auth when credentials missing', async () => {

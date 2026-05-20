@@ -406,5 +406,36 @@ describe('SbisService', () => {
         const rpcBody = httpPost.mock.calls[1][1];
         expect(rpcBody.method).toBe('СБИС.ЗаписатьДокумент');
         expect(rpcBody.params.Документ.Дата).toBe('20.05.2026');
+        expect(rpcBody.params.Документ.Тип).toBe('СчетИсх');
+    });
+
+    it('createInvoiceDraft uses SBIS_INVOICE_DOC_TYPE override', async () => {
+        process.env.SBIS_INVOICE_DOC_TYPE = 'ДокОтгрИсх';
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: { Идентификатор: 'doc-2', Номер: '43' },
+                        },
+                    },
+                }),
+            );
+
+        await service.createInvoiceDraft({
+            number: '43',
+            documentDate: '2026-05-20',
+            amountRub: 500,
+            subject: 'Услуги',
+            paymentPurpose: 'Test',
+            counterpartyInn: '7707083893',
+            counterpartyName: 'ООО Тест',
+            legalForm: 'ul',
+            ourOrganizationInn: '1234567890',
+        });
+
+        const rpcBody = httpPost.mock.calls[1][1];
+        expect(rpcBody.params.Документ.Тип).toBe('ДокОтгрИсх');
     });
 });

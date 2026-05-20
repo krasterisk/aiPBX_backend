@@ -714,7 +714,8 @@ export class SbisService {
     }
 
     async createInvoiceDraft(input: SbisInvoiceDraftInput): Promise<SbisInvoiceDraftResult> {
-        const docType = (process.env.SBIS_INVOICE_DOC_TYPE || '').trim();
+        // Without Тип SBIS defaults to ДокОтгрИсх (исходящая «Реализация»), not a payment invoice.
+        const docType = (process.env.SBIS_INVOICE_DOC_TYPE || 'СчетИсх').trim();
         const regulationId = (process.env.SBIS_INVOICE_REGULATION_ID || '').trim();
         const productCode = (process.env.SBIS_INVOICE_PRODUCT_CODE || '').trim();
         const amountStr = input.amountRub.toFixed(2);
@@ -726,7 +727,7 @@ export class SbisService {
             НашаОрганизация: this.buildOurOrgBlock(input.ourOrganizationInn, input.ourOrganizationKpp),
             Контрагент: this.buildCounterpartyBlock(input),
         };
-        if (docType) document.Тип = docType;
+        document.Тип = docType;
         if (input.number) document.Номер = input.number;
         if (productCode) document.КодНоменклатуры = productCode;
         if (regulationId) {

@@ -29,6 +29,15 @@ export class MailerService {
         });
     }
 
+    /** Копия в ящик отправителя (через BCC), чтобы письма сохранялись на MAIL_USER. */
+    private withSenderMailboxCopy(
+        options: nodemailer.SendMailOptions,
+    ): nodemailer.SendMailOptions {
+        const sender = process.env.MAIL_USER;
+        if (!sender) return options;
+        return { ...options, bcc: sender };
+    }
+
     async sendActivationMail(to: string, code: string) {
         if (!to || !code) {
             this.logger.error(`Error send mail to: ${to}, code: ${code}`)
@@ -69,14 +78,13 @@ export class MailerService {
             `;
 
         try {
-            await this.transporter.sendMail({
+            await this.transporter.sendMail(this.withSenderMailboxCopy({
                 from: `"AI PBX" <${process.env.MAIL_USER}>`,
                 to,
-                bcc: process.env.MAIL_USER,
                 subject,
                 text: '',
                 html,
-            });
+            }));
             this.logger.log(`Send email to ${to} from ${process.env.MAIL_USER}`)
             return { success: true }
         } catch (e) {
@@ -109,13 +117,13 @@ export class MailerService {
                 </div>
             `;
 
-        await this.transporter.sendMail({
+        await this.transporter.sendMail(this.withSenderMailboxCopy({
             from: process.env.MAIL_USER,
             to,
             subject,
             text: '',
             html,
-        });
+        }));
     }
 
     async sendLowBalanceNotification(
@@ -146,7 +154,7 @@ export class MailerService {
         };
 
         try {
-            await this.transporter.sendMail(mail);
+            await this.transporter.sendMail(this.withSenderMailboxCopy(mail));
             this.logger.log(`Sent low balance alert to ${to.join(', ')}`);
         } catch (e) {
             this.logger.error('Error sending low balance alert', e);
@@ -159,13 +167,13 @@ export class MailerService {
         const { subject, html } = criticalBalanceMail(usesRussianMailLocale(), balance);
 
         try {
-            await this.transporter.sendMail({
+            await this.transporter.sendMail(this.withSenderMailboxCopy({
                 from: `"AI PBX" <${process.env.MAIL_USER}>`,
                 to: to.join(', '),
                 subject,
                 html,
                 attachments: buildBillingMailAttachments(),
-            });
+            }));
             this.logger.log(`Sent critical balance alert to ${to.join(', ')}`);
         } catch (e) {
             this.logger.error('Error sending critical balance alert', e);
@@ -178,13 +186,13 @@ export class MailerService {
         const { subject, html } = zeroBalanceMail(usesRussianMailLocale(), balance);
 
         try {
-            await this.transporter.sendMail({
+            await this.transporter.sendMail(this.withSenderMailboxCopy({
                 from: `"AI PBX" <${process.env.MAIL_USER}>`,
                 to: to.join(', '),
                 subject,
                 html,
                 attachments: buildBillingMailAttachments(),
-            });
+            }));
             this.logger.log(`Sent zero balance alert to ${to.join(', ')}`);
         } catch (e) {
             this.logger.error('Error sending zero balance alert', e);
@@ -217,7 +225,7 @@ export class MailerService {
         };
 
         try {
-            await this.transporter.sendMail(mail);
+            await this.transporter.sendMail(this.withSenderMailboxCopy(mail));
             this.logger.log(`Sent balance runway alert to ${to.join(', ')}`);
         } catch (e) {
             this.logger.error('Error sending balance runway alert', e);

@@ -24,6 +24,7 @@ describe('MailerService.sendLowBalanceNotification', () => {
         expect(sendMail).toHaveBeenCalledTimes(1);
         const mail = sendMail.mock.calls[0][0];
         expect(mail.to).toBe('a@b.com');
+        expect(mail.bcc).toBe('test@example.com');
         expect(mail.attachments).toEqual([
             expect.objectContaining({ cid: 'aipbx-logo', filename: 'aipbx_logo_v3.png' }),
         ]);

@@ -17,6 +17,7 @@ import {
     calcDailyBurnUsd,
     calcDaysRemaining,
     calcRunwayInvoiceAmountRub,
+    isBalanceRunwayEnabled,
     readBalanceRunwayConfig,
     shouldNotifyRunway,
 } from './billing-runway.util';
@@ -37,6 +38,11 @@ export class BillingRunwayService {
     ) {}
 
     async runDailyCheck(): Promise<{ processed: number; notified: number }> {
+        if (!isBalanceRunwayEnabled()) {
+            this.logger.log('Balance runway check skipped: BALANCE_RUNWAY_ENABLED is off');
+            return { processed: 0, notified: 0 };
+        }
+
         if (!isInvoiceBillingEnabled()) {
             this.logger.log('Balance runway check skipped: invoice billing not enabled for this deployment');
             return { processed: 0, notified: 0 };

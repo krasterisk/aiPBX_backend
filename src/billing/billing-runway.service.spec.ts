@@ -100,4 +100,15 @@ describe('BillingRunwayService', () => {
         expect(result.processed).toBe(0);
         expect(usersRepo.findAll).not.toHaveBeenCalled();
     });
+
+    it('skips when BALANCE_RUNWAY_ENABLED=false', async () => {
+        process.env.BALANCE_RUNWAY_ENABLED = 'false';
+
+        const result = await service.runDailyCheck();
+
+        expect(result.processed).toBe(0);
+        expect(result.notified).toBe(0);
+        expect(usersRepo.findAll).not.toHaveBeenCalled();
+        expect(mailerService.sendBalanceRunwayNotification).not.toHaveBeenCalled();
+    });
 });

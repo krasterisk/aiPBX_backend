@@ -2,11 +2,35 @@ import {
     calcDailyBurnUsd,
     calcDaysRemaining,
     calcRunwayInvoiceAmountRub,
+    isBalanceRunwayEnabled,
     readBalanceRunwayConfig,
     shouldNotifyRunway,
 } from './billing-runway.util';
 
 describe('billing-runway.util', () => {
+    const envBackup = { ...process.env };
+
+    afterEach(() => {
+        process.env = envBackup;
+    });
+
+    it.each(['false', 'FALSE', '0', 'no', 'off', 'disabled'])(
+        'isBalanceRunwayEnabled is false when BALANCE_RUNWAY_ENABLED=%s',
+        (value) => {
+            process.env.BALANCE_RUNWAY_ENABLED = value;
+            expect(isBalanceRunwayEnabled()).toBe(false);
+        },
+    );
+
+    it('isBalanceRunwayEnabled defaults to true when unset', () => {
+        delete process.env.BALANCE_RUNWAY_ENABLED;
+        expect(isBalanceRunwayEnabled()).toBe(true);
+    });
+
+    it('isBalanceRunwayEnabled is true for explicit true', () => {
+        process.env.BALANCE_RUNWAY_ENABLED = 'true';
+        expect(isBalanceRunwayEnabled()).toBe(true);
+    });
     it('calcDailyBurnUsd divides spend by lookback', () => {
         expect(calcDailyBurnUsd(70, 7)).toBe(10);
         expect(calcDailyBurnUsd(0, 7)).toBe(0);

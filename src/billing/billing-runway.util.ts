@@ -7,6 +7,14 @@ export interface BalanceRunwayConfig {
     renotifyDaysDrop: number;
 }
 
+const BALANCE_RUNWAY_DISABLED = new Set(['0', 'false', 'no', 'off', 'disabled']);
+
+/** Global kill switch for daily runway cron, admin trigger, and runway emails/invoices. */
+export function isBalanceRunwayEnabled(): boolean {
+    const raw = (process.env.BALANCE_RUNWAY_ENABLED ?? 'true').trim().toLowerCase();
+    return !BALANCE_RUNWAY_DISABLED.has(raw);
+}
+
 export function readBalanceRunwayConfig(): BalanceRunwayConfig {
     const lookbackDays = Math.max(1, parseInt(process.env.BALANCE_RUNWAY_LOOKBACK_DAYS || '7', 10) || 7);
     const alertDays = Math.max(0.1, parseFloat(process.env.BALANCE_RUNWAY_ALERT_DAYS || '7') || 7);

@@ -2,7 +2,10 @@ import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 
 import { InjectModel } from '@nestjs/sequelize';
 
-import { createReadStream, existsSync } from 'fs';
+import { createReadStream, existsSync, unlink } from 'fs';
+import { promisify } from 'util';
+
+const unlinkAsync = promisify(unlink);
 
 import { join } from 'path';
 
@@ -225,6 +228,42 @@ export class OrganizationDocumentsService {
 
         return { ok: true };
 
+    }
+
+    async deleteDocument(
+        actingUserId: number,
+        organizationId: number,
+        docId: string,
+        isAdmin: boolean,
+    ): Promise<{ ok: true }> {
+        if (!isAdmin) {
+            throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+        }
+
+        const org = await this.assertOrgAccess(actingUserId, organizationId, true);
+        const normalizedDocId = extractOrganizationDocumentId(docId) || docId.trim();
+        const doc = await this.docModel.findOne({
+            where: { id: normalizedDocId, userId: String(org.userId), organizationId },
+        });
+        if (!doc) {
+            throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+        }
+
+        if (doc.pdfPath) {
+            const abs = join(process.cwd(), 'static', doc.pdfPath);
+            if (existsSync(abs)) {
+                try {
+                    await unlinkAsync(abs);
+                } catch (e) {
+                    this.logger.warn(
+                        `Failed to remove PDF file ${abs}: ${(e as Error).message}`,
+                    );
+                }
+            }
+        }
+
+        await doc.destroy();
+        return { ok: true };
     }
 
 }

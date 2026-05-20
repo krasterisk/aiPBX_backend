@@ -68,6 +68,9 @@ export class OrganizationsController {
         if (!Number.isFinite(fromToken)) {
             throw new ForbiddenException('Invalid session');
         }
+        if (req.isAdmin && (listUserId == null || listUserId === '')) {
+            return this.organizationService.getAllForAdmin();
+        }
         if (req.isAdmin && listUserId != null && listUserId !== '') {
             const targetId = Number(listUserId);
             if (!Number.isFinite(targetId)) {
@@ -164,6 +167,30 @@ export class OrganizationsController {
     @Post(':id/documents/:docId/resend-sbis')
     resendSbis(@Req() req: any, @Param('id') id: string, @Param('docId') docId: string) {
         return this.organizationDocumentsService.resendToSbis(Number(req.tokenUserId), Number(id), docId, !!req.isAdmin);
+    }
+
+    @ApiOperation({ summary: 'Delete organization document (admin only)' })
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
+    @Delete(':id/documents/:docId')
+    async deleteDocument(@Req() req: any, @Param('id') id: string, @Param('docId') docId: string) {
+        const result = await this.organizationDocumentsService.deleteDocument(
+            Number(req.tokenUserId),
+            Number(id),
+            decodeURIComponent(docId),
+            true,
+        );
+        await this.loggerService.logAction(
+            Number(req.tokenUserId),
+            'delete',
+            'organization_document',
+            null,
+            `Deleted document ${decodeURIComponent(docId)} for organization #${id}`,
+            null,
+            null,
+            req,
+        );
+        return result;
     }
 
     @ApiOperation({ summary: "Get One Organization" })

@@ -96,6 +96,16 @@ export class OrganizationsService {
         }
     }
 
+    async getAllForAdmin() {
+        try {
+            return await this.organizationRepository.findAndCountAll({
+                order: [['createdAt', 'DESC']],
+            });
+        } catch (e) {
+            throw new HttpException('Error fetching organizations', HttpStatus.BAD_REQUEST);
+        }
+    }
+
     async getOne(actingUserId: number, id: number, isAdmin = false) {
         if (isAdmin) {
             const organization = await this.organizationRepository.findByPk(id);

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import * as crypto from 'crypto';
 import { AuthService } from './auth.service';
 import { LegalAcceptanceService } from '../legal/legal-acceptance.service';
 import { UsersService } from '../users/users.service';
@@ -389,20 +390,62 @@ describe('AuthService', () => {
     // signupWithTelegram
     // ═══════════════════════════════════════════════════════════════════
 
+    function buildTelegramHash(
+        botToken: string,
+        fields: Record<string, string | number>,
+    ): string {
+        const dataCheckString = Object.keys(fields)
+            .sort()
+            .map((key) => `${key}=${fields[key]}`)
+            .join('\n');
+        const secretKey = crypto.createHash('sha256').update(botToken).digest();
+        return crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+    }
+
     describe('signupWithTelegram', () => {
-        // We can't fully test checkTgHash without setting TELEGRAM_BOT_TOKEN env,
-        // but we can test the flow when hash validation fails
+        const botToken = 'test-telegram-bot-token';
+        const authDate = Math.floor(Date.now() / 1000);
+        const telegramPayload = {
+            id: 12345,
+            first_name: 'Test',
+            auth_date: authDate,
+        };
 
         it('should throw UnauthorizedException when hash is invalid', async () => {
-            // Without TELEGRAM_BOT_TOKEN env → checkTgHash returns false
             await expect(
                 service.signupWithTelegram({
-                    id: 12345,
-                    first_name: 'Test',
-                    auth_date: Math.floor(Date.now() / 1000),
+                    ...telegramPayload,
                     hash: 'invalid-hash',
                 }),
             ).rejects.toThrow(UnauthorizedException);
+        });
+
+        it('should accept valid hash even when legalAcceptance is present', async () => {
+            const prevToken = process.env.TELEGRAM_BOT_TOKEN;
+            process.env.TELEGRAM_BOT_TOKEN = botToken;
+            const hash = buildTelegramHash(botToken, telegramPayload);
+
+            mockUsersService.getCandidateByTelegramId.mockResolvedValue(null);
+            mockUsersService.create.mockResolvedValue({ ...mockUser, telegramId: '12345' });
+
+            try {
+                const result = await service.signupWithTelegram({
+                    ...telegramPayload,
+                    hash,
+                    legalAcceptance: [{
+                        kind: 'public_offer',
+                        version: '2026-05-18',
+                        contentHash: 'abc123',
+                    }],
+                });
+                expect(result.token).toBe('mock-jwt-token');
+            } finally {
+                if (prevToken === undefined) {
+                    delete process.env.TELEGRAM_BOT_TOKEN;
+                } else {
+                    process.env.TELEGRAM_BOT_TOKEN = prevToken;
+                }
+            }
         });
     });
 

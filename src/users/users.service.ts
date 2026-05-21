@@ -26,6 +26,7 @@ import { ensureOwnerPersonalAccount, formatPersonalAccountNumber } from './perso
 import { BalanceThresholdAlertsService } from './balance-threshold-alerts.service';
 import { isBalanceDepleted } from './balance-notification.util';
 import { parseUserId } from './user-id.util';
+import { isInvoiceBillingEnabled } from '../shared/tenant/invoice-billing-context';
 
 export interface BalanceCreditOptions {
     source?: BalanceLedgerSource;
@@ -730,6 +731,21 @@ export class UsersService {
                     "Editing Forbidden", HttpStatus.FORBIDDEN
                 );
             }
+
+            if (isInvoiceBillingEnabled()) {
+                const ownerIdForPa = user.vpbx_user_id ?? user.id;
+                const personalAccountNumber = await ensureOwnerPersonalAccount(
+                    this.usersRepository,
+                    Number(ownerIdForPa),
+                );
+                if (typeof user.setDataValue === 'function') {
+                    user.setDataValue('personalAccountNumber', personalAccountNumber);
+                } else {
+                    (user as User & { personalAccountNumber?: string }).personalAccountNumber =
+                        personalAccountNumber;
+                }
+            }
+
             return user;
         } catch (e) {
             this.logger.warn('User not found', e);

@@ -338,6 +338,16 @@ export class AuthService {
 
     }
 
+    /** Поля, которые подписывает Telegram Login Widget (см. core.telegram.org/widgets/login). */
+    private static readonly TELEGRAM_LOGIN_FIELDS = [
+        'id',
+        'first_name',
+        'last_name',
+        'username',
+        'photo_url',
+        'auth_date',
+    ] as const;
+
     private checkTgHash(data: TelegramAuthDto) {
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -346,10 +356,25 @@ export class AuthService {
             return false;
         }
 
-        // Проверяем подпись
+        if (!data.hash) {
+            this.logger.warn('Telegram auth: hash is missing');
+            return false;
+        }
+
+        const authDate = Number(data.auth_date);
+        if (!Number.isFinite(authDate)) {
+            this.logger.warn('Telegram auth: invalid auth_date');
+            return false;
+        }
+        const maxAgeSec = 86400;
+        if (Math.floor(Date.now() / 1000) - authDate > maxAgeSec) {
+            this.logger.warn('Telegram auth: auth_date expired');
+            return false;
+        }
+
         const checkHash = data.hash;
-        const dataCheckString = Object.keys(data)
-            .filter((key) => key !== 'hash' && data[key] !== undefined && data[key] !== null)
+        const dataCheckString = [...AuthService.TELEGRAM_LOGIN_FIELDS]
+            .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== '')
             .sort()
             .map((key) => `${key}=${data[key]}`)
             .join('\n');
@@ -361,7 +386,11 @@ export class AuthService {
             .digest('hex');
 
         if (hmac !== checkHash) {
-            this.logger.warn(`Telegram hash mismatch. Keys: ${Object.keys(data).filter(k => k !== 'hash' && data[k] !== undefined).sort().join(',')}`);
+            this.logger.warn(
+                `Telegram hash mismatch. Signed fields: ${AuthService.TELEGRAM_LOGIN_FIELDS.filter(
+                    (k) => data[k] !== undefined && data[k] !== null && data[k] !== '',
+                ).join(',')}`,
+            );
             return false;
         }
         return true;

@@ -52,5 +52,11 @@ describe('invoice-billing-context', () => {
             process.env.NODE_ENV = 'production';
             expect(isInvoiceBillingHostAllowed('aipbx.ru')).toBe(false);
         });
+
+        it('allows internal call when DEFAULT_HOST is * and allowlist is aipbx.ru', () => {
+            process.env.INVOICE_BILLING_ALLOWED_HOSTS = 'aipbx.ru';
+            process.env.INVOICE_BILLING_DEFAULT_HOST = '*';
+            expect(isInvoiceBillingHostAllowed()).toBe(true);
+        });
     });
 });

@@ -71,4 +71,11 @@ describe('InvoiceService.isHostAllowedForRuBilling', () => {
         process.env.INVOICE_BILLING_DEFAULT_HOST = 'aipbx.net';
         expect(service.isHostAllowedForRuBilling()).toBe(false);
     });
+
+    it('allows internal invoice when INVOICE_BILLING_DEFAULT_HOST is *', () => {
+        process.env.INVOICE_BILLING_ALLOWED_HOSTS = 'aipbx.ru';
+        process.env.INVOICE_BILLING_DEFAULT_HOST = '*';
+        expect(service.isHostAllowedForRuBilling()).toBe(true);
+        expect(service.isHostAllowedForRuBilling('')).toBe(true);
+    });
 });

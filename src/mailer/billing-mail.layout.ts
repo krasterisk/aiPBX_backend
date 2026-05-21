@@ -29,26 +29,54 @@ export function billingMailLogoAttachment(): { filename: string; path: string; c
     return { filename: BILLING_MAIL_LOGO_FILENAME, path, cid: BILLING_MAIL_LOGO_CID };
 }
 
+export interface MailCtaParams {
+    href: string;
+    label: string;
+    hint?: string;
+    showUrl?: boolean;
+}
+
 export interface BillingMailLayoutParams {
     isRu: boolean;
     title: string;
     intro: string;
     bodyHtml: string;
     paymentUrl?: string;
+    /** Custom CTA (e.g. password reset). */
+    cta?: MailCtaParams;
+    /** When false, no CTA block (auth codes). Default: payment button for billing. */
+    showCta?: boolean;
+}
+
+function renderMailCtaBlock(cta: MailCtaParams): string {
+    const urlLine = cta.showUrl !== false
+        ? `<p style="margin:8px 0 0;font-size:12px;color:#94a3b8;word-break:break-all;"><a href="${cta.href}" style="color:#0EA5E9;">${cta.href}</a></p>`
+        : '';
+    const hint = cta.hint
+        ? `<p style="margin:12px 0 0;font-size:13px;color:#64748b;">${cta.hint}</p>`
+        : '';
+    return `<tr><td style="padding:24px 32px 8px;text-align:center;">
+<a href="${cta.href}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#06B6D4 0%,#0EA5E9 50%,#8B5CF6 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;border-radius:8px;">${cta.label}</a>
+${hint}
+${urlLine}
+</td></tr>`;
+}
+
+function resolveLayoutCta(params: BillingMailLayoutParams): MailCtaParams | null {
+    if (params.cta) return params.cta;
+    if (params.showCta === false) return null;
+    const href = params.paymentUrl ?? resolvePaymentPageUrl();
+    return params.isRu
+        ? { href, label: 'Перейти к оплате', hint: 'Пополнение баланса занимает несколько минут.', showUrl: true }
+        : { href, label: 'Go to payment', hint: 'Top-up takes just a few minutes.', showUrl: true };
 }
 
 /** Responsive-friendly table layout for major email clients. */
 export function wrapBillingMailHtml(params: BillingMailLayoutParams): string {
-    const paymentUrl = params.paymentUrl ?? resolvePaymentPageUrl();
-    const cta = params.isRu
-        ? { label: 'Перейти к оплате', hint: 'Пополнение баланса занимает несколько минут.' }
-        : { label: 'Go to payment', hint: 'Top-up takes just a few minutes.' };
+    const ctaBlock = resolveLayoutCta(params);
     const footer = params.isRu
         ? 'С уважением,<br/>команда AI PBX'
         : 'Best regards,<br/>the AI PBX team';
-    const support = params.isRu
-        ? 'Если у вас возникли вопросы, мы будем рады помочь — просто ответьте на это письмо.'
-        : 'If you have any questions, we are happy to help — just reply to this email.';
 
     return `<!DOCTYPE html>
 <html lang="${params.isRu ? 'ru' : 'en'}">
@@ -69,13 +97,8 @@ export function wrapBillingMailHtml(params: BillingMailLayoutParams): string {
 <p style="margin:0 0 16px;">${params.intro}</p>
 ${params.bodyHtml}
 </td></tr>
-<tr><td style="padding:24px 32px 8px;text-align:center;">
-<a href="${paymentUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#06B6D4 0%,#0EA5E9 50%,#8B5CF6 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;border-radius:8px;">${cta.label}</a>
-<p style="margin:12px 0 0;font-size:13px;color:#64748b;">${cta.hint}</p>
-<p style="margin:8px 0 0;font-size:12px;color:#94a3b8;word-break:break-all;"><a href="${paymentUrl}" style="color:#0EA5E9;">${paymentUrl}</a></p>
-</td></tr>
+${ctaBlock ? renderMailCtaBlock(ctaBlock) : ''}
 <tr><td style="padding:16px 32px 32px;font-size:14px;line-height:1.6;color:#64748b;border-top:1px solid #e2e8f0;">
-<p style="margin:0 0 12px;">${support}</p>
 <p style="margin:0;">${footer}</p>
 </td></tr>
 </table>
@@ -98,6 +121,16 @@ export function billingMetricBox(rows: Array<{ label: string; value: string; acc
     return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:16px 0;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
 <tr><td style="padding:16px 20px;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${items}</table>
+</td></tr>
+</table>`;
+}
+
+/** Prominent one-time code (auth, 2FA-style emails). */
+export function mailAuthCodeBox(code: string, label: string): string {
+    return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:8px 0 20px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+<tr><td style="padding:20px 24px;text-align:center;">
+<p style="margin:0 0 8px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">${label}</p>
+<p style="margin:0;font-size:32px;font-weight:700;letter-spacing:0.2em;color:#0f172a;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;">${code}</p>
 </td></tr>
 </table>`;
 }

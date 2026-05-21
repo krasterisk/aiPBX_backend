@@ -133,6 +133,7 @@ describe('AuthService', () => {
             expect(mockMailerService.sendActivationMail).toHaveBeenCalledWith(
                 'test@example.com',
                 expect.stringMatching(/^\d{6}$/),
+                'login',
             );
             expect(result).toEqual({ success: true });
         });
@@ -189,6 +190,7 @@ describe('AuthService', () => {
             expect(mockMailerService.sendActivationMail).toHaveBeenCalledWith(
                 'new@example.com',
                 expect.stringMatching(/^\d{6}$/),
+                'signup',
             );
             expect(result).toEqual({ success: true });
         });

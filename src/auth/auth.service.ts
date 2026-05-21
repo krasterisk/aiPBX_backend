@@ -81,7 +81,7 @@ export class AuthService {
 
         await candidate.save()
 
-        const result = await this.mailerService.sendActivationMail(userDto.email, activationCode)
+        const result = await this.mailerService.sendActivationMail(userDto.email, activationCode, 'login')
 
         if (result.success) {
             return { success: true }
@@ -130,7 +130,7 @@ export class AuthService {
 
         await this.safeRecordAcceptance(user.id, userDto.legalAcceptance, 'signup', ctx)
 
-        await this.mailerService.sendActivationMail(userDto.email, activationCode)
+        await this.mailerService.sendActivationMail(userDto.email, activationCode, 'signup')
 
         return { success: true }
     }

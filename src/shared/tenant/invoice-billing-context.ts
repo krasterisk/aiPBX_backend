@@ -26,7 +26,8 @@ function isLocalDevBillingHost(host: string): boolean {
 
 /**
  * HTTP invoice API: Host must match INVOICE_BILLING_ALLOWED_HOSTS (or localhost in dev).
- * Internal calls with empty Host are allowed when INVOICE_BILLING_DEFAULT_HOST is unset.
+ * Internal calls with empty Host are allowed when INVOICE_BILLING_DEFAULT_HOST is unset or `*`.
+ * Otherwise DEFAULT_HOST must be on the allowlist (e.g. aipbx.ru for balance-alert invoices).
  */
 export function isInvoiceBillingHostAllowed(hostHeader?: string): boolean {
     if (!isInvoiceBillingEnabled()) {
@@ -41,7 +42,7 @@ export function isInvoiceBillingHostAllowed(hostHeader?: string): boolean {
     let host = normalizeBillingHost(hostHeader);
     if (!host) {
         const fallback = (process.env.INVOICE_BILLING_DEFAULT_HOST || '').trim();
-        if (!fallback) {
+        if (!fallback || fallback === '*') {
             return true;
         }
         host = normalizeBillingHost(fallback);

@@ -9,6 +9,7 @@ import {
     type RunwayMailParams,
 } from './billing-mail.templates';
 import { buildBillingMailAttachments } from './billing-mail.attachments';
+import { activationMail, resetPasswordMail, type AuthMailPurpose } from './auth-mail.templates';
 
 @Injectable()
 export class MailerService {
@@ -38,44 +39,14 @@ export class MailerService {
         return { ...options, bcc: sender };
     }
 
-    async sendActivationMail(to: string, code: string) {
+    async sendActivationMail(to: string, code: string, purpose: AuthMailPurpose = 'login') {
         if (!to || !code) {
             this.logger.error(`Error send mail to: ${to}, code: ${code}`)
             throw new HttpException("Error sending email", HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
         const isRu = usesRussianMailLocale();
-        const subject = isRu
-            ? `Код авторизации: ${code}`
-            : `Auth code: ${code}`;
-
-        const html = isRu
-            ? `
-                <body>
-                    <div>
-                        <p>
-                            <h2>Ваш код авторизации: ${code}</h2>
-                            <h4>В целях безопасности код истечёт через несколько минут.</h4>
-                        </p>
-                        <p>
-                            <h5>Команда AI PBX</h5>
-                        </p>
-                    </div>
-                </body>
-            `
-            : `
-                <body>
-                    <div>
-                        <p>
-                            <h2>Your authorization code is: ${code}</h2>
-                            <h4>For your security, this code will expire in a few minutes.</h4>
-                        </p>
-                        <p>
-                            <h5>AI PBX team</h5>
-                        </p>
-                    </div>
-                </body>
-            `;
+        const { subject, html } = activationMail(isRu, code, purpose);
 
         try {
             await this.transporter.sendMail(this.withSenderMailboxCopy({
@@ -84,6 +55,7 @@ export class MailerService {
                 subject,
                 text: '',
                 html,
+                attachments: buildBillingMailAttachments(),
             }));
             this.logger.log(`Send email to ${to} from ${process.env.MAIL_USER}`)
             return { success: true }
@@ -94,35 +66,17 @@ export class MailerService {
     }
 
     async sendResetPasswordMail(to: string, link: string) {
-        const resetPasswordLink = `${process.env.API_URL}/api/users/resetPassword/${link}`
-
+        const resetPasswordLink = `${process.env.API_URL}/api/users/resetPassword/${link}`;
         const isRu = usesRussianMailLocale();
-        const subject = isRu
-            ? 'AI PBX. Сброс пароля'
-            : 'AI PBX. Password reset request';
-
-        const html = isRu
-            ? `
-                <div>
-                    <h3>Запрошен сброс пароля для вашей учётной записи</h3>
-                    <p>Внимание! Если вы не запрашивали сброс — не переходите по ссылке!</p>
-                    <p>Для сброса пароля перейдите по <a href="${resetPasswordLink}" target="_blank">ссылке</a></p>
-                </div>
-            `
-            : `
-                <div>
-                    <h3>For your account required password reset</h3>
-                    <p>Warning! If you don't do it, don't press the activation link!</p>
-                    <p>For reset password go to the <a href="${resetPasswordLink}" target="_blank">link</a></p>
-                </div>
-            `;
+        const { subject, html } = resetPasswordMail(isRu, resetPasswordLink);
 
         await this.transporter.sendMail(this.withSenderMailboxCopy({
-            from: process.env.MAIL_USER,
+            from: `"AI PBX" <${process.env.MAIL_USER}>`,
             to,
             subject,
             text: '',
             html,
+            attachments: buildBillingMailAttachments(),
         }));
     }
 

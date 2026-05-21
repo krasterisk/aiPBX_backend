@@ -126,7 +126,7 @@ export function zeroBalanceMail(isRu: boolean, balance: number) {
                 bodyHtml: `${billingNoticeParagraph(
                     'Пополнение баланса занимает несколько минут — после зачисления средств доступ к сервису восстановится без дополнительных действий с вашей стороны.',
                     'critical',
-                )}${metrics}<p style="margin:0;font-size:14px;line-height:1.6;color:#334155;">Мы будем рады снова оказывать вам услуги. Если нужна помощь — ответьте на это письмо.</p>`,
+                )}${metrics}`,
                 paymentUrl,
             }),
         };
@@ -142,7 +142,7 @@ export function zeroBalanceMail(isRu: boolean, balance: number) {
             bodyHtml: `${billingNoticeParagraph(
                 'Top-up takes just a few minutes — after payment is credited, your service will resume without any further action on your part.',
                 'critical',
-            )}${metrics}<p style="margin:0;font-size:14px;line-height:1.6;color:#334155;">We look forward to serving you again. If you need assistance, please reply to this email.</p>`,
+            )}${metrics}`,
             paymentUrl,
         }),
     };

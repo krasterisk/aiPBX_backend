@@ -57,7 +57,7 @@ export class InvoiceService {
     /**
      * HTTP requests: Host / X-Forwarded-Host must match INVOICE_BILLING_ALLOWED_HOSTS.
      * Server-side invoices (balance alerts): no Host header — allowed when
-     * INVOICE_BILLING_DEFAULT_HOST is unset; if set, that host is checked against the allowlist.
+     * INVOICE_BILLING_DEFAULT_HOST is unset or `*`; otherwise that host is checked against the allowlist.
      */
     isHostAllowedForRuBilling(hostHeader?: string): boolean {
         return isInvoiceBillingHostAllowed(hostHeader);

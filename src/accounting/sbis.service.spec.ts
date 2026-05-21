@@ -438,4 +438,22 @@ describe('SbisService', () => {
         const rpcBody = httpPost.mock.calls[1][1];
         expect(rpcBody.params.Документ.Тип).toBe('ДокОтгрИсх');
     });
+
+    it('findOutgoingSendStage locates Отправить action', () => {
+        const found = service.findOutgoingSendStage({
+            Этап: [
+                {
+                    Идентификатор: 'stage-1',
+                    Название: 'Отправка',
+                    Действие: [{ Название: 'Отправить' }],
+                },
+            ],
+        });
+        expect(found).toEqual({ stageId: 'stage-1', actionName: 'Отправить' });
+    });
+
+    it('edoAutoSendEnabled respects SBIS_EDO_AUTO_SEND=false', () => {
+        process.env.SBIS_EDO_AUTO_SEND = 'false';
+        expect(service.edoAutoSendEnabled()).toBe(false);
+    });
 });

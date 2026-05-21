@@ -4,6 +4,12 @@ import { Sequelize, Transaction } from 'sequelize';
 import { DocumentCounter } from './document-counter.model';
 import { DOCUMENT_SERIES_DEFAULT } from './billing.constants';
 
+/** 1..366 (365), local calendar date of `date`. */
+export function getDayOfYear(date: Date = new Date()): number {
+    const start = new Date(date.getFullYear(), 0, 0);
+    return Math.floor((date.getTime() - start.getTime()) / 86_400_000);
+}
+
 @Injectable()
 export class DocumentCounterService {
     constructor(@InjectConnection() private readonly sequelize: Sequelize) {}
@@ -38,12 +44,21 @@ export class DocumentCounterService {
         return `${series}-${typeCode}-${year}-${padded}`;
     }
 
-    /** Payment invoice number shown on PDF, e.g. AIPBX-00001 */
-    formatInvoiceNumber(seq: number): string {
+    invoiceCounterDocType(dayOfYear: number): string {
+        return `invoice-d${dayOfYear}`;
+    }
+
+    /**
+     * Payment invoice: {prefix}-{numeric}, one number = 3-digit day-of-year + daily seq (no separator).
+     * e.g. day 142 #3 → 01423; day 360 #262 → 360262 (leading zeros only if INVOICE_NUMBER_MIN_WIDTH not reached).
+     */
+    formatInvoiceNumber(seq: number, dayOfYear: number): string {
         const prefix = (process.env.INVOICE_NUMBER_PREFIX || 'AIPBX').trim() || 'AIPBX';
-        const width = Number(process.env.INVOICE_NUMBER_PAD || 5);
-        const pad = Number.isFinite(width) && width > 0 ? width : 5;
-        return `${prefix}-${String(seq).padStart(pad, '0')}`;
+        const minWidth = Number(process.env.INVOICE_NUMBER_MIN_WIDTH || process.env.INVOICE_NUMBER_PAD || 5);
+        const min = Number.isFinite(minWidth) && minWidth > 0 ? minWidth : 5;
+        const body = `${String(dayOfYear).padStart(3, '0')}${seq}`;
+        const numeric = body.length < min ? body.padStart(min, '0') : body;
+        return `${prefix}-${numeric}`;
     }
 
     defaultSeries(): string {

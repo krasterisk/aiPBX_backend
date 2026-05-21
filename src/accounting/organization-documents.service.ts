@@ -200,30 +200,33 @@ export class OrganizationDocumentsService {
 
         }
 
-        const r = await this.sbis.enqueueDocument(doc.type, { id: doc.id, number: doc.number });
+        if (!doc.sbisId) {
+            throw new HttpException('Document has no SBIS id', HttpStatus.BAD_REQUEST);
+        }
+
+        const r = await this.sbis.enqueueDocument(doc.type, {
+            id: doc.id,
+            sbisId: doc.sbisId,
+            number: doc.number,
+        });
 
         if (!r.ok) {
-
             await doc.update({
-
                 status: 'failed',
-
                 sbisLastError: r.detail || 'sbis',
-
                 sbisAttemptCount: doc.sbisAttemptCount + 1,
-
             });
-
-            throw new HttpException('SBIS enqueue failed', HttpStatus.BAD_GATEWAY);
-
+            throw new HttpException(
+                r.detail || 'SBIS EDO send failed',
+                HttpStatus.BAD_GATEWAY,
+            );
         }
 
         await doc.update({
-
             status: 'sent_to_sbis',
-
+            sbisStatus: 'sent_to_sbis',
+            sbisLastError: null,
             sbisAttemptCount: doc.sbisAttemptCount + 1,
-
         });
 
         return { ok: true };

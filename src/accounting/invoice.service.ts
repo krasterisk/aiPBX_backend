@@ -5,7 +5,7 @@ import { InjectConnection } from '@nestjs/sequelize';
 import { Sequelize } from 'sequelize';
 import { Organization } from '../organizations/organizations.model';
 import { OrganizationDocument } from './organization-document.model';
-import { DocumentCounterService } from './document-counter.service';
+import { DocumentCounterService, getDayOfYear } from './document-counter.service';
 import { formatInvoiceLineItemSubject, resolveInvoiceSubject } from './subject-resolver';
 import { DOC_TYPE_INVOICE } from './billing.constants';
 import { renderInvoicePdfToFile, type InvoiceIssuerRequisites } from './pdf/invoice-pdf';
@@ -112,14 +112,20 @@ export class InvoiceService {
             );
         }
 
-        const year = new Date().getFullYear();
+        const issuedAt = new Date();
+        const year = issuedAt.getFullYear();
+        const dayOfYear = getDayOfYear(issuedAt);
         const series = this.counters.defaultSeries();
 
         const { docId, number, paymentPurpose, documentDate, sbisDraft, pdfRelativePath } =
             await this.sequelize.transaction(async (transaction) => {
-            const seq = await this.counters.nextNumber('invoice', year, transaction);
-            const numberInner = this.counters.formatInvoiceNumber(seq);
-            const documentDateInner = new Date().toISOString().slice(0, 10);
+            const seq = await this.counters.nextNumber(
+                this.counters.invoiceCounterDocType(dayOfYear),
+                year,
+                transaction,
+            );
+            const numberInner = this.counters.formatInvoiceNumber(seq, dayOfYear);
+            const documentDateInner = issuedAt.toISOString().slice(0, 10);
             const paymentPurposeInner = buildInvoicePaymentPurpose(
                 numberInner,
                 documentDateInner,
@@ -245,13 +251,29 @@ export class InvoiceService {
         void (async () => {
             try {
                 const draft = await this.sbis.createInvoiceDraft(draftInput);
+                let sbisStatus: string = 'draft';
+                let sbisLastError: string | null = null;
+                if (this.sbis.edoAutoSendEnabled()) {
+                    try {
+                        const sent = await this.sbis.sendInvoiceToEdo(draft);
+                        sbisStatus = 'sent_to_sbis';
+                        this.logger.log(
+                            `SBIS invoice ${docId} sent to EDO: ${sent.stateName || sent.stateCode || 'ok'}`,
+                        );
+                    } catch (sendErr) {
+                        const msg = (sendErr as Error).message;
+                        sbisLastError = msg.slice(0, 500);
+                        sbisStatus = 'failed';
+                        this.logger.warn(`SBIS EDO send failed for ${docId}: ${msg}`);
+                    }
+                }
                 await this.docModel.update(
                     {
                         sbisId: draft.documentId,
                         sbisUrl: draft.sbisUrl,
                         sbisDocNum: draft.sbisNumber,
-                        sbisStatus: 'draft',
-                        sbisLastError: null,
+                        sbisStatus,
+                        sbisLastError,
                     },
                     { where: { id: docId } },
                 );

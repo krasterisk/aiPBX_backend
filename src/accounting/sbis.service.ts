@@ -8,6 +8,7 @@ import type {
     CounterpartyLookupApiResult,
     CounterpartyLookupResult,
     OrganizationLegalForm,
+    SbisEdoSendResult,
     SbisInvoiceDraftInput,
     SbisInvoiceDraftResult,
 } from './sbis.types';
@@ -794,6 +795,140 @@ export class SbisService {
         return null;
     }
 
+    private asRecord(value: unknown): Record<string, unknown> | null {
+        return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+    }
+
+    private asArray(value: unknown): Record<string, unknown>[] {
+        if (!value) return [];
+        if (Array.isArray(value)) {
+            return value.map((v) => this.asRecord(v)).filter((v): v is Record<string, unknown> => v != null);
+        }
+        const one = this.asRecord(value);
+        return one ? [one] : [];
+    }
+
+    edoAutoSendEnabled(): boolean {
+        const raw = (process.env.SBIS_EDO_AUTO_SEND ?? 'true').trim().toLowerCase();
+        return !['0', 'false', 'no', 'off'].includes(raw);
+    }
+
+    private edoSendActionName(): string {
+        return (process.env.SBIS_EDO_ACTION_NAME || 'Отправить').trim() || 'Отправить';
+    }
+
+    private buildEdoCertificateBlock(): Record<string, unknown> | undefined {
+        const thumbprint = (process.env.SBIS_EDO_CERT_THUMBPRINT || '').trim();
+        if (thumbprint) {
+            return { Отпечаток: thumbprint };
+        }
+        const keyType = (process.env.SBIS_EDO_SIGN_KEY_TYPE || '').trim();
+        if (keyType) {
+            return { Ключ: { Тип: keyType } };
+        }
+        return undefined;
+    }
+
+    async readDocumentRecord(documentId: string): Promise<Record<string, unknown>> {
+        const readResult = await this.callRpc<unknown>('СБИС.ПрочитатьДокумент', {
+            Документ: { Идентификатор: documentId },
+        });
+        const root = this.asRecord(readResult);
+        return (this.asRecord(root?.Документ) ?? root) as Record<string, unknown>;
+    }
+
+    /**
+     * Finds outgoing «Отправить» (or SBIS_EDO_ACTION_NAME) on the current document stage.
+     */
+    findOutgoingSendStage(
+        doc: Record<string, unknown>,
+    ): { stageId: string | null; actionName: string } | null {
+        const actionName = this.edoSendActionName();
+        const stages = this.asArray(doc.Этап);
+        for (const stage of stages) {
+            const stageName = (this.pickString(stage, 'Название') || '').toLowerCase();
+            if (stageName.includes('отправ')) {
+                const actions = this.asArray(stage.Действие);
+                for (const action of actions) {
+                    const name = this.pickString(action, 'Название');
+                    if (name && name.toLowerCase() === actionName.toLowerCase()) {
+                        return {
+                            stageId: this.pickString(stage, 'Идентификатор'),
+                            actionName: name,
+                        };
+                    }
+                }
+            }
+            const actions = this.asArray(stage.Действие);
+            for (const action of actions) {
+                const name = this.pickString(action, 'Название');
+                if (name && name.toLowerCase() === actionName.toLowerCase()) {
+                    return {
+                        stageId: this.pickString(stage, 'Идентификатор'),
+                        actionName: name,
+                    };
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Signs (server/deferred cert in Saby or thumbprint from env) and sends document via EDO.
+     * Requires ЭП configured in Saby for the integration user (SBIS_LOGIN).
+     */
+    async sendDocumentToEdo(
+        documentId: string,
+        revisionId?: string | null,
+    ): Promise<SbisEdoSendResult> {
+        const doc = await this.readDocumentRecord(documentId);
+        const sendStage = this.findOutgoingSendStage(doc);
+        const actionName = sendStage?.actionName || this.edoSendActionName();
+
+        const document: Record<string, unknown> = {
+            Идентификатор: documentId,
+        };
+        if (revisionId?.trim()) {
+            document.Редакция = { Идентификатор: revisionId.trim() };
+        }
+
+        const action: Record<string, unknown> = { Название: actionName };
+        const cert = this.buildEdoCertificateBlock();
+        if (cert) {
+            action.Сертификат = cert;
+        }
+
+        const stage: Record<string, unknown> = {
+            Действие: [action],
+        };
+        if (sendStage?.stageId) {
+            stage.Идентификатор = sendStage.stageId;
+        } else if (sendStage) {
+            stage.Название = 'Отправка';
+        } else {
+            stage.Название = 'Отправка';
+        }
+        document.Этап = stage;
+
+        const result = (await this.callRpc<Record<string, unknown>>('СБИС.ВыполнитьДействие', {
+            Документ: document,
+        })) as Record<string, unknown>;
+
+        const outDoc = this.asRecord(result.Документ) ?? result;
+        const state = this.asRecord(outDoc.Состояние);
+        return {
+            documentId,
+            actionName,
+            stageId: sendStage?.stageId ?? null,
+            stateCode: this.pickString(state, 'Код'),
+            stateName: this.pickString(state, 'Название'),
+        };
+    }
+
+    async sendInvoiceToEdo(draft: SbisInvoiceDraftResult): Promise<SbisEdoSendResult> {
+        return this.sendDocumentToEdo(draft.documentId, draft.revisionId);
+    }
+
     async fetchDocumentPdfBytes(documentId: string): Promise<Buffer> {
         const readResult = await this.callRpc<unknown>('СБИС.ПрочитатьДокумент', {
             Документ: { Идентификатор: documentId },
@@ -814,12 +949,25 @@ export class SbisService {
         return Buffer.from(data);
     }
 
-    /** Legacy stub used by closing.task / resend — extended later for EDO send */
-    async enqueueDocument(type: string, payload: Record<string, unknown>): Promise<{ ok: boolean; detail?: string }> {
+    async enqueueDocument(
+        type: string,
+        payload: Record<string, unknown>,
+    ): Promise<{ ok: boolean; detail?: string }> {
         if (!this.isConfigured()) return { ok: false, detail: 'no_session' };
+        const documentId = String(payload.sbisId || payload.id || '').trim();
+        if (!documentId) {
+            return { ok: false, detail: 'missing_document_id' };
+        }
         try {
-            await this.auth();
-            return { ok: true, detail: `queued:${type}:${String(payload.id || '')}` };
+            if (!this.edoAutoSendEnabled()) {
+                await this.auth();
+                return { ok: true, detail: `draft_only:${type}:${documentId}` };
+            }
+            const sent = await this.sendDocumentToEdo(documentId);
+            return {
+                ok: true,
+                detail: `sent:${type}:${documentId}:${sent.stateName || sent.stateCode || 'ok'}`,
+            };
         } catch (e) {
             return { ok: false, detail: (e as Error).message };
         }

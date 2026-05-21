@@ -41,3 +41,11 @@ export interface SbisInvoiceDraftResult {
     sbisNumber: string | null;
     sbisUrl: string | null;
 }
+
+export interface SbisEdoSendResult {
+    documentId: string;
+    actionName: string;
+    stageId: string | null;
+    stateCode: string | null;
+    stateName: string | null;
+}

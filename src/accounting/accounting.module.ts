@@ -16,6 +16,7 @@ import { AlfawebhookClient } from './alfawebhook-client.service';
 import { SbisService } from './sbis.service';
 import { OrganizationDocumentsService } from './organization-documents.service';
 import { ClosingTask } from './closing.task';
+import { OrganizationsModule } from '../organizations/organizations.module';
 import { EgrulCache } from './egrul-cache.model';
 import { SbisController } from './sbis.controller';
 import { OurOrganization } from '../our-organizations/our-organization.model';
@@ -39,6 +40,7 @@ import { User } from '../users/users.model';
         CurrencyModule,
         forwardRef(() => BillingModule),
         OurOrganizationsModule,
+        forwardRef(() => OrganizationsModule),
         forwardRef(() => AuthModule),
     ],
     controllers: [SbisController],

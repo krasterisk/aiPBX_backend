@@ -1,9 +1,18 @@
 import {
+    billingInvoiceAttachmentNote,
+    billingThanksParagraph,
+    type BillingInvoiceAmountMode,
+} from './billing-mail.copy';
+import {
     billingMetricBox,
     billingNoticeParagraph,
     resolvePaymentPageUrl,
     wrapBillingMailHtml,
 } from './billing-mail.layout';
+
+export interface LowBalanceMailInvoice {
+    amountMode: BillingInvoiceAmountMode;
+}
 
 export interface RunwayMailParams {
     balanceUsd: number;
@@ -14,20 +23,27 @@ export interface RunwayMailParams {
     invoiceNumber?: string;
 }
 
-export function lowBalanceMail(isRu: boolean, balance: number, limit: number, hasInvoice: boolean) {
+export function lowBalanceMail(
+    isRu: boolean,
+    balance: number,
+    limit: number,
+    invoice?: LowBalanceMailInvoice,
+) {
     const paymentUrl = resolvePaymentPageUrl();
     const metrics = billingMetricBox([
         { label: isRu ? 'Текущий баланс' : 'Current balance', value: `$${balance.toFixed(2)}` },
         { label: isRu ? 'Установленный порог' : 'Your threshold', value: `$${limit.toFixed(2)}` },
     ]);
+    const hasInvoice = !!invoice;
+    const invoiceNote = invoice
+        ? billingInvoiceAttachmentNote({
+              isRu,
+              mode: invoice.amountMode,
+              estimatePeriodDays: 30,
+          })
+        : '';
 
     if (isRu) {
-        const invoiceNote = hasInvoice
-            ? billingNoticeParagraph(
-                  'К письму приложен счёт на оплату — вы можете использовать его для пополнения баланса.',
-                  'info',
-              )
-            : '';
         return {
             subject: hasInvoice
                 ? 'AI PBX — уведомление о балансе и счёт на оплату'
@@ -40,18 +56,12 @@ export function lowBalanceMail(isRu: boolean, balance: number, limit: number, ha
                 bodyHtml: `${billingNoticeParagraph(
                     'Баланс ниже заданного порога — при дальнейшем расходе услуги могут быть ограничены.',
                     'warning',
-                )}${metrics}${invoiceNote}<p style="margin:0;font-size:14px;line-height:1.6;color:#334155;">Благодарим вас за использование AI PBX. Мы ценим ваше доверие и всегда готовы помочь.</p>`,
+                )}${metrics}${invoiceNote}${billingThanksParagraph(true)}`,
                 paymentUrl,
             }),
         };
     }
 
-    const invoiceNote = hasInvoice
-        ? billingNoticeParagraph(
-              'A payment invoice is attached — you may use it to top up your balance.',
-              'info',
-          )
-        : '';
     return {
         subject: hasInvoice
             ? 'AI PBX — balance notice and payment invoice'
@@ -64,7 +74,7 @@ export function lowBalanceMail(isRu: boolean, balance: number, limit: number, ha
             bodyHtml: `${billingNoticeParagraph(
                 'Your balance is below the configured threshold — continued usage may lead to service restrictions.',
                 'warning',
-            )}${metrics}${invoiceNote}<p style="margin:0;font-size:14px;line-height:1.6;color:#334155;">Thank you for choosing AI PBX. We appreciate your trust and are here to assist you.</p>`,
+            )}${metrics}${invoiceNote}${billingThanksParagraph(false)}`,
             paymentUrl,
         }),
     };
@@ -166,10 +176,12 @@ export function runwayBalanceMail(isRu: boolean, p: RunwayMailParams) {
 
     if (isRu) {
         const invoiceNote = p.invoiceNumber
-            ? billingNoticeParagraph(
-                  `К письму приложен счёт на оплату № ${p.invoiceNumber} — на сумму, рассчитанную исходя из вашего среднего расхода.`,
-                  'info',
-              )
+            ? billingInvoiceAttachmentNote({
+                  isRu: true,
+                  mode: 'average_monthly',
+                  estimatePeriodDays: 30,
+                  spendLookbackDays: p.lookbackDays,
+              })
             : '';
         return {
             subject: p.invoiceNumber
@@ -182,17 +194,19 @@ export function runwayBalanceMail(isRu: boolean, p: RunwayMailParams) {
                 bodyHtml: `${billingNoticeParagraph(
                     `По нашим расчётам, при текущем темпе расходов баланса хватит примерно на ${daysText} дн.`,
                     'warning',
-                )}${metrics}${invoiceNote}<p style="margin:0;font-size:14px;line-height:1.6;color:#334155;">Спасибо, что пользуетесь AI PBX. Мы ценим ваше доверие.</p>`,
+                )}${metrics}${invoiceNote}${billingThanksParagraph(true)}`,
                 paymentUrl,
             }),
         };
     }
 
     const invoiceNote = p.invoiceNumber
-        ? billingNoticeParagraph(
-              `Payment invoice ${p.invoiceNumber} is attached — calculated based on your average daily spend.`,
-              'info',
-          )
+        ? billingInvoiceAttachmentNote({
+              isRu: false,
+              mode: 'average_monthly',
+              estimatePeriodDays: 30,
+              spendLookbackDays: p.lookbackDays,
+          })
         : '';
     return {
         subject: p.invoiceNumber
@@ -205,7 +219,7 @@ export function runwayBalanceMail(isRu: boolean, p: RunwayMailParams) {
             bodyHtml: `${billingNoticeParagraph(
                 `At your current spend rate, your balance may last approximately ${daysText} days.`,
                 'warning',
-            )}${metrics}${invoiceNote}<p style="margin:0;font-size:14px;line-height:1.6;color:#334155;">Thank you for using AI PBX — we appreciate your business.</p>`,
+            )}${metrics}${invoiceNote}${billingThanksParagraph(false)}`,
             paymentUrl,
         }),
     };

@@ -14,6 +14,7 @@ import { extractOrganizationDocumentId } from './document-id.util';
 import { SbisService } from './sbis.service';
 import type { SbisInvoiceDraftInput } from './sbis.types';
 import { OurOrganizationsService } from '../our-organizations/our-organizations.service';
+import { OrganizationEdoService } from '../organizations/organization-edo.service';
 import { User } from '../users/users.model';
 import { OurOrganization } from '../our-organizations/our-organization.model';
 import { buildInvoicePaymentPurpose, ensureOwnerPersonalAccount } from '../users/personal-account.util';
@@ -44,6 +45,7 @@ export class InvoiceService {
         private readonly alfawebhook: AlfawebhookClient,
         private readonly sbis: SbisService,
         private readonly ourOrganizationsService: OurOrganizationsService,
+        private readonly organizationEdo: OrganizationEdoService,
         @InjectModel(User) private readonly userModel: typeof User,
         @InjectConnection() private readonly sequelize: Sequelize,
     ) {}
@@ -57,7 +59,7 @@ export class InvoiceService {
     /**
      * HTTP requests: Host / X-Forwarded-Host must match INVOICE_BILLING_ALLOWED_HOSTS.
      * Server-side invoices (balance alerts): no Host header — allowed when
-     * INVOICE_BILLING_DEFAULT_HOST is unset or `*`; otherwise that host is checked against the allowlist.
+     * INVOICE_BILLING_DEFAULT_HOST is unset; if set, that host is checked against the allowlist.
      */
     isHostAllowedForRuBilling(hostHeader?: string): boolean {
         return isInvoiceBillingHostAllowed(hostHeader);
@@ -110,6 +112,9 @@ export class InvoiceService {
                 'SBIS is not configured; cannot send invoice via EDO',
                 HttpStatus.SERVICE_UNAVAILABLE,
             );
+        }
+        if (input.sendViaEdo) {
+            this.organizationEdo.assertEdoReady(org);
         }
 
         const issuedAt = new Date();
@@ -201,7 +206,7 @@ export class InvoiceService {
         });
 
         if (sbisDraft) {
-            this.enqueueInvoiceSbisDraft(docId, sbisDraft);
+            this.enqueueInvoiceSbisDraft(docId, sbisDraft, issuerOrg);
         }
 
         try {
@@ -247,15 +252,26 @@ export class InvoiceService {
     }
 
     /** SBIS draft after HTTP response; local PDF is already stored. */
-    private enqueueInvoiceSbisDraft(docId: string, draftInput: SbisInvoiceDraftInput): void {
+    private enqueueInvoiceSbisDraft(
+        docId: string,
+        draftInput: SbisInvoiceDraftInput,
+        issuerOrg: OurOrganization | null,
+    ): void {
         void (async () => {
             try {
                 const draft = await this.sbis.createInvoiceDraft(draftInput);
                 let sbisStatus: string = 'draft';
                 let sbisLastError: string | null = null;
                 if (this.sbis.edoAutoSendEnabled()) {
+                    const thumbprint = issuerOrg?.sbisCertThumbprint?.trim() || null;
+                    if (!thumbprint) {
+                        sbisLastError = 'Issuer certificate thumbprint is not configured';
+                        sbisStatus = 'failed';
+                    } else {
                     try {
-                        const sent = await this.sbis.sendInvoiceToEdo(draft);
+                        const sent = await this.sbis.sendInvoiceToEdo(draft, {
+                            certThumbprint: thumbprint,
+                        });
                         sbisStatus = 'sent_to_sbis';
                         this.logger.log(
                             `SBIS invoice ${docId} sent to EDO: ${sent.stateName || sent.stateCode || 'ok'}`,
@@ -265,6 +281,7 @@ export class InvoiceService {
                         sbisLastError = msg.slice(0, 500);
                         sbisStatus = 'failed';
                         this.logger.warn(`SBIS EDO send failed for ${docId}: ${msg}`);
+                    }
                     }
                 }
                 await this.docModel.update(

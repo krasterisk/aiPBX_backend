@@ -198,7 +198,14 @@ export class BalanceThresholdAlertsService {
 
             const emails = alert.emails?.length ? alert.emails : [];
 
-            let invoiceAttachment: { filename: string; path: string; invoiceNumber: string } | undefined;
+            let invoiceAttachment:
+                | {
+                      filename: string;
+                      path: string;
+                      invoiceNumber: string;
+                      amountMode: 'fixed' | 'average_monthly';
+                  }
+                | undefined;
 
             if (isInvoiceBillingEnabled() && alert.sendInvoice && alert.organizationId) {
                 try {
@@ -220,6 +227,7 @@ export class BalanceThresholdAlertsService {
                                 path: absPath,
                                 filename: `Schet_${safeNumber}.pdf`,
                                 invoiceNumber: issued.number,
+                                amountMode: alert.invoiceAmountMode,
                             };
                         } else {
                             this.logger.warn(

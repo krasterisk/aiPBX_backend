@@ -3,6 +3,8 @@ import { InjectModel } from "@nestjs/sequelize";
 import { Organization } from "./organizations.model";
 import { CreateOrganizationDto } from "./dto/create-organization.dto";
 import { User } from '../users/users.model';
+import { OrganizationEdoService } from './organization-edo.service';
+import { CreateOrganizationResult } from './organization-create.types';
 
 @Injectable()
 export class OrganizationsService {
@@ -10,6 +12,7 @@ export class OrganizationsService {
     constructor(
         @InjectModel(Organization) private organizationRepository: typeof Organization,
         @InjectModel(User) private readonly userModel: typeof User,
+        private readonly organizationEdo: OrganizationEdoService,
     ) { }
 
     /** Tenant owner: sub-users inherit organizations of vpbx_user_id parent. */
@@ -43,6 +46,9 @@ export class OrganizationsService {
         if (Object.prototype.hasOwnProperty.call(d, 'subject')) {
             base.subject = trim(d.subject as any) || null;
         }
+        if (Object.prototype.hasOwnProperty.call(d, 'edoParticipantId')) {
+            base.edoParticipantId = trim(d.edoParticipantId as any) || null;
+        }
         return base as any;
     }
 
@@ -70,16 +76,66 @@ export class OrganizationsService {
         }
     }
 
-    async create(ownerUserId: number, dto: CreateOrganizationDto) {
+    private assertEdoParticipantForInvitation(
+        dto: CreateOrganizationDto,
+        sendEdoInvitation: boolean,
+    ) {
+        if (!sendEdoInvitation) return;
+        const edoId = (dto.edoParticipantId ?? '').trim();
+        if (!edoId) {
+            throw new HttpException(
+                'EDO participant id is required when connecting EDO',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+    }
+
+    private extractErrorMessage(err: unknown): string {
+        if (err instanceof HttpException) {
+            const res = err.getResponse();
+            if (typeof res === 'string') return res;
+            if (res && typeof res === 'object') {
+                const o = res as Record<string, unknown>;
+                if (typeof o.message === 'string') return o.message;
+                if (Array.isArray(o.message)) return o.message.map(String).join('; ');
+                const sbis = o.sbis as Record<string, unknown> | undefined;
+                if (sbis && typeof sbis.message === 'string') return sbis.message;
+            }
+        }
+        return err instanceof Error ? err.message : 'EDO invitation failed';
+    }
+
+    async create(ownerUserId: number, dto: CreateOrganizationDto): Promise<CreateOrganizationResult> {
         try {
             const tenantOwnerId = await this.resolveOwnerUserId(ownerUserId);
+            const sendEdoInvitation = !!dto.sendEdoInvitation;
             const clean = this.normalizeDto(dto) as CreateOrganizationDto;
             this.assertRuRequisites(clean);
-            const organization = await this.organizationRepository.create({ ...clean, userId: tenantOwnerId } as any);
-            return organization;
+            this.assertEdoParticipantForInvitation(clean, sendEdoInvitation);
+            const organization = await this.organizationRepository.create({
+                ...clean,
+                userId: tenantOwnerId,
+            } as any);
+
+            let edo: CreateOrganizationResult['edo'];
+            if (sendEdoInvitation) {
+                try {
+                    const invitation = await this.organizationEdo.sendInvitation(
+                        organization,
+                        tenantOwnerId,
+                        organization.edoParticipantId,
+                    );
+                    edo = { success: true, edo: invitation.edo };
+                } catch (inviteErr) {
+                    edo = { success: false, error: this.extractErrorMessage(inviteErr) };
+                }
+            }
+
+            const reloaded = await organization.reload();
+            return { organization: reloaded, ...(edo ? { edo } : {}) };
         } catch (e) {
             if (e instanceof HttpException) throw e;
-            throw new HttpException("Error creating organization", HttpStatus.BAD_REQUEST);
+            throw new HttpException('Error creating organization', HttpStatus.BAD_REQUEST);
         }
     }
 

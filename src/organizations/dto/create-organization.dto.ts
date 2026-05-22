@@ -95,4 +95,14 @@ export class CreateOrganizationDto {
     @IsInt()
     @Min(1)
     readonly ownerUserId?: number;
+
+    @ApiProperty({ required: false, description: 'Counterparty EDO participant id (manual, required if sendEdoInvitation)' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(128)
+    readonly edoParticipantId?: string | null;
+
+    @ApiProperty({ required: false, description: 'Send EDO/roaming invitation after create' })
+    @IsOptional()
+    readonly sendEdoInvitation?: boolean;
 }

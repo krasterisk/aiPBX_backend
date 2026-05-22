@@ -207,6 +207,7 @@ describe('BalanceThresholdAlertsService', () => {
                 expect.objectContaining({
                     filename: 'Schet_AIPBX-00001.pdf',
                     invoiceNumber: 'AIPBX-00001',
+                    amountMode: 'fixed',
                 }),
             );
         });

@@ -53,6 +53,8 @@ describe('MailerService.sendLowBalanceNotification', () => {
             ]),
         );
         expect(mail.html).toContain('приложен счёт');
+        expect(mail.html).toContain('личном кабинете');
+        expect(mail.html).not.toContain('готовы помочь');
         expect(mail.html).toContain('https://aipbx.ru/payment');
         expect(mail.subject).toMatch(/счёт|invoice/i);
     });

@@ -456,4 +456,34 @@ describe('SbisService', () => {
         process.env.SBIS_EDO_AUTO_SEND = 'false';
         expect(service.edoAutoSendEnabled()).toBe(false);
     });
+
+    it('sendEdoInvitation treats Saby already-registered as state 7', async () => {
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        error: {
+                            code: -32000,
+                            message:
+                                'Контрагент уже зарегистрирован в Saby, приглашение не требуется, можно обмениваться документами.',
+                            type: 'warning',
+                        },
+                    },
+                    status: 200,
+                }),
+            );
+
+        const result = await service.sendEdoInvitation({
+            ourEdoParticipantId: '2BE72e386a8433e11e38c78005056917125',
+            counterpartyInn: '246513890738',
+            counterpartyEdoParticipantId: '2BEc84b324b724a4d50b42542562566332b',
+            counterpartyName: 'ИП Тест',
+            legalForm: 'ip',
+        });
+
+        expect(result.alreadyConnected).toBe(true);
+        expect(result.stateCode).toBe(7);
+        expect(result.invitationId).toBeNull();
+    });
 });

@@ -27,6 +27,8 @@ export class OurOrganizationsService {
             bankBic: trim(dto.bankBic as string)?.replace(/\D/g, '') || null,
             bankAccount: trim(dto.bankAccount as string)?.replace(/\D/g, '') || null,
             bankCorrAccount: trim(dto.bankCorrAccount as string)?.replace(/\D/g, '') || null,
+            edoParticipantId: trim(dto.edoParticipantId as string) || null,
+            sbisCertThumbprint: trim(dto.sbisCertThumbprint as string) || null,
         };
     }
 

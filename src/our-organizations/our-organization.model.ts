@@ -15,6 +15,8 @@ export interface OurOrganizationCreationAttrs {
     bankBic?: string | null;
     bankAccount?: string | null;
     bankCorrAccount?: string | null;
+    edoParticipantId?: string | null;
+    sbisCertThumbprint?: string | null;
 }
 
 @Table({ tableName: 'our_organizations' })
@@ -70,4 +72,12 @@ export class OurOrganization extends Model<OurOrganization, OurOrganizationCreat
     @ApiProperty({ required: false })
     @Column({ type: DataType.STRING(32), allowNull: true })
     bankCorrAccount: string | null;
+
+    @ApiProperty({ required: false, description: 'EDO participant id (maps to SBIS ИдентификаторАЯ)' })
+    @Column({ type: DataType.STRING(128), allowNull: true })
+    edoParticipantId: string | null;
+
+    @ApiProperty({ required: false, description: 'Qualified signature thumbprint for outgoing EDO' })
+    @Column({ type: DataType.STRING(64), allowNull: true })
+    sbisCertThumbprint: string | null;
 }

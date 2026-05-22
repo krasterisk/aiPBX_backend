@@ -24,6 +24,7 @@ import { RolesGuard } from "../auth/roles.guard";
 import { LoggerService } from "../logger/logger.service";
 import { InvoiceService } from "../accounting/invoice.service";
 import { OrganizationDocumentsService } from "../accounting/organization-documents.service";
+import { OrganizationEdoService } from "./organization-edo.service";
 
 @ApiTags('Organizations')
 @Controller('organizations')
@@ -34,6 +35,7 @@ export class OrganizationsController {
         private loggerService: LoggerService,
         private readonly invoiceService: InvoiceService,
         private readonly organizationDocumentsService: OrganizationDocumentsService,
+        private readonly organizationEdoService: OrganizationEdoService,
     ) { }
 
     @ApiOperation({ summary: "Create Organization" })
@@ -50,7 +52,16 @@ export class OrganizationsController {
             ownerId = Number(dto.ownerUserId);
         }
         const result = await this.organizationService.create(ownerId, dto);
-        await this.loggerService.logAction(Number(req.tokenUserId), 'create', 'organization', result?.id || null, `Created organization "${dto.name || ''}" for user ${ownerId}`, null, dto, req);
+        await this.loggerService.logAction(
+            Number(req.tokenUserId),
+            'create',
+            'organization',
+            result.organization?.id || null,
+            `Created organization "${dto.name || ''}" for user ${ownerId}`,
+            null,
+            dto,
+            req,
+        );
         return result;
     }
 
@@ -87,6 +98,25 @@ export class OrganizationsController {
     @Get('default-subject')
     getDefaultSubject() {
         return { defaultSubject: this.invoiceService.getPublicDefaultSubject() };
+    }
+
+    @ApiOperation({ summary: 'Sync all pending EDO invitations for tenant' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Post('edo-invitation/sync-pending')
+    async syncPendingEdoInvitations(@Req() req: any, @Query('userId') listUserId?: string) {
+        const fromToken = Number(req.tokenUserId);
+        let tenantOwnerId = fromToken;
+        if (req.isAdmin && listUserId != null && listUserId !== '') {
+            const targetId = Number(listUserId);
+            if (!Number.isFinite(targetId)) {
+                throw new ForbiddenException('Invalid userId');
+            }
+            tenantOwnerId = targetId;
+        } else {
+            tenantOwnerId = await this.organizationService.resolveOwnerUserId(fromToken);
+        }
+        return this.organizationEdoService.syncPendingForTenant(tenantOwnerId);
     }
 
     @ApiOperation({ summary: 'Issue payment invoice (PDF)' })
@@ -128,6 +158,74 @@ export class OrganizationsController {
             req,
         );
         return result;
+    }
+
+    @ApiOperation({ summary: 'EDO invitation status' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get(':id/edo-invitation')
+    async getEdoInvitation(@Req() req: any, @Param('id') id: string) {
+        const org = await this.organizationService.getOne(
+            Number(req.tokenUserId),
+            Number(id),
+            !!req.isAdmin,
+        );
+        return { edo: this.organizationEdoService.toEdoStatus(org) };
+    }
+
+    @ApiOperation({ summary: 'Send EDO / roaming invitation' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Post(':id/edo-invitation')
+    async sendEdoInvitation(@Req() req: any, @Param('id') id: string) {
+        const org = await this.organizationService.getOne(
+            Number(req.tokenUserId),
+            Number(id),
+            !!req.isAdmin,
+        );
+        const ownerId = await this.organizationService.resolveOwnerUserId(Number(req.tokenUserId));
+        const result = await this.organizationEdoService.sendInvitation(org, ownerId, org.edoParticipantId);
+        await this.loggerService.logAction(
+            Number(req.tokenUserId),
+            'create',
+            'edo_invitation',
+            Number(id),
+            `EDO invitation sent for organization #${id}`,
+            null,
+            null,
+            req,
+        );
+        return result;
+    }
+
+    @ApiOperation({ summary: 'Sync EDO invitation status from SBIS' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Post(':id/edo-invitation/sync')
+    async syncEdoInvitation(@Req() req: any, @Param('id') id: string) {
+        const org = await this.organizationService.getOne(
+            Number(req.tokenUserId),
+            Number(id),
+            !!req.isAdmin,
+        );
+        const ownerId = await this.organizationService.resolveOwnerUserId(Number(req.tokenUserId));
+        return this.organizationEdoService.syncInvitation(org, ownerId);
+    }
+
+    @ApiOperation({
+        summary: 'Check EDO route (ADMIN): list changes, then probe invitation if needed',
+    })
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
+    @Post(':id/edo-invitation/check-route')
+    async checkEdoRoute(@Req() req: any, @Param('id') id: string) {
+        const org = await this.organizationService.getOne(
+            Number(req.tokenUserId),
+            Number(id),
+            true,
+        );
+        const ownerId = await this.organizationService.resolveOwnerUserId(Number(req.tokenUserId));
+        return this.organizationEdoService.checkEdoRoute(org, ownerId);
     }
 
     @ApiOperation({ summary: 'List organization documents' })

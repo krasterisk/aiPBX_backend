@@ -11,8 +11,29 @@ export interface CounterpartyLookupResult {
     directorPosition: string | null;
     okpo: string | null;
     legalForm: OrganizationLegalForm;
+    /** ID участника ЭДО в СБИС (один на ответ; пусто, если СБИС не знает ящик). */
     sbisCounterpartyId: string | null;
+    edoOperatorLabel: string | null;
     fromCache: boolean;
+}
+
+export interface SbisEdoInvitationResult {
+    invitationId: string | null;
+    stateCode: number | null;
+    stateDescription: string | null;
+    /** SBIS refused invitation because route is already active (Saby-native). */
+    alreadyConnected?: boolean;
+}
+
+export interface SbisEdoInvitationState {
+    invitationId: string;
+    stateCode: number | null;
+    stateDescription: string | null;
+    stateChangedAt: Date | null;
+    counterpartyEdoParticipantId: string | null;
+    counterpartyInn: string | null;
+    counterpartyKpp: string | null;
+    ourEdoParticipantId: string | null;
 }
 
 /** SBIS counterparty lookup API response (discriminated by status). */

@@ -84,15 +84,23 @@ export class MailerService {
         to: string[],
         balance: number,
         limit: number,
-        invoiceAttachment?: { filename: string; path: string; invoiceNumber?: string },
+        invoiceAttachment?: {
+            filename: string;
+            path: string;
+            invoiceNumber?: string;
+            amountMode?: 'fixed' | 'average_monthly';
+        },
     ) {
         if (!to || to.length === 0) return;
 
+        const invoice = invoiceAttachment?.path
+            ? { amountMode: invoiceAttachment.amountMode ?? 'fixed' }
+            : undefined;
         const { subject, html } = lowBalanceMail(
             usesRussianMailLocale(),
             balance,
             limit,
-            !!invoiceAttachment?.path,
+            invoice,
         );
 
         const mail: nodemailer.SendMailOptions = {

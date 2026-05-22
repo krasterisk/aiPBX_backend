@@ -63,6 +63,18 @@ export class CreateOurOrganizationDto {
     @IsOptional()
     @IsString()
     readonly bankCorrAccount?: string | null;
+
+    @ApiProperty({ required: false, description: 'EDO participant id (2BE-… / 2BM-…)' })
+    @IsOptional()
+    @IsString()
+    @Length(3, 128)
+    readonly edoParticipantId?: string | null;
+
+    @ApiProperty({ required: false, description: 'Certificate thumbprint for EDO signing' })
+    @IsOptional()
+    @IsString()
+    @Length(8, 64)
+    readonly sbisCertThumbprint?: string | null;
 }
 
 export class UpdateOurOrganizationDto extends CreateOurOrganizationDto {

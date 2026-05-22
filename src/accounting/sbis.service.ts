@@ -8,10 +8,17 @@ import type {
     CounterpartyLookupApiResult,
     CounterpartyLookupResult,
     OrganizationLegalForm,
+    SbisEdoInvitationResult,
+    SbisEdoInvitationState,
     SbisEdoSendResult,
     SbisInvoiceDraftInput,
     SbisInvoiceDraftResult,
 } from './sbis.types';
+
+export type SbisEdoSendOptions = {
+    certThumbprint?: string | null;
+    usePrepareAction?: boolean;
+};
 
 const AUTH_URL = 'https://online.sbis.ru/auth/service/';
 const RPC_URL = 'https://online.sbis.ru/service/?srv=1';
@@ -265,6 +272,38 @@ export class SbisService {
         return outcome.result;
     }
 
+    edoOperatorLabel(participantId: string | null | undefined): string | null {
+        if (!participantId?.trim()) return null;
+        const prefix = participantId.trim().slice(0, 3).toUpperCase();
+        if (prefix === '2BE') return 'Saby (Тензор)';
+        if (prefix === '2BM') return 'Diadoc (Контур)';
+        return `Оператор ${prefix}`;
+    }
+
+    private enrichCounterpartyLookup(data: CounterpartyLookupResult): CounterpartyLookupResult {
+        const label = this.edoOperatorLabel(data.sbisCounterpartyId);
+        return {
+            ...data,
+            edoOperatorLabel: label,
+        };
+    }
+
+    private wrapLookupApiResult(
+        result: CounterpartyLookupApiResult,
+    ): CounterpartyLookupApiResult {
+        if (result.status === 'single') {
+            return { status: 'single', data: this.enrichCounterpartyLookup(result.data) };
+        }
+        if (result.status === 'choose') {
+            return {
+                status: 'choose',
+                inn: result.inn,
+                candidates: result.candidates.map((c) => this.enrichCounterpartyLookup(c)),
+            };
+        }
+        return result;
+    }
+
     private pickString(obj: Record<string, unknown> | null | undefined, ...keys: string[]): string | null {
         if (!obj) return null;
         for (const key of keys) {
@@ -433,8 +472,9 @@ export class SbisService {
             okpo: this.pickString(svUl, 'ОКПО', 'OKPO'),
             legalForm: isIp ? 'ip' : 'ul',
             sbisCounterpartyId:
-                this.pickString(counterparty, '@Лицо', 'Идентификатор', 'id') ||
+                this.pickString(counterparty, '@Лицо', 'Идентификатор', 'id', 'ИдентификаторАЯ') ||
                 (counterparty['@Лицо'] != null ? String(counterparty['@Лицо']) : null),
+            edoOperatorLabel: null,
             fromCache: false,
         };
     }
@@ -646,7 +686,10 @@ export class SbisService {
             const payload = cached.payload as unknown as CounterpartyLookupResult;
             const cachedKpp = this.sanitizeKpp(payload.kpp, inn);
             if (payload.name && cachedKpp && (!kpp || cachedKpp === kpp)) {
-                return { status: 'single', data: { ...payload, kpp: cachedKpp, fromCache: true } };
+                return this.wrapLookupApiResult({
+                    status: 'single',
+                    data: { ...payload, kpp: cachedKpp, fromCache: true },
+                });
             }
         }
 
@@ -659,11 +702,11 @@ export class SbisService {
         }
 
         if (this.isLegalEntityInn(inn) && !kpp) {
-            return this.lookupCounterpartyByInnOnly(inn);
+            return this.wrapLookupApiResult(await this.lookupCounterpartyByInnOnly(inn));
         }
 
         const data = await this.lookupCounterpartyFull(inn, kpp);
-        return { status: 'single', data };
+        return this.wrapLookupApiResult({ status: 'single', data });
     }
 
     private buildOurOrgBlock(innOverride?: string | null, kppOverride?: string | null): Record<string, unknown> {
@@ -817,8 +860,8 @@ export class SbisService {
         return (process.env.SBIS_EDO_ACTION_NAME || 'Отправить').trim() || 'Отправить';
     }
 
-    private buildEdoCertificateBlock(): Record<string, unknown> | undefined {
-        const thumbprint = (process.env.SBIS_EDO_CERT_THUMBPRINT || '').trim();
+    private buildEdoCertificateBlock(thumbprintOverride?: string | null): Record<string, unknown> | undefined {
+        const thumbprint = (thumbprintOverride || process.env.SBIS_EDO_CERT_THUMBPRINT || '').trim();
         if (thumbprint) {
             return { Отпечаток: thumbprint };
         }
@@ -827,6 +870,226 @@ export class SbisService {
             return { Ключ: { Тип: keyType } };
         }
         return undefined;
+    }
+
+    private edoUsePrepareAction(): boolean {
+        const raw = (process.env.SBIS_EDO_USE_PREPARE ?? 'true').trim().toLowerCase();
+        return !['0', 'false', 'no', 'off'].includes(raw);
+    }
+
+    private parseSbisDateTime(value: string | null | undefined): Date | null {
+        if (!value?.trim()) return null;
+        const m = value.trim().match(/^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2})\.(\d{2})\.(\d{2})$/);
+        if (!m) return null;
+        return new Date(
+            Number(m[3]),
+            Number(m[2]) - 1,
+            Number(m[1]),
+            Number(m[4]),
+            Number(m[5]),
+            Number(m[6]),
+        );
+    }
+
+    private extractInnKppFromInvitationCounterparty(
+        ctr: Record<string, unknown> | null | undefined,
+    ): { inn: string | null; kpp: string | null } {
+        if (!ctr) return { inn: null, kpp: null };
+        const svUl = this.asRecord(ctr.СвЮЛ);
+        const svFl = this.asRecord(ctr.СвФЛ);
+        const inn =
+            this.pickString(ctr, 'ИНН') ||
+            this.pickString(svUl, 'ИНН') ||
+            this.pickString(svFl, 'ИНН');
+        const innDigits = inn?.replace(/\D/g, '') || null;
+        const kppRaw =
+            this.pickString(ctr, 'КПП') ||
+            this.extractKppFromSbisObject(ctr) ||
+            this.pickString(svUl, 'КПП');
+        const kpp = innDigits ? this.sanitizeKpp(kppRaw, innDigits) : kppRaw?.replace(/\D/g, '') || null;
+        return { inn: innDigits, kpp: kpp || null };
+    }
+
+    private mapInvitationFromRpc(raw: unknown, invitationId: string): SbisEdoInvitationState {
+        const root = this.asRecord(raw);
+        const inv = this.asRecord(root?.Приглашение) ?? root;
+        const state = this.asRecord(inv?.Состояние);
+        const our = this.asRecord(inv?.НашаОрганизация);
+        const ctr = this.asRecord(inv?.Контрагент);
+        const { inn, kpp } = this.extractInnKppFromInvitationCounterparty(ctr);
+        const stateCodeRaw = state?.Код;
+        const stateCode =
+            typeof stateCodeRaw === 'number'
+                ? stateCodeRaw
+                : stateCodeRaw != null
+                  ? Number(stateCodeRaw)
+                  : null;
+        return {
+            invitationId,
+            stateCode: Number.isFinite(stateCode as number) ? (stateCode as number) : null,
+            stateDescription: this.pickString(state, 'Описание'),
+            stateChangedAt: this.parseSbisDateTime(this.pickString(state, 'ДатаВремяИзменения')),
+            ourEdoParticipantId: this.pickString(our, 'ИдентификаторАЯ'),
+            counterpartyEdoParticipantId: this.pickString(ctr, 'ИдентификаторАЯ'),
+            counterpartyInn: inn,
+            counterpartyKpp: kpp,
+        };
+    }
+
+    requiresRoamingEdoId(edoParticipantId: string | null | undefined): boolean {
+        if (!edoParticipantId?.trim()) return false;
+        const prefix = edoParticipantId.trim().slice(0, 3).toUpperCase();
+        return prefix !== '2BE';
+    }
+
+    /** SBIS returns JSON-RPC error when Saby-to-Saby route already exists (no invitation needed). */
+    isSbisEdoRouteAlreadyActiveError(error: SbisRpcErrorDetail): boolean {
+        const text = [error.message, error.details]
+            .filter((s): s is string => typeof s === 'string' && !!s.trim())
+            .join(' ')
+            .toLowerCase();
+        return (
+            text.includes('уже зарегистрирован в saby') ||
+            text.includes('приглашение не требуется') ||
+            text.includes('можно обмениваться документами')
+        );
+    }
+
+    async sendEdoInvitation(input: {
+        ourEdoParticipantId: string;
+        counterpartyInn: string;
+        counterpartyKpp?: string | null;
+        counterpartyName?: string | null;
+        counterpartyEdoParticipantId?: string | null;
+        counterpartyEmail?: string | null;
+        legalForm?: OrganizationLegalForm;
+    }): Promise<SbisEdoInvitationResult> {
+        const ourId = input.ourEdoParticipantId.trim();
+        if (!ourId) {
+            throw new HttpException('Issuer EDO participant id is required', HttpStatus.BAD_REQUEST);
+        }
+
+        const inn = input.counterpartyInn.replace(/\D/g, '');
+        const kpp = this.sanitizeKpp(input.counterpartyKpp ?? null, inn);
+        const ctrId = input.counterpartyEdoParticipantId?.trim() || null;
+        if (ctrId && ctrId.startsWith('2BM') && ctrId.length < 10) {
+            throw new HttpException('Invalid counterparty EDO participant id', HttpStatus.BAD_REQUEST);
+        }
+
+        const counterparty: Record<string, unknown> = { ИНН: inn };
+        if (kpp) counterparty.КПП = kpp;
+        if (ctrId) counterparty.ИдентификаторАЯ = ctrId;
+        const name = (input.counterpartyName || '').trim();
+        if (input.legalForm === 'ip' || inn.length === 12) {
+            if (name) counterparty.Фамилия = name;
+        } else if (name) {
+            counterparty.Название = name;
+        }
+        if (input.counterpartyEmail?.trim()) {
+            counterparty.Email = input.counterpartyEmail.trim();
+        }
+
+        const rpc = await this.executeRpc<Record<string, unknown>>('СБИС.ОтправитьПриглашение', {
+            Приглашение: {
+                НашаОрганизация: { ИдентификаторАЯ: ourId },
+                Контрагент: counterparty,
+            },
+        });
+
+        if (rpc.ok === false) {
+            if (this.isSbisEdoRouteAlreadyActiveError(rpc.error)) {
+                return {
+                    invitationId: null,
+                    stateCode: 7,
+                    stateDescription: rpc.error.message,
+                    alreadyConnected: true,
+                };
+            }
+            throw new HttpException(
+                {
+                    message: `SBIS RPC СБИС.ОтправитьПриглашение: ${rpc.error.message}`,
+                    sbis: rpc.error,
+                },
+                HttpStatus.BAD_GATEWAY,
+            );
+        }
+
+        const result = rpc.result;
+        const invitationId =
+            this.pickString(result, 'Идентификатор') ||
+            this.pickString(this.asRecord(result.Приглашение), 'Идентификатор');
+        if (!invitationId) {
+            throw new HttpException('SBIS did not return invitation id', HttpStatus.BAD_GATEWAY);
+        }
+
+        let stateCode: number | null = 2;
+        let stateDescription: string | null = 'Приглашение отправлено';
+        try {
+            const read = await this.readEdoInvitation(invitationId);
+            stateCode = read.stateCode;
+            stateDescription = read.stateDescription;
+        } catch {
+            /* use defaults */
+        }
+
+        return { invitationId, stateCode, stateDescription };
+    }
+
+    async readEdoInvitation(invitationId: string): Promise<SbisEdoInvitationState> {
+        const result = await this.callRpc<unknown>('СБИС.ПрочитатьПриглашение', {
+            Приглашение: { Идентификатор: invitationId },
+        });
+        return this.mapInvitationFromRpc(result, invitationId);
+    }
+
+    async listEdoInvitationChanges(ourEdoParticipantId?: string | null): Promise<SbisEdoInvitationState[]> {
+        const filter: Record<string, unknown> = {
+            Навигация: { РазмерСтраницы: 200 },
+        };
+        if (ourEdoParticipantId?.trim()) {
+            filter.НашаОрганизация = { ИдентификаторАЯ: ourEdoParticipantId.trim() };
+        }
+        const result = await this.callRpc<unknown>('СБИС.СписокИзмененийПриглашений', {
+            Фильтр: filter,
+        });
+        const root = this.asRecord(result);
+        const items: unknown[] = [];
+        const inv = root?.Приглашение;
+        if (Array.isArray(inv)) {
+            items.push(...inv);
+        } else if (inv && typeof inv === 'object') {
+            items.push(inv);
+        }
+        return items.map((item, idx) => {
+            const id =
+                this.pickString(this.asRecord(item), 'Идентификатор') || `change-${idx}`;
+            return this.mapInvitationFromRpc(item, id);
+        });
+    }
+
+    async prepareDocumentForEdo(
+        documentId: string,
+        revisionId: string | null | undefined,
+        thumbprint?: string | null,
+    ): Promise<void> {
+        const doc = await this.readDocumentRecord(documentId);
+        const sendStage = this.findOutgoingSendStage(doc);
+        const actionName = sendStage?.actionName || this.edoSendActionName();
+
+        const document: Record<string, unknown> = { Идентификатор: documentId };
+        if (revisionId?.trim()) {
+            document.Редакция = { Идентификатор: revisionId.trim() };
+        }
+        const action: Record<string, unknown> = { Название: actionName };
+        const cert = this.buildEdoCertificateBlock(thumbprint);
+        if (cert) action.Сертификат = cert;
+
+        const stage: Record<string, unknown> = { Действие: [action] };
+        if (sendStage?.stageId) stage.Идентификатор = sendStage.stageId;
+        else stage.Название = 'Отправка';
+        document.Этап = stage;
+
+        await this.callRpc('СБИС.ПодготовитьДействие', { Документ: document });
     }
 
     async readDocumentRecord(documentId: string): Promise<Record<string, unknown>> {
@@ -880,7 +1143,18 @@ export class SbisService {
     async sendDocumentToEdo(
         documentId: string,
         revisionId?: string | null,
+        options?: SbisEdoSendOptions,
     ): Promise<SbisEdoSendResult> {
+        const thumbprint = options?.certThumbprint ?? null;
+        const usePrepare =
+            options?.usePrepareAction !== undefined
+                ? options.usePrepareAction
+                : this.edoUsePrepareAction();
+
+        if (usePrepare) {
+            await this.prepareDocumentForEdo(documentId, revisionId, thumbprint);
+        }
+
         const doc = await this.readDocumentRecord(documentId);
         const sendStage = this.findOutgoingSendStage(doc);
         const actionName = sendStage?.actionName || this.edoSendActionName();
@@ -893,7 +1167,7 @@ export class SbisService {
         }
 
         const action: Record<string, unknown> = { Название: actionName };
-        const cert = this.buildEdoCertificateBlock();
+        const cert = this.buildEdoCertificateBlock(thumbprint);
         if (cert) {
             action.Сертификат = cert;
         }
@@ -925,8 +1199,11 @@ export class SbisService {
         };
     }
 
-    async sendInvoiceToEdo(draft: SbisInvoiceDraftResult): Promise<SbisEdoSendResult> {
-        return this.sendDocumentToEdo(draft.documentId, draft.revisionId);
+    async sendInvoiceToEdo(
+        draft: SbisInvoiceDraftResult,
+        options?: SbisEdoSendOptions,
+    ): Promise<SbisEdoSendResult> {
+        return this.sendDocumentToEdo(draft.documentId, draft.revisionId, options);
     }
 
     async fetchDocumentPdfBytes(documentId: string): Promise<Buffer> {
@@ -963,7 +1240,9 @@ export class SbisService {
                 await this.auth();
                 return { ok: true, detail: `draft_only:${type}:${documentId}` };
             }
-            const sent = await this.sendDocumentToEdo(documentId);
+            const sent = await this.sendDocumentToEdo(documentId, null, {
+                certThumbprint: (process.env.SBIS_EDO_CERT_THUMBPRINT || '').trim() || null,
+            });
             return {
                 ok: true,
                 detail: `sent:${type}:${documentId}:${sent.stateName || sent.stateCode || 'ok'}`,

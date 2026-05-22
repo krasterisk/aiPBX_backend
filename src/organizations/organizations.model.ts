@@ -17,6 +17,11 @@ interface OrganizationCreationAttrs {
     bankBic?: string | null;
     bankName?: string | null;
     subject?: string | null;
+    edoParticipantId?: string | null;
+    edoInvitationId?: string | null;
+    edoInvitationStateCode?: number | null;
+    edoInvitationStateAt?: Date | null;
+    edoInvitationCheckedAt?: Date | null;
 }
 
 @Table({ tableName: 'organizations' })
@@ -82,6 +87,26 @@ export class Organization extends Model<Organization, OrganizationCreationAttrs>
     @ApiProperty({ required: false })
     @Column({ type: DataType.DATE, allowNull: true })
     alfawebhookSyncedAt: Date | null;
+
+    @ApiProperty({ required: false, description: 'Counterparty EDO participant id' })
+    @Column({ type: DataType.STRING(128), allowNull: true })
+    edoParticipantId: string | null;
+
+    @ApiProperty({ required: false })
+    @Column({ type: DataType.STRING(64), allowNull: true })
+    edoInvitationId: string | null;
+
+    @ApiProperty({ required: false, description: '2=pending, 7=ready, 9=broken' })
+    @Column({ type: DataType.SMALLINT, allowNull: true })
+    edoInvitationStateCode: number | null;
+
+    @ApiProperty({ required: false })
+    @Column({ type: DataType.DATE, allowNull: true })
+    edoInvitationStateAt: Date | null;
+
+    @ApiProperty({ required: false })
+    @Column({ type: DataType.DATE, allowNull: true })
+    edoInvitationCheckedAt: Date | null;
 
     @BelongsTo(() => User, { onDelete: 'CASCADE' })
     user: User;

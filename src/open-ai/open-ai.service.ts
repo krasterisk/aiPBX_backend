@@ -632,7 +632,6 @@ export class OpenAiService implements OnModuleInit {
                 type: "conversation.item.create",
                 item: {
                     type: "message",
-                    object: "realtime.item",
                     role: "user",
                     content: [
                         {
@@ -659,7 +658,7 @@ export class OpenAiService implements OnModuleInit {
                 type: "response.create",
                 response: {
                     // conversation: "none",
-                    modalities: ["text", "audio"],
+                    output_modalities: ["audio"],
                     // input,
                     // instructions: "Please respond to the user audio",
                     // metadata
@@ -728,7 +727,7 @@ export class OpenAiService implements OnModuleInit {
                 type: "response.create",
                 response: {
                     // conversation: 'none',
-                    modalities: ["text", "audio"],
+                    output_modalities: ["audio"],
                     input: [],
                     // instructions: prompt,
                 }

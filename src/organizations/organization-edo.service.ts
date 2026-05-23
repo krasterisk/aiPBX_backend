@@ -59,13 +59,7 @@ export class OrganizationEdoService {
             user.vpbx_user_id != null
                 ? await this.userModel.findByPk(ownerId, { attributes: ['id', 'ourOrganizationId'] })
                 : user;
-        const issuer = await this.ourOrganizations.resolveForUser(owner?.ourOrganizationId ?? null);
-        if (!issuer) {
-            throw new HttpException(
-                'Issuer organization (our_organization) is not configured',
-                HttpStatus.BAD_REQUEST,
-            );
-        }
+        const issuer = await this.ourOrganizations.resolveIssuerForTenant(owner?.ourOrganizationId ?? null);
         if (!issuer.edoParticipantId?.trim()) {
             throw new HttpException(
                 'Issuer EDO participant id is not set on our_organization',

@@ -13,6 +13,7 @@ import { AlfawebhookClient } from './alfawebhook-client.service';
 import { extractOrganizationDocumentId } from './document-id.util';
 import { SbisService } from './sbis.service';
 import type { SbisInvoiceDraftInput } from './sbis.types';
+import { buildChetopBuyerFromOrganization, buildChetopSellerFromIssuer } from './sbis-invoice-party';
 import { OurOrganizationsService } from '../our-organizations/our-organizations.service';
 import { OrganizationEdoService } from '../organizations/organization-edo.service';
 import { User } from '../users/users.model';
@@ -122,6 +123,8 @@ export class InvoiceService {
         const dayOfYear = getDayOfYear(issuedAt);
         const series = this.counters.defaultSeries();
 
+        const chetopSeller = buildChetopSellerFromIssuer(issuerOrg);
+
         const { docId, number, paymentPurpose, documentDate, sbisDraft, pdfRelativePath } =
             await this.sequelize.transaction(async (transaction) => {
             const seq = await this.counters.nextNumber(
@@ -193,13 +196,16 @@ export class InvoiceService {
                               counterpartyName: org.name,
                               counterpartyKpp: org.kpp,
                               legalForm: (org.legalForm as 'ul' | 'ip') || undefined,
-                              ourOrganizationInn: issuerOrg?.tin,
-                              ourOrganizationKpp: issuerOrg?.kpp,
+                              ourOrganizationInn: issuerOrg.tin,
+                              ourOrganizationKpp: issuerOrg.kpp,
                               number: numberInner,
                               documentDate: documentDateInner,
                               amountRub: input.amountRub,
                               subject: lineItemSubject,
                               paymentPurpose: paymentPurposeInner,
+                              seller: chetopSeller,
+                              buyer: buildChetopBuyerFromOrganization(org, chetopSeller.bank),
+                              personalAccountNumber,
                           }
                         : null,
             };
@@ -230,7 +236,7 @@ export class InvoiceService {
         };
     }
 
-    private async resolveIssuer(input: CreateInvoiceInput): Promise<OurOrganization | null> {
+    private async resolveIssuer(input: CreateInvoiceInput): Promise<OurOrganization> {
         if (input.ourOrganizationId != null) {
             const forced = await this.ourOrganizationsService.findById(input.ourOrganizationId);
             if (!forced) {
@@ -238,24 +244,27 @@ export class InvoiceService {
             }
             return forced;
         }
-        return this.resolveIssuerForUser(input.userId);
+        return this.resolveIssuerForTenant(input.userId);
     }
 
-    private async resolveIssuerForUser(userId: number): Promise<OurOrganization | null> {
+    /** Tenant owner `ourOrganizationId` → our_organizations row (or primary if unset). */
+    private async resolveIssuerForTenant(userId: number): Promise<OurOrganization> {
         const user = await this.userModel.findByPk(userId, { attributes: ['id', 'ourOrganizationId', 'vpbx_user_id'] });
-        if (!user) return this.ourOrganizationsService.getPrimary();
+        if (!user) {
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
         const ownerId = user.vpbx_user_id ?? user.id;
         const owner = user.vpbx_user_id
             ? await this.userModel.findByPk(ownerId, { attributes: ['id', 'ourOrganizationId'] })
             : user;
-        return this.ourOrganizationsService.resolveForUser(owner?.ourOrganizationId ?? null);
+        return this.ourOrganizationsService.resolveIssuerForTenant(owner?.ourOrganizationId ?? null);
     }
 
     /** SBIS draft after HTTP response; local PDF is already stored. */
     private enqueueInvoiceSbisDraft(
         docId: string,
         draftInput: SbisInvoiceDraftInput,
-        issuerOrg: OurOrganization | null,
+        issuerOrg: OurOrganization,
     ): void {
         void (async () => {
             try {
@@ -272,10 +281,17 @@ export class InvoiceService {
                         const sent = await this.sbis.sendInvoiceToEdo(draft, {
                             certThumbprint: thumbprint,
                         });
-                        sbisStatus = 'sent_to_sbis';
-                        this.logger.log(
-                            `SBIS invoice ${docId} sent to EDO: ${sent.stateName || sent.stateCode || 'ok'}`,
-                        );
+                        if (this.sbis.isEdoAwaitingOwnerSignature(sent.stateCode, sent.stateName)) {
+                            sbisStatus = 'awaiting_signature';
+                            this.logger.log(
+                                `SBIS invoice ${docId} queued for owner signature in Saby: ${sent.stateName || sent.stateCode}`,
+                            );
+                        } else {
+                            sbisStatus = 'sent_to_sbis';
+                            this.logger.log(
+                                `SBIS invoice ${docId} sent to EDO: ${sent.stateName || sent.stateCode || 'ok'}`,
+                            );
+                        }
                     } catch (sendErr) {
                         const msg = (sendErr as Error).message;
                         sbisLastError = msg.slice(0, 500);
@@ -309,31 +325,22 @@ export class InvoiceService {
         })();
     }
 
-    private buildIssuerRequisitesForPdf(org: OurOrganization | null): InvoiceIssuerRequisites {
-        const name = org?.name || process.env.SBIS_OUR_NAME || 'AI PBX';
-        const inn = org?.tin || process.env.SBIS_OUR_INN || '';
-        const kpp = org?.kpp || process.env.SBIS_OUR_KPP || '';
-        const addr = org?.address || process.env.SBIS_OUR_ADDRESS || '';
-        const bank = org?.bankName || process.env.SBIS_OUR_BANK_NAME || process.env.ALFA_BANK_NAME || '';
-        const bankBranch =
-            (org?.bankBranchName || '').trim() ||
-            (process.env.SBIS_OUR_BANK_BRANCH_NAME || '').trim() ||
-            bank ||
-            '';
-        const bic = org?.bankBic || process.env.SBIS_OUR_BANK_BIC || process.env.ALFA_BANK_BIC || '';
-        const settlement =
-            org?.bankAccount || process.env.SBIS_OUR_BANK_ACCOUNT || process.env.ALFA_BANK_ACCOUNT || '';
-        const corr =
-            org?.bankCorrAccount || process.env.SBIS_OUR_CORR_ACCOUNT || process.env.ALFA_CORR_ACCOUNT || '';
-        const supplierParts = [name, inn ? `ИНН ${inn}` : '', kpp ? `КПП ${kpp}` : '', addr].filter(Boolean);
+    private buildIssuerRequisitesForPdf(org: OurOrganization): InvoiceIssuerRequisites {
+        const bankBranch = (org.bankBranchName || '').trim() || (org.bankName || '').trim();
+        const supplierParts = [
+            org.name,
+            org.tin ? `ИНН ${org.tin}` : '',
+            org.kpp ? `КПП ${org.kpp}` : '',
+            org.address,
+        ].filter(Boolean);
         return {
             bankBranchName: bankBranch,
-            bic,
-            correspondentAccount: corr,
-            inn,
-            kpp,
-            settlementAccount: settlement,
-            recipientShortName: name,
+            bic: org.bankBic || '',
+            correspondentAccount: org.bankCorrAccount || '',
+            inn: org.tin,
+            kpp: org.kpp || '',
+            settlementAccount: org.bankAccount || '',
+            recipientShortName: org.name,
             supplierLineBold: supplierParts.join(', '),
         };
     }

@@ -14,16 +14,25 @@ Historical rows are **not** recalculated when rates or tenant settings change. M
 
 On create, `users.currency` is set from `TENANT_CURRENCY`. Non-admin PATCH requests cannot change `currency`; admins may override for support.
 
-## Monthly closing (acts / SF)
+## Monthly closing (UPD status 2, USN)
 
-`ClosingTask` runs on the 1st of each month for the previous period.
+`ClosingTask` cron (`0 3 1 * *`) delegates to `ClosingService` for the **previous calendar month**. Only when `TENANT_CURRENCY=RUB` and invoice billing is enabled (same gate as payment invoices).
 
-| Tenant | Usage amount for documents | FX on act |
+One **`upd`** per organization and period (idempotent). Nomenclature: `SBIS_CLOSING_UPD_SUBJECT` or `CLOSING_UPD_SUBJECT_DEFAULT`. SBIS **Примечание**: personal account + service period (`buildClosingDocumentNote`).
+
+| Tenant | Usage amount for documents | FX on UPD |
 |--------|---------------------------|-----------|
 | `RUB`  | `SUM(amountCurrency)` after optional backfill | Weighted average: `SUM(amountCurrency) / SUM(totalCost)` |
 | `USD`  | `SUM(totalCost)` × `rubPerUsd` on closing date | Rate from `currency_history` / `CurrencyService` |
 
-Acts and invoices are issued in **RUB** for Russian B2B (SBIS); USD usage is stored on the document as `amountUsd` for reference.
+**Two-phase SBIS flow**
+
+1. **Phase 1:** `SbisService.createUpdDraft` → `СБИС.ЗаписатьДокумент` (shell **without** `Номер` — SBIS assigns document number) + **ON_NSCHFDOPPR 5.03** with that number via `ЗаписатьВложение`. Local row in `organization_documents` (`type=upd`, `number` from SBIS `Номер`, `sbisId` for PDF). **PDF in ЛК:** proxy from SBIS (`fetchDocumentPdfBytes` / `GET …/documents/:id/pdf`), not a local `upd-pdf.ts` file. Shell: `SBIS_CLOSING_DOC_TYPE` (default `ДокОтгрИсх`), `ФункцияКЧ: false` unless `SBIS_CLOSING_UPD_STATUS=off`.
+2. **Phase 2 (optional):** If `CLOSING_AUTO_SEND_EDO` is not `false` (cron default **true**) and the org is `edoReady` (invitation state 7) with issuer `sbisCertThumbprint` → `sendDocumentToEdo`.
+
+Historical `act` / `sf` rows in DB are unchanged; new closings do not create them.
+
+**Admin debug:** `POST /api/billing/admin/run-closing-documents` — `organizationId` (required), optional `periodFrom` / `periodTo`, `dryRun`, `sendViaEdo` (default `false` for manual runs). `dryRun` + `confirmAll=true` previews all orgs without INSERT/SBIS.
 
 ## Operations checklist
 

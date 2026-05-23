@@ -13,11 +13,27 @@ import type {
     SbisEdoSendResult,
     SbisInvoiceDraftInput,
     SbisInvoiceDraftResult,
+    SbisUpdDraftInput,
+    SbisUpdDraftResult,
 } from './sbis.types';
+import { parsePersonFio } from './sbis-invoice-party';
+import { SBIS_CHETOP_ATTACHMENT_META } from './sbis-chetop-attachment';
+import { stripLineItemPersonalAccountFromSubject } from './subject-resolver';
+import {
+    buildInvoiceChetopXml,
+    formatIsoDateRu,
+    type InvoiceChetopBuildResult,
+} from './xml/invoice-chetop-xml';
+import {
+    buildUpdNschfdopprXml,
+    type UpdNschfdopprBuildResult,
+} from './xml/upd-nschfdoppr-xml';
 
 export type SbisEdoSendOptions = {
     certThumbprint?: string | null;
     usePrepareAction?: boolean;
+    /** Force Сертификат.Ключ.Тип = Отложенный / ОтложенныйСПодтверждением */
+    useDeferredSign?: boolean;
 };
 
 const AUTH_URL = 'https://online.sbis.ru/auth/service/';
@@ -710,8 +726,14 @@ export class SbisService {
     }
 
     private buildOurOrgBlock(innOverride?: string | null, kppOverride?: string | null): Record<string, unknown> {
-        const inn = (innOverride || process.env.SBIS_OUR_INN || '').trim();
-        const kpp = (kppOverride || process.env.SBIS_OUR_KPP || '').trim();
+        const inn = (innOverride || '').trim();
+        const kpp = (kppOverride || '').trim();
+        if (!inn) {
+            throw new HttpException(
+                'Issuer INN is required for SBIS document (configure tenant ourOrganizationId)',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
         if (inn.length === 12) {
             return { СвФЛ: { ИНН: inn } };
         }
@@ -736,15 +758,23 @@ export class SbisService {
         return s;
     }
 
-    private buildCounterpartyBlock(input: SbisInvoiceDraftInput): Record<string, unknown> {
+    private buildCounterpartyBlock(input: {
+        counterpartyInn: string;
+        counterpartyName: string;
+        counterpartyKpp?: string | null;
+        legalForm?: OrganizationLegalForm;
+    }): Record<string, unknown> {
         const inn = input.counterpartyInn.replace(/\D/g, '');
         const kpp = input.counterpartyKpp?.replace(/\D/g, '') || '';
         const name = (input.counterpartyName || '').trim();
         if (input.legalForm === 'ip' || inn.length === 12) {
+            const fio = parsePersonFio(name);
             return {
                 СвФЛ: {
                     ИНН: inn,
-                    ...(name ? { Фамилия: name } : {}),
+                    Фамилия: fio.family,
+                    ...(fio.first ? { Имя: fio.first } : {}),
+                    ...(fio.patronymic ? { Отчество: fio.patronymic } : {}),
                 },
             };
         }
@@ -757,12 +787,139 @@ export class SbisService {
         };
     }
 
+    /**
+     * How ON_CHETOP is attached to СчетИсх in SBIS.
+     * write_enclosure (default): shell via ЗаписатьДокумент, then XML via ЗаписатьВложение (only Файл — like alfawebhook act).
+     * inline: single ЗаписатьДокумент with ДвоичныеДанные + ЭДОСч metadata.
+     */
+    invoiceChetopAttachMode(): 'inline' | 'write_enclosure' {
+        const raw = (process.env.SBIS_INVOICE_CHEOP_ATTACH_MODE || 'write_enclosure').trim().toLowerCase();
+        return raw === 'inline' ? 'inline' : 'write_enclosure';
+    }
+
+    closingUpdAttachMode(): 'inline' | 'write_enclosure' {
+        const raw = (
+            process.env.SBIS_CLOSING_UPD_ATTACH_MODE ||
+            process.env.SBIS_INVOICE_CHEOP_ATTACH_MODE ||
+            'write_enclosure'
+        )
+            .trim()
+            .toLowerCase();
+        return raw === 'inline' ? 'inline' : 'write_enclosure';
+    }
+
+    /** ЗаписатьВложение: only file bytes and name; SBIS imports ON_CHETOP from content (alfawebhook PP_AKT pattern). */
+    private buildFormalXmlEnclosurePayload(formal: { fileName: string; xmlBase64: string }): Record<string, unknown> {
+        return {
+            Файл: {
+                Имя: formal.fileName,
+                ДвоичныеДанные: formal.xmlBase64,
+            },
+        };
+    }
+
+    /** ЗаписатьВложение: only file bytes and name; SBIS imports ON_CHETOP from content (alfawebhook PP_AKT pattern). */
+    private buildChetopEnclosurePayload(chetop: InvoiceChetopBuildResult): Record<string, unknown> {
+        return this.buildFormalXmlEnclosurePayload(chetop);
+    }
+
+    /** ЗаписатьДокумент inline: full formal attachment requisites per SBIS doc API. */
+    private buildFormalChetopAttachmentPayload(chetop: InvoiceChetopBuildResult): Record<string, unknown> {
+        const attachmentType =
+            (process.env.SBIS_INVOICE_ATTACHMENT_TYPE || SBIS_CHETOP_ATTACHMENT_META.Тип).trim();
+        return {
+            Тип: attachmentType,
+            Версия: SBIS_CHETOP_ATTACHMENT_META.Версия,
+            Подтип: SBIS_CHETOP_ATTACHMENT_META.Подтип,
+            ПодВерсия: SBIS_CHETOP_ATTACHMENT_META.ПодВерсия,
+            Название: SBIS_CHETOP_ATTACHMENT_META.Название,
+            Файл: {
+                Имя: chetop.fileName,
+                ДвоичныеДанные: chetop.xmlBase64,
+            },
+        };
+    }
+
+    private buildInvoiceChetopForDraft(input: SbisInvoiceDraftInput, productCode: string): InvoiceChetopBuildResult | null {
+        if (!input.seller || !input.buyer) return null;
+        const dateRu = formatIsoDateRu(input.documentDate);
+        const personalAccountNote = input.personalAccountNumber
+            ? `л/с ${input.personalAccountNumber}`
+            : null;
+        return buildInvoiceChetopXml({
+            number: input.number,
+            documentDate: input.documentDate,
+            amountRub: input.amountRub,
+            lineItemName: stripLineItemPersonalAccountFromSubject(input.subject),
+            productCode: productCode || null,
+            paymentDesignation: `Оплата по счету № ${input.number} от ${dateRu}`,
+            infoPolNote: input.paymentPurpose,
+            personalAccountNote,
+            seller: input.seller,
+            buyer: input.buyer,
+        });
+    }
+
+    private buildUpdFormalForDraft(
+        input: SbisUpdDraftInput,
+        productCode: string,
+        sbisNumber?: string | null,
+    ): UpdNschfdopprBuildResult | null {
+        if (!input.seller || !input.buyer) return null;
+        const personalAccountNote = input.personalAccountNumber
+            ? `л/с ${input.personalAccountNumber}`
+            : null;
+        const number = (sbisNumber || input.number || '').trim() || null;
+        return buildUpdNschfdopprXml({
+            number,
+            documentDate: input.documentDate,
+            periodFrom: input.periodFrom,
+            periodTo: input.periodTo,
+            amountRub: input.amountRub,
+            lineItemName: stripLineItemPersonalAccountFromSubject(input.subject),
+            productCode: productCode || null,
+            note: input.note,
+            personalAccountNote,
+            seller: input.seller,
+            buyer: input.buyer,
+        });
+    }
+
+    async writeFormalUpdAttachment(documentId: string, formal: UpdNschfdopprBuildResult): Promise<void> {
+        const document: Record<string, unknown> = {
+            Идентификатор: documentId,
+            Вложение: this.buildFormalXmlEnclosurePayload(formal),
+        };
+        await this.callRpc<Record<string, unknown>>('СБИС.ЗаписатьВложение', { Документ: document });
+        this.logger.log(
+            `SBIS ${documentId}: ON_NSCHFDOPPR attached via ЗаписатьВложение (${formal.fileName})`,
+        );
+    }
+
+    /**
+     * Attaches ON_CHETOP after СчетИсх shell exists.
+     * Same shape as alfawebhook sbisWriteAttach: only Документ.Идентификатор + Вложение.Файл (no Тип/Редакция).
+     */
+    async writeFormalChetopAttachment(documentId: string, chetop: InvoiceChetopBuildResult): Promise<void> {
+        const document: Record<string, unknown> = {
+            Идентификатор: documentId,
+            Вложение: this.buildChetopEnclosurePayload(chetop),
+        };
+        await this.callRpc<Record<string, unknown>>('СБИС.ЗаписатьВложение', { Документ: document });
+        this.logger.log(
+            `SBIS ${documentId}: ON_CHETOP attached via ЗаписатьВложение (${chetop.fileName})`,
+        );
+    }
+
     async createInvoiceDraft(input: SbisInvoiceDraftInput): Promise<SbisInvoiceDraftResult> {
         // Without Тип SBIS defaults to ДокОтгрИсх (исходящая «Реализация»), not a payment invoice.
         const docType = (process.env.SBIS_INVOICE_DOC_TYPE || 'СчетИсх').trim();
         const regulationId = (process.env.SBIS_INVOICE_REGULATION_ID || '').trim();
         const productCode = (process.env.SBIS_INVOICE_PRODUCT_CODE || '').trim();
         const amountStr = input.amountRub.toFixed(2);
+
+        const chetop = this.buildInvoiceChetopForDraft(input, productCode);
+        const attachInline = chetop && this.invoiceChetopAttachMode() === 'inline';
 
         const document: Record<string, unknown> = {
             Дата: this.formatDateForSbis(input.documentDate),
@@ -776,6 +933,9 @@ export class SbisService {
         if (productCode) document.КодНоменклатуры = productCode;
         if (regulationId) {
             document.Регламент = { Идентификатор: regulationId };
+        }
+        if (attachInline && chetop) {
+            document.Вложение = [this.buildFormalChetopAttachmentPayload(chetop)];
         }
 
         const result = (await this.callRpc<Record<string, unknown>>('СБИС.ЗаписатьДокумент', {
@@ -791,10 +951,15 @@ export class SbisService {
             throw new HttpException('SBIS did not return document id', HttpStatus.BAD_GATEWAY);
         }
 
-        const revision = doc.Редакция as Record<string, unknown> | undefined;
+        const revisionId = this.pickString(this.asRecord(doc.Редакция), 'Идентификатор');
+
+        if (chetop && !attachInline) {
+            await this.writeFormalChetopAttachment(documentId, chetop);
+        }
+
         return {
             documentId,
-            revisionId: this.pickString(revision, 'Идентификатор'),
+            revisionId,
             sbisNumber: this.pickString(doc, 'Номер'),
             sbisUrl:
                 this.pickString(doc, 'СсылкаДляНашаОрганизация', 'Ссылка') ||
@@ -802,40 +967,191 @@ export class SbisService {
         };
     }
 
-    private extractPdfUrlFromReadDoc(result: unknown): string | null {
-        const root = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
-        const doc = (root.Документ ?? root) as Record<string, unknown>;
-        const attachments = doc.Вложение;
-        const list = Array.isArray(attachments) ? attachments : attachments ? [attachments] : [];
+    /** Monthly closing UPD (USN status 2): shell without Номер, then ON_NSCHFDOPPR with SBIS number. */
+    async createUpdDraft(input: SbisUpdDraftInput): Promise<SbisUpdDraftResult> {
+        const docType = (process.env.SBIS_CLOSING_DOC_TYPE || 'ДокОтгрИсх').trim();
+        const productCode = (process.env.SBIS_CLOSING_PRODUCT_CODE || '').trim();
+        const amountStr = input.amountRub.toFixed(2);
+        const skipStatus2 = (process.env.SBIS_CLOSING_UPD_STATUS || '').trim().toLowerCase() === 'off';
+        const hasParties = Boolean(input.seller && input.buyer);
 
-        for (const att of list) {
-            const a = att as Record<string, unknown>;
-            const file = a.Файл as Record<string, unknown> | undefined;
-            if (!file) continue;
-            const name = String(file.Имя || a.Название || '').toLowerCase();
-            const link = this.pickString(file, 'Ссылка');
-            if (link && (name.endsWith('.pdf') || name.includes('pdf') || !name)) {
-                return link;
-            }
-            const representations = file.Представление;
-            const reps = Array.isArray(representations) ? representations : representations ? [representations] : [];
-            for (const rep of reps) {
-                const r = rep as Record<string, unknown>;
-                const repFile = r.Файл as Record<string, unknown> | undefined;
-                const repLink = this.pickString(repFile, 'Ссылка') || this.pickString(r, 'Ссылка');
-                const repName = String(repFile?.Имя || r.Название || '').toLowerCase();
-                if (repLink && repName.includes('pdf')) return repLink;
+        const document: Record<string, unknown> = {
+            Тип: docType,
+            Дата: this.formatDateForSbis(input.documentDate),
+            Сумма: amountStr,
+            Примечание: input.note,
+            НашаОрганизация: this.buildOurOrgBlock(input.ourOrganizationInn, input.ourOrganizationKpp),
+            Контрагент: this.buildCounterpartyBlock(input),
+        };
+        if (productCode) document.КодНоменклатуры = productCode;
+        if (!skipStatus2) {
+            document.ФункцияКЧ = false;
+        }
+
+        const result = (await this.callRpc<Record<string, unknown>>('СБИС.ЗаписатьДокумент', {
+            Документ: document,
+        })) as Record<string, unknown>;
+
+        const doc = (result.Документ ?? result) as Record<string, unknown>;
+        const documentId =
+            this.pickString(doc, 'Идентификатор') ||
+            this.pickString(result, 'Идентификатор') ||
+            '';
+        if (!documentId) {
+            throw new HttpException('SBIS did not return document id', HttpStatus.BAD_GATEWAY);
+        }
+
+        let revisionId = this.pickString(this.asRecord(doc.Редакция), 'Идентификатор');
+        let sbisNumber = this.pickString(doc, 'Номер');
+
+        if (hasParties) {
+            const formal = this.buildUpdFormalForDraft(input, productCode, sbisNumber);
+            if (formal) {
+                await this.writeFormalUpdAttachment(documentId, formal);
+                const refreshed = await this.readDocumentRecord(documentId);
+                revisionId = this.extractRevisionId(refreshed, revisionId);
+                sbisNumber = this.pickString(refreshed, 'Номер') || sbisNumber;
             }
         }
 
-        const stages = doc.Этап;
-        const stageList = Array.isArray(stages) ? stages : stages ? [stages] : [];
-        for (const stage of stageList) {
-            const url = this.extractPdfUrlFromReadDoc({ Документ: { Вложение: (stage as Record<string, unknown>).Вложение } });
+        return {
+            documentId,
+            revisionId,
+            sbisNumber,
+            sbisUrl:
+                this.pickString(doc, 'СсылкаДляНашаОрганизация', 'Ссылка') ||
+                this.pickString(result, 'СсылкаДляНашаОрганизация', 'Ссылка'),
+        };
+    }
+
+    private sleepMs(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    /** SBIS generates PDF/HTML representation asynchronously on first request. */
+    private isSbisPdfRepresentationPending(err: unknown): boolean {
+        const parts: string[] = [];
+        if (err instanceof HttpException) {
+            const body = err.getResponse();
+            if (typeof body === 'string') parts.push(body);
+            else if (body && typeof body === 'object') {
+                const o = body as Record<string, unknown>;
+                parts.push(String(o.message || ''));
+                parts.push(String(o.details || ''));
+                parts.push(String(o.error || ''));
+            }
+        }
+        if (err instanceof Error) parts.push(err.message);
+        const ax = err as AxiosError | undefined;
+        if (ax?.response?.data) {
+            const data = ax.response.data;
+            parts.push(
+                typeof data === 'string'
+                    ? data
+                    : Buffer.isBuffer(data)
+                      ? data.toString('utf8', 0, 500)
+                      : '',
+            );
+        }
+        const text = parts.join(' ').toLowerCase();
+        return (
+            text.includes('1aa0000f1002') ||
+            text.includes('pdf pending') ||
+            text.includes('representation pending') ||
+            (text.includes('представлен') && text.includes('формир'))
+        );
+    }
+
+    private bufferLooksLikePdf(data: ArrayBuffer | Buffer): boolean {
+        const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+        return buf.length >= 5 && buf.subarray(0, 5).toString('ascii') === '%PDF-';
+    }
+
+    /**
+     * PDF for formalized docs (UPD/ON_NSCHFDOPPR, ЭДОСч): use СсылкаНаPDF on document or attachment,
+     * not Файл.Ссылка (that points at source XML).
+     * @see https://saby.ru/help/integration/api/sequence/visual_doc
+     */
+    private extractPdfUrlFromReadDoc(result: unknown): string | null {
+        const root = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
+        const doc = (root.Документ ?? root) as Record<string, unknown>;
+
+        const docPdf = this.pickString(doc, 'СсылкаНаPDF');
+        if (docPdf) return docPdf;
+
+        for (const att of this.asArray(doc.Вложение)) {
+            const attPdf = this.pickString(att, 'СсылкаНаPDF');
+            if (attPdf) return attPdf;
+
+            const file = this.asRecord(att.Файл);
+            if (!file) continue;
+
+            const filePdf = this.pickString(file, 'СсылкаНаPDF');
+            if (filePdf) return filePdf;
+
+            const name = String(file.Имя || att.Название || '').toLowerCase();
+            const link = this.pickString(file, 'Ссылка');
+            if (link && name.endsWith('.pdf')) return link;
+
+            for (const rep of this.asArray(file.Представление)) {
+                const repPdf = this.pickString(rep, 'СсылкаНаPDF') || this.pickString(rep, 'Ссылка');
+                const repFile = this.asRecord(rep.Файл);
+                const repFilePdf =
+                    this.pickString(repFile, 'СсылкаНаPDF') || this.pickString(repFile, 'Ссылка');
+                const repName = String(repFile?.Имя || rep.Название || '').toLowerCase();
+                if (repFilePdf && (repName.includes('pdf') || repName.endsWith('.pdf'))) return repFilePdf;
+                if (repPdf && repName.includes('pdf')) return repPdf;
+            }
+        }
+
+        for (const stage of this.asArray(doc.Этап)) {
+            const url = this.extractPdfUrlFromReadDoc({
+                Документ: { Вложение: stage.Вложение },
+            });
             if (url) return url;
         }
 
         return null;
+    }
+
+    private async downloadPdfFromSbisUrl(pdfUrl: string): Promise<Buffer> {
+        const sid = await this.auth();
+        try {
+            const { data, headers } = await firstValueFrom(
+                this.http.get(pdfUrl, {
+                    responseType: 'arraybuffer',
+                    timeout: 60000,
+                    headers: sid ? { 'X-SBISSessionID': sid } : {},
+                }),
+            );
+            const buf = Buffer.from(data);
+            const contentType = String(headers['content-type'] || '').toLowerCase();
+            if (this.bufferLooksLikePdf(buf) || contentType.includes('pdf')) {
+                return buf;
+            }
+            const snippet = buf.subarray(0, 400).toString('utf8');
+            if (snippet.includes('1AA0000F1002')) {
+                throw new HttpException('SBIS PDF representation pending', HttpStatus.SERVICE_UNAVAILABLE);
+            }
+            return buf;
+        } catch (e) {
+            if (e instanceof HttpException && this.isSbisPdfRepresentationPending(e)) {
+                throw e;
+            }
+            if (e instanceof HttpException) throw e;
+            const ax = e as AxiosError;
+            const body = ax.response?.data;
+            const text =
+                typeof body === 'string'
+                    ? body
+                    : Buffer.isBuffer(body)
+                      ? body.toString('utf8', 0, 500)
+                      : '';
+            if (text.includes('1AA0000F1002')) {
+                throw new HttpException('SBIS PDF representation pending', HttpStatus.SERVICE_UNAVAILABLE);
+            }
+            throw e;
+        }
     }
 
     private asRecord(value: unknown): Record<string, unknown> | null {
@@ -860,20 +1176,184 @@ export class SbisService {
         return (process.env.SBIS_EDO_ACTION_NAME || 'Отправить').trim() || 'Отправить';
     }
 
-    private buildEdoCertificateBlock(thumbprintOverride?: string | null): Record<string, unknown> | undefined {
+    private buildEdoCertificateBlock(
+        thumbprintOverride?: string | null,
+        options?: { useDeferredSign?: boolean },
+    ): Record<string, unknown> | undefined {
         const thumbprint = (thumbprintOverride || process.env.SBIS_EDO_CERT_THUMBPRINT || '').trim();
-        if (thumbprint) {
-            return { Отпечаток: thumbprint };
+        let keyType = (process.env.SBIS_EDO_SIGN_KEY_TYPE || '').trim();
+        if (options?.useDeferredSign) {
+            keyType = keyType || this.edoDeferredSignKeyType();
         }
-        const keyType = (process.env.SBIS_EDO_SIGN_KEY_TYPE || '').trim();
-        if (keyType) {
-            return { Ключ: { Тип: keyType } };
-        }
-        return undefined;
+        const cert: Record<string, unknown> = {};
+        if (thumbprint) cert.Отпечаток = thumbprint;
+        if (keyType) cert.Ключ = { Тип: keyType };
+        return Object.keys(cert).length ? cert : undefined;
     }
 
-    private edoUsePrepareAction(): boolean {
-        const raw = (process.env.SBIS_EDO_USE_PREPARE ?? 'true').trim().toLowerCase();
+    /** Отложенный | ОтложенныйСПодтверждением — see SBIS delegate API. */
+    edoDeferredSignKeyType(): string {
+        const raw = (process.env.SBIS_EDO_DEFERRED_SIGN_TYPE || 'Отложенный').trim();
+        return raw || 'Отложенный';
+    }
+
+    edoDeferredSignEnabled(): boolean {
+        const raw = (process.env.SBIS_EDO_DEFERRED_SIGN ?? '').trim().toLowerCase();
+        if (['1', 'true', 'yes', 'on'].includes(raw)) return true;
+        const keyType = (process.env.SBIS_EDO_SIGN_KEY_TYPE || '').trim().toLowerCase();
+        return keyType.includes('отложен');
+    }
+
+    isEdoAwaitingOwnerSignature(stateCode: string | null, stateName: string | null): boolean {
+        if (stateCode === '23') return true;
+        const name = (stateName || '').toLowerCase();
+        return name.includes('ожида') && name.includes('подпис');
+    }
+
+    /** Formalized ON_CHETOP (ЭДОСч) must be signed before send. */
+    documentHasFormalChetopAttachment(doc: Record<string, unknown>): boolean {
+        const attachmentType =
+            (process.env.SBIS_INVOICE_ATTACHMENT_TYPE || SBIS_CHETOP_ATTACHMENT_META.Тип).trim() || 'ЭДОСч';
+        const list = this.asArray(doc.Вложение);
+        return list.some((att) => {
+            const type = (this.pickString(att, 'Тип') || '').trim();
+            if (type === attachmentType || type === 'ЭДОСч') return true;
+            const file = this.asRecord(att.Файл);
+            const name = (this.pickString(file, 'Имя') || this.pickString(att, 'Название') || '').toUpperCase();
+            return name.startsWith('ON_CHETOP_') && name.endsWith('.XML');
+        });
+    }
+
+    documentHasFormalUpdAttachment(doc: Record<string, unknown>): boolean {
+        const list = this.asArray(doc.Вложение);
+        return list.some((att) => {
+            const file = this.asRecord(att.Файл);
+            const name = (this.pickString(file, 'Имя') || this.pickString(att, 'Название') || '').toUpperCase();
+            return name.startsWith('ON_NSCHFDOPPR_') && name.endsWith('.XML');
+        });
+    }
+
+    /** ON_CHETOP or ON_NSCHFDOPPR — formalized XML that needs ПодготовитьДействие before EDO send. */
+    documentHasFormalEdoAttachment(doc: Record<string, unknown>): boolean {
+        return this.documentHasFormalChetopAttachment(doc) || this.documentHasFormalUpdAttachment(doc);
+    }
+
+    isSbisEdoMissingSignatureError(error: SbisRpcErrorDetail | { message?: string; details?: string }): boolean {
+        const text = [error.message, (error as SbisRpcErrorDetail).details]
+            .filter((s): s is string => typeof s === 'string' && !!s.trim())
+            .join(' ')
+            .toLowerCase();
+        return (
+            text.includes('не приложен файл подписи') ||
+            text.includes('не хватает подписи') ||
+            text.includes('файл подписи')
+        );
+    }
+
+    private findOutgoingStageRecord(
+        doc: Record<string, unknown>,
+        stageId: string | null,
+    ): Record<string, unknown> | null {
+        const stages = this.asArray(doc.Этап);
+        if (stageId) {
+            const byId = stages.find((s) => this.pickString(s, 'Идентификатор') === stageId);
+            if (byId) return byId;
+        }
+        for (const stage of stages) {
+            const stageName = (this.pickString(stage, 'Название') || '').toLowerCase();
+            if (stageName.includes('отправ')) return stage;
+        }
+        return stages[0] ?? null;
+    }
+
+    private attachmentHasSignaturePayload(att: Record<string, unknown>): boolean {
+        return this.asArray(att.Подпись).some((sign) => {
+            const file = this.asRecord(sign.Файл);
+            return !!(this.pickString(file, 'ДвоичныеДанные') || this.pickString(file, 'Ссылка'));
+        });
+    }
+
+    /**
+     * Only attachments that already have Подпись.Файл may be passed in ВыполнитьДействие.
+     * Passing Идентификатор without Подпись tells SBIS the client will supply .sgn (API error otherwise).
+     */
+    private mapSignedAttachmentsForExecute(
+        doc: Record<string, unknown>,
+        stageId: string | null,
+    ): Record<string, unknown>[] {
+        const stage = this.findOutgoingStageRecord(doc, stageId);
+        const fromStage = stage
+            ? this.asArray(stage.Вложение)
+                  .map((att) => this.mapOneStageAttachmentForExecute(att))
+                  .filter((att) => this.attachmentHasSignaturePayload(att))
+            : [];
+
+        if (fromStage.length) return fromStage;
+
+        return this.asArray(doc.Вложение)
+            .map((att) => this.mapOneStageAttachmentForExecute(att))
+            .filter((att) => this.attachmentHasSignaturePayload(att));
+    }
+
+    private logPreparedSigningDiagnostics(documentId: string, doc: Record<string, unknown>): void {
+        const parts: string[] = [];
+        for (const att of this.asArray(doc.Вложение)) {
+            const file = this.asRecord(att.Файл);
+            const name = this.pickString(file, 'Имя') || this.pickString(att, 'Название') || '?';
+            const signed = this.attachmentHasSignaturePayload(att);
+            const hash = this.pickString(file, 'Хеш');
+            parts.push(
+                signed ? `${name}:signed` : hash ? `${name}:hash-only` : `${name}:unsigned`,
+            );
+        }
+        if (parts.length) {
+            this.logger.warn(
+                `SBIS ${documentId}: after prepare, attachments: ${parts.join('; ')}. ` +
+                    'API cannot sign without server/cloud key or local CryptoPro — use deferred signing or sign in Saby UI.',
+            );
+        }
+    }
+
+    private mapOneStageAttachmentForExecute(att: Record<string, unknown>): Record<string, unknown> {
+        const out: Record<string, unknown> = {};
+        const id = this.pickString(att, 'Идентификатор');
+        if (id) out.Идентификатор = id;
+
+        const signs: Record<string, unknown>[] = [];
+        for (const sign of this.asArray(att.Подпись)) {
+            const file = this.asRecord(sign.Файл);
+            if (!file) continue;
+            const sigFile: Record<string, unknown> = {};
+            const binary = this.pickString(file, 'ДвоичныеДанные');
+            const link = this.pickString(file, 'Ссылка');
+            if (binary) sigFile.ДвоичныеДанные = binary;
+            else if (link) sigFile.Ссылка = link;
+            else continue;
+            const name = this.pickString(file, 'Имя');
+            if (name) sigFile.Имя = name;
+            signs.push({ Файл: sigFile });
+        }
+
+        if (signs.length > 0) out.Подпись = signs;
+        return out;
+    }
+
+    private shouldUseSeparateEdoPrepare(
+        doc: Record<string, unknown>,
+        options?: SbisEdoSendOptions,
+    ): boolean {
+        if (options?.usePrepareAction !== undefined) return options.usePrepareAction;
+        if (this.edoUsePrepareAction()) return true;
+        return this.documentHasFormalEdoAttachment(doc);
+    }
+
+    /**
+     * Separate ПодготовитьДействие before ВыполнитьДействие is opt-in only.
+     * SBIS already calls prepare inside ВыполнитьДействие; double prepare causes
+     * «Отсутствуют документы, требующие отправки».
+     */
+    edoUsePrepareAction(): boolean {
+        const raw = (process.env.SBIS_EDO_USE_PREPARE ?? 'false').trim().toLowerCase();
         return !['0', 'false', 'no', 'off'].includes(raw);
     }
 
@@ -1067,29 +1547,87 @@ export class SbisService {
         });
     }
 
+    /** Low-level prepare; prefer sendDocumentToEdo (execute-only) for outgoing invoices. */
     async prepareDocumentForEdo(
         documentId: string,
         revisionId: string | null | undefined,
         thumbprint?: string | null,
-    ): Promise<void> {
-        const doc = await this.readDocumentRecord(documentId);
+        cachedDoc?: Record<string, unknown> | null,
+    ): Promise<Record<string, unknown>> {
+        const doc = cachedDoc ?? (await this.readDocumentRecord(documentId));
         const sendStage = this.findOutgoingSendStage(doc);
         const actionName = sendStage?.actionName || this.edoSendActionName();
 
+        const document = this.buildEdoActionRequest(documentId, revisionId, sendStage, actionName, thumbprint);
+        const result = await this.callRpc<Record<string, unknown>>('СБИС.ПодготовитьДействие', {
+            Документ: document,
+        });
+        const root = this.asRecord(result);
+        return (this.asRecord(root?.Документ) ?? root) as Record<string, unknown>;
+    }
+
+    private extractRevisionId(
+        doc: Record<string, unknown>,
+        revisionId?: string | null,
+    ): string | null {
+        const explicit = revisionId?.trim();
+        if (explicit) return explicit;
+        const revision = this.asRecord(doc.Редакция);
+        return this.pickString(revision, 'Идентификатор') || null;
+    }
+
+    private buildEdoActionRequest(
+        documentId: string,
+        revisionId: string | null | undefined,
+        sendStage: { stageId: string | null; actionName: string } | null,
+        actionName: string,
+        thumbprint?: string | null,
+        preparedDoc?: Record<string, unknown> | null,
+        sendOptions?: Pick<SbisEdoSendOptions, 'useDeferredSign'>,
+    ): Record<string, unknown> {
         const document: Record<string, unknown> = { Идентификатор: documentId };
         if (revisionId?.trim()) {
             document.Редакция = { Идентификатор: revisionId.trim() };
         }
         const action: Record<string, unknown> = { Название: actionName };
-        const cert = this.buildEdoCertificateBlock(thumbprint);
+        const cert = this.buildEdoCertificateBlock(thumbprint, {
+            useDeferredSign: sendOptions?.useDeferredSign,
+        });
         if (cert) action.Сертификат = cert;
 
         const stage: Record<string, unknown> = { Действие: [action] };
         if (sendStage?.stageId) stage.Идентификатор = sendStage.stageId;
         else stage.Название = 'Отправка';
-        document.Этап = stage;
 
-        await this.callRpc('СБИС.ПодготовитьДействие', { Документ: document });
+        const signedAttachments = preparedDoc
+            ? this.mapSignedAttachmentsForExecute(preparedDoc, sendStage?.stageId ?? null)
+            : [];
+        if (signedAttachments.length) stage.Вложение = signedAttachments;
+
+        document.Этап = stage;
+        return document;
+    }
+
+    /** SBIS warning when execute has nothing left (often after duplicate prepare). */
+    isSbisEdoNothingToSendError(error: SbisRpcErrorDetail | { message?: string }): boolean {
+        const text = [error.message, (error as SbisRpcErrorDetail).details]
+            .filter((s): s is string => typeof s === 'string' && !!s.trim())
+            .join(' ')
+            .toLowerCase();
+        return text.includes('отсутствуют документы, требующие отправки');
+    }
+
+    /** No pending «Отправить» — document likely already sent or past send stage. */
+    private isDocumentPastOutgoingSendStage(doc: Record<string, unknown>): boolean {
+        if (this.findOutgoingSendStage(doc)) return false;
+        const stateName = (this.pickString(this.asRecord(doc.Состояние), 'Название') || '').toLowerCase();
+        return (
+            stateName.includes('отправ') ||
+            stateName.includes('достав') ||
+            stateName.includes('ожида') ||
+            stateName.includes('заверш') ||
+            stateName.includes('исполн')
+        );
     }
 
     async readDocumentRecord(documentId: string): Promise<Record<string, unknown>> {
@@ -1146,56 +1684,171 @@ export class SbisService {
         options?: SbisEdoSendOptions,
     ): Promise<SbisEdoSendResult> {
         const thumbprint = options?.certThumbprint ?? null;
-        const usePrepare =
-            options?.usePrepareAction !== undefined
-                ? options.usePrepareAction
-                : this.edoUsePrepareAction();
-
-        if (usePrepare) {
-            await this.prepareDocumentForEdo(documentId, revisionId, thumbprint);
+        if (!thumbprint && !this.buildEdoCertificateBlock(null)) {
+            throw new HttpException(
+                'SBIS EDO certificate thumbprint is required (our_organizations.sbisCertThumbprint or SBIS_EDO_CERT_THUMBPRINT)',
+                HttpStatus.BAD_REQUEST,
+            );
         }
 
-        const doc = await this.readDocumentRecord(documentId);
-        const sendStage = this.findOutgoingSendStage(doc);
+        let doc = await this.readDocumentRecord(documentId);
+        let resolvedRevision = this.extractRevisionId(doc, revisionId);
+        let sendStage = this.findOutgoingSendStage(doc);
         const actionName = sendStage?.actionName || this.edoSendActionName();
 
-        const document: Record<string, unknown> = {
-            Идентификатор: documentId,
+        let useSeparatePrepare = this.shouldUseSeparateEdoPrepare(doc, options);
+        let preparedDoc: Record<string, unknown> | null = null;
+
+        const runPrepare = async (): Promise<void> => {
+            preparedDoc = await this.prepareDocumentForEdo(
+                documentId,
+                resolvedRevision,
+                thumbprint,
+                doc,
+            );
+            resolvedRevision = this.extractRevisionId(preparedDoc, resolvedRevision);
+            sendStage = this.findOutgoingSendStage(preparedDoc) ?? sendStage;
+            doc = preparedDoc;
         };
-        if (revisionId?.trim()) {
-            document.Редакция = { Идентификатор: revisionId.trim() };
+
+        if (useSeparatePrepare && sendStage?.stageId) {
+            if (this.documentHasFormalEdoAttachment(doc)) {
+                this.logger.log(
+                    `SBIS ${documentId}: ПодготовитьДействие for formalized EDO attachment signing`,
+                );
+            }
+            await runPrepare();
         }
 
-        const action: Record<string, unknown> = { Название: actionName };
-        const cert = this.buildEdoCertificateBlock(thumbprint);
-        if (cert) {
-            action.Сертификат = cert;
+        if (!sendStage?.stageId) {
+            if (this.isDocumentPastOutgoingSendStage(doc)) {
+                const state = this.asRecord(doc.Состояние);
+                return {
+                    documentId,
+                    actionName,
+                    stageId: null,
+                    stateCode: this.pickString(state, 'Код'),
+                    stateName: this.pickString(state, 'Название'),
+                };
+            }
+            throw new HttpException(
+                'SBIS outgoing send stage not found for document',
+                HttpStatus.BAD_GATEWAY,
+            );
         }
 
-        const stage: Record<string, unknown> = {
-            Действие: [action],
+        if (preparedDoc && this.documentHasFormalEdoAttachment(preparedDoc)) {
+            const signed = this.mapSignedAttachmentsForExecute(
+                preparedDoc,
+                sendStage?.stageId ?? null,
+            );
+            if (!signed.length) {
+                this.logPreparedSigningDiagnostics(documentId, preparedDoc);
+            }
+        }
+
+        const runExecute = async (useDeferredSign: boolean) => {
+            const document = this.buildEdoActionRequest(
+                documentId,
+                resolvedRevision,
+                sendStage,
+                actionName,
+                thumbprint,
+                preparedDoc,
+                { useDeferredSign },
+            );
+            return this.executeRpc<Record<string, unknown>>('СБИС.ВыполнитьДействие', {
+                Документ: document,
+            });
         };
-        if (sendStage?.stageId) {
-            stage.Идентификатор = sendStage.stageId;
-        } else if (sendStage) {
-            stage.Название = 'Отправка';
-        } else {
-            stage.Название = 'Отправка';
+
+        let useDeferredSign = Boolean(options?.useDeferredSign);
+        let outcome = await runExecute(useDeferredSign);
+
+        if (
+            outcome.ok === false &&
+            this.isSbisEdoMissingSignatureError(outcome.error) &&
+            !useSeparatePrepare
+        ) {
+            this.logger.warn(
+                `SBIS ${documentId}: missing signature on attachment, retrying with ПодготовитьДействие`,
+            );
+            useSeparatePrepare = true;
+            await runPrepare();
+            if (!sendStage?.stageId) {
+                throw new HttpException(
+                    'SBIS outgoing send stage not found after prepare',
+                    HttpStatus.BAD_GATEWAY,
+                );
+            }
+            if (preparedDoc) this.logPreparedSigningDiagnostics(documentId, preparedDoc);
+            outcome = await runExecute(useDeferredSign);
         }
-        document.Этап = stage;
 
-        const result = (await this.callRpc<Record<string, unknown>>('СБИС.ВыполнитьДействие', {
-            Документ: document,
-        })) as Record<string, unknown>;
+        if (
+            outcome.ok === false &&
+            this.isSbisEdoMissingSignatureError(outcome.error) &&
+            !useDeferredSign &&
+            this.edoDeferredSignEnabled()
+        ) {
+            this.logger.log(
+                `SBIS ${documentId}: retrying ВыполнитьДействие with deferred certificate (${this.edoDeferredSignKeyType()})`,
+            );
+            useDeferredSign = true;
+            outcome = await runExecute(true);
+        }
 
+        if (outcome.ok === false && this.isSbisEdoNothingToSendError(outcome.error)) {
+            const after = await this.readDocumentRecord(documentId);
+            if (this.isDocumentPastOutgoingSendStage(after)) {
+                const state = this.asRecord(after.Состояние);
+                this.logger.log(
+                    `SBIS ${documentId}: execute reported nothing to send; document already past send stage`,
+                );
+                return {
+                    documentId,
+                    actionName,
+                    stageId: sendStage.stageId,
+                    stateCode: this.pickString(state, 'Код'),
+                    stateName: this.pickString(state, 'Название'),
+                };
+            }
+            throw new HttpException(
+                {
+                    message: `SBIS RPC СБИС.ВыполнитьДействие: ${outcome.error.message}`,
+                    sbis: outcome.error,
+                },
+                HttpStatus.BAD_GATEWAY,
+            );
+        }
+
+        if (outcome.ok === false) {
+            let message = `SBIS RPC СБИС.ВыполнитьДействие: ${outcome.error.message}`;
+            if (this.isSbisEdoMissingSignatureError(outcome.error)) {
+                message +=
+                    '. The API user cannot sign ON_CHETOP without a server/cloud key in Saby, local CryptoPro signing, ' +
+                    'or deferred signing (SBIS_EDO_DEFERRED_SIGN=true and SBIS_EDO_SIGN_KEY_TYPE=Отложенный). ' +
+                    'Otherwise sign and send the draft manually in Saby.';
+            }
+            throw new HttpException({ message, sbis: outcome.error }, HttpStatus.BAD_GATEWAY);
+        }
+
+        const result = outcome.result;
         const outDoc = this.asRecord(result.Документ) ?? result;
         const state = this.asRecord(outDoc.Состояние);
+        const stateCode = this.pickString(state, 'Код');
+        const stateName = this.pickString(state, 'Название');
+        if (this.isEdoAwaitingOwnerSignature(stateCode, stateName)) {
+            this.logger.log(
+                `SBIS ${documentId}: document queued for owner signature (${stateName || stateCode})`,
+            );
+        }
         return {
             documentId,
             actionName,
-            stageId: sendStage?.stageId ?? null,
-            stateCode: this.pickString(state, 'Код'),
-            stateName: this.pickString(state, 'Название'),
+            stageId: sendStage.stageId,
+            stateCode,
+            stateName,
         };
     }
 
@@ -1207,23 +1860,58 @@ export class SbisService {
     }
 
     async fetchDocumentPdfBytes(documentId: string): Promise<Buffer> {
-        const readResult = await this.callRpc<unknown>('СБИС.ПрочитатьДокумент', {
-            Документ: { Идентификатор: documentId },
-        });
-        const pdfUrl = this.extractPdfUrlFromReadDoc(readResult);
-        if (!pdfUrl) {
-            throw new HttpException('SBIS PDF representation not found', HttpStatus.NOT_FOUND);
+        const maxAttempts = Number(process.env.SBIS_PDF_FETCH_ATTEMPTS || 8);
+        const delayMs = Number(process.env.SBIS_PDF_FETCH_DELAY_MS || 2500);
+        let lastError: Error | HttpException | null = null;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            const readResult = await this.callRpc<unknown>('СБИС.ПрочитатьДокумент', {
+                Документ: { Идентификатор: documentId },
+            });
+            const pdfUrl = this.extractPdfUrlFromReadDoc(readResult);
+            if (!pdfUrl) {
+                lastError = new HttpException(
+                    'SBIS PDF representation not found',
+                    HttpStatus.NOT_FOUND,
+                );
+                if (attempt < maxAttempts) {
+                    this.logger.debug(
+                        `SBIS ${documentId}: PDF link missing, retry ${attempt}/${maxAttempts}`,
+                    );
+                    await this.sleepMs(delayMs);
+                    continue;
+                }
+                if (this.sbisDebugEnabled()) {
+                    this.logger.warn(
+                        `SBIS ${documentId}: no СсылкаНаPDF in read_doc: ${JSON.stringify(readResult).slice(0, 2000)}`,
+                    );
+                }
+                throw lastError;
+            }
+
+            try {
+                const pdf = await this.downloadPdfFromSbisUrl(pdfUrl);
+                if (attempt > 1) {
+                    this.logger.log(`SBIS ${documentId}: PDF ready after ${attempt} attempt(s)`);
+                }
+                return pdf;
+            } catch (e) {
+                lastError = e as Error;
+                if (this.isSbisPdfRepresentationPending(e) && attempt < maxAttempts) {
+                    this.logger.debug(
+                        `SBIS ${documentId}: PDF generating, retry ${attempt}/${maxAttempts}`,
+                    );
+                    await this.sleepMs(delayMs);
+                    continue;
+                }
+                throw e;
+            }
         }
 
-        const sid = await this.auth();
-        const { data } = await firstValueFrom(
-            this.http.get(pdfUrl, {
-                responseType: 'arraybuffer',
-                timeout: 60000,
-                headers: sid ? { 'X-SBISSessionID': sid } : {},
-            }),
+        throw (
+            lastError ||
+            new HttpException('SBIS PDF representation not found', HttpStatus.NOT_FOUND)
         );
-        return Buffer.from(data);
     }
 
     async enqueueDocument(

@@ -376,6 +376,127 @@ describe('SbisService', () => {
         expect(s).toBeNull();
     });
 
+    it('createInvoiceDraft attaches ON_CHETOP via ЗаписатьВложение like alfawebhook (file only, no ЭДОСч meta)', async () => {
+        delete process.env.SBIS_INVOICE_CHEOP_ATTACH_MODE;
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: {
+                                Идентификатор: 'doc-chetop',
+                                Номер: '44',
+                                Редакция: { Идентификатор: 'rev-chetop' },
+                            },
+                        },
+                    },
+                }),
+            )
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: { Идентификатор: 'doc-chetop' },
+                        },
+                    },
+                }),
+            );
+
+        await service.createInvoiceDraft({
+            number: '44',
+            documentDate: '2026-05-20',
+            amountRub: 1000,
+            subject: 'Пополнение баланса AIPBX',
+            paymentPurpose: 'Оплата по счёту №44',
+            counterpartyInn: '7707083893',
+            counterpartyKpp: '770101001',
+            counterpartyName: 'ООО Тест',
+            legalForm: 'ul',
+            ourOrganizationInn: '1234567890',
+            ourOrganizationKpp: '123456789',
+            seller: {
+                legalForm: 'ip',
+                inn: '123456789012',
+                name: 'ИП Тест',
+                address: 'Москва',
+                fio: { family: 'Тест', first: 'Иван' },
+            },
+            buyer: {
+                legalForm: 'ul',
+                inn: '7707083893',
+                kpp: '770101001',
+                name: 'ООО Тест',
+                address: 'Москва',
+            },
+            personalAccountNumber: 'AIPBX-00000001',
+        });
+
+        const methods = httpPost.mock.calls.map((c) => c[1].method);
+        expect(methods).toContain('СБИС.ЗаписатьДокумент');
+        expect(methods).toContain('СБИС.ЗаписатьВложение');
+
+        const createBody = httpPost.mock.calls.find((c) => c[1].method === 'СБИС.ЗаписатьДокумент')?.[1];
+        expect(createBody.params.Документ.Вложение).toBeUndefined();
+
+        const attachBody = httpPost.mock.calls.find((c) => c[1].method === 'СБИС.ЗаписатьВложение')?.[1];
+        expect(attachBody.params.Документ.Идентификатор).toBe('doc-chetop');
+        expect(attachBody.params.Документ.Редакция).toBeUndefined();
+        const enclosure = attachBody.params.Документ.Вложение;
+        expect(enclosure.Тип).toBeUndefined();
+        expect(enclosure.Файл.Имя).toMatch(/^ON_CHETOP_.+\.xml$/);
+        expect(enclosure.Файл.ДвоичныеДанные).toBeTruthy();
+    });
+
+    it('createInvoiceDraft can attach ЭДОСч inline in single ЗаписатьДокумент when configured', async () => {
+        process.env.SBIS_INVOICE_CHEOP_ATTACH_MODE = 'inline';
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: { Идентификатор: 'doc-chetop-inline', Номер: '44' },
+                        },
+                    },
+                }),
+            );
+
+        await service.createInvoiceDraft({
+            number: '44',
+            documentDate: '2026-05-20',
+            amountRub: 1000,
+            subject: 'Пополнение баланса AIPBX',
+            paymentPurpose: 'Оплата по счёту №44',
+            counterpartyInn: '7707083893',
+            counterpartyKpp: '770101001',
+            counterpartyName: 'ООО Тест',
+            legalForm: 'ul',
+            ourOrganizationInn: '1234567890',
+            ourOrganizationKpp: '123456789',
+            seller: {
+                legalForm: 'ip',
+                inn: '123456789012',
+                name: 'ИП Тест',
+                address: 'Москва',
+                fio: { family: 'Тест', first: 'Иван' },
+            },
+            buyer: {
+                legalForm: 'ul',
+                inn: '7707083893',
+                kpp: '770101001',
+                name: 'ООО Тест',
+                address: 'Москва',
+            },
+        });
+
+        const methods = httpPost.mock.calls.map((c) => c[1].method);
+        expect(methods).not.toContain('СБИС.ЗаписатьВложение');
+        const attachment = httpPost.mock.calls.find((c) => c[1].method === 'СБИС.ЗаписатьДокумент')?.[1]
+            .params.Документ.Вложение[0];
+        expect(attachment.Тип).toBe('ЭДОСч');
+    });
+
     it('createInvoiceDraft sends document date as DD.MM.YYYY', async () => {
         httpPost
             .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
@@ -439,6 +560,130 @@ describe('SbisService', () => {
         expect(rpcBody.params.Документ.Тип).toBe('ДокОтгрИсх');
     });
 
+    it('createUpdDraft does not send Номер; attaches ON_NSCHFDOPPR after SBIS assigns number', async () => {
+        delete process.env.SBIS_CLOSING_UPD_STATUS;
+        const seller = {
+            legalForm: 'ul' as const,
+            inn: '2465264296',
+            kpp: '246501001',
+            name: 'ООО КРАСТЕРИСК',
+            address: 'г. Красноярск',
+        };
+        const buyer = {
+            legalForm: 'ul' as const,
+            inn: '3808211329',
+            kpp: '381201001',
+            name: 'ООО Тест',
+            address: 'г. Иркутск',
+        };
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: { Идентификатор: 'upd-doc-1', Номер: '336' },
+                        },
+                    },
+                }),
+            )
+            .mockReturnValueOnce(of({ data: { result: {} } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: { Идентификатор: 'upd-doc-1', Номер: '336' },
+                        },
+                    },
+                }),
+            );
+
+        const result = await service.createUpdDraft({
+            documentDate: '2026-05-01',
+            periodFrom: '2026-04-01',
+            periodTo: '2026-04-30',
+            amountRub: 900,
+            subject: 'Услуги AIPBX',
+            note: 'Лицевой счёт AIPBX-1. Период оказания услуг: 01.04.2026 — 30.04.2026.',
+            counterpartyInn: '3808211329',
+            counterpartyName: 'ООО Тест',
+            legalForm: 'ul',
+            ourOrganizationInn: '2465264296',
+            seller,
+            buyer,
+        });
+
+        expect(result.sbisNumber).toBe('336');
+
+        const createBody = httpPost.mock.calls.find((c) => c[1].method === 'СБИС.ЗаписатьДокумент')?.[1];
+        expect(createBody.params.Документ.Номер).toBeUndefined();
+        expect(createBody.params.Документ.ФункцияКЧ).toBe(false);
+
+        const attachBody = httpPost.mock.calls.find((c) => c[1].method === 'СБИС.ЗаписатьВложение')?.[1];
+        const fileName = attachBody.params.Документ.Вложение.Файл.Имя as string;
+        expect(fileName.toUpperCase()).toMatch(/^ON_NSCHFDOPPR_.*\.XML$/);
+        const xmlBuf = Buffer.from(attachBody.params.Документ.Вложение.Файл.ДвоичныеДанные, 'base64');
+        const xml = require('iconv-lite').decode(xmlBuf, 'win1251');
+        expect(xml).toContain('НомерДок="336"');
+    });
+
+    it('extractPdfUrlFromReadDoc prefers СсылкаНаPDF for formalized UPD attachment', () => {
+        const url = (service as unknown as { extractPdfUrlFromReadDoc: (r: unknown) => string | null }).extractPdfUrlFromReadDoc({
+            Документ: {
+                Вложение: [
+                    {
+                        Тип: 'ДокументРеализация',
+                        Файл: {
+                            Имя: 'ON_NSCHFDOPPR_1.xml',
+                            Ссылка: 'https://sbis.ru/xml/1',
+                        },
+                        СсылкаНаPDF: 'https://sbis.ru/pdf/upd-representation.pdf',
+                    },
+                ],
+            },
+        });
+        expect(url).toBe('https://sbis.ru/pdf/upd-representation.pdf');
+    });
+
+    it('fetchDocumentPdfBytes retries until PDF is ready', async () => {
+        process.env.SBIS_PDF_FETCH_ATTEMPTS = '2';
+        process.env.SBIS_PDF_FETCH_DELAY_MS = '10';
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValue(
+                of({
+                    data: {
+                        result: {
+                            Документ: {
+                                Идентификатор: 'doc-pdf',
+                                СсылкаНаPDF: 'https://sbis.ru/pdf/doc.pdf',
+                            },
+                        },
+                    },
+                }),
+            );
+
+        httpGet
+            .mockReturnValueOnce(
+                of({
+                    data: Buffer.from('1AA0000F1002'),
+                    headers: { 'content-type': 'text/plain' },
+                }),
+            )
+            .mockReturnValueOnce(
+                of({
+                    data: Buffer.from('%PDF-1.4 fake'),
+                    headers: { 'content-type': 'application/pdf' },
+                }),
+            );
+
+        const pdf = await service.fetchDocumentPdfBytes('doc-pdf');
+        expect(pdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+        expect(httpGet).toHaveBeenCalledTimes(2);
+        delete process.env.SBIS_PDF_FETCH_ATTEMPTS;
+        delete process.env.SBIS_PDF_FETCH_DELAY_MS;
+    });
+
     it('findOutgoingSendStage locates Отправить action', () => {
         const found = service.findOutgoingSendStage({
             Этап: [
@@ -455,6 +700,246 @@ describe('SbisService', () => {
     it('edoAutoSendEnabled respects SBIS_EDO_AUTO_SEND=false', () => {
         process.env.SBIS_EDO_AUTO_SEND = 'false';
         expect(service.edoAutoSendEnabled()).toBe(false);
+    });
+
+    it('edoUsePrepareAction defaults to false (execute calls prepare internally)', () => {
+        delete process.env.SBIS_EDO_USE_PREPARE;
+        expect(service.edoUsePrepareAction()).toBe(false);
+    });
+
+    it('isSbisEdoNothingToSendError detects SBIS warning text', () => {
+        expect(
+            service.isSbisEdoNothingToSendError({
+                message:
+                    'Отсутствуют документы, требующие отправки. Вы можете создать или загрузить новые',
+            }),
+        ).toBe(true);
+    });
+
+    it('isSbisEdoMissingSignatureError detects missing signature file', () => {
+        expect(
+            service.isSbisEdoMissingSignatureError({
+                message: 'Не приложен файл подписи',
+                details: 'Не хватает подписи под: ON_CHETOP_test.xml',
+            }),
+        ).toBe(true);
+    });
+
+    it('documentHasFormalChetopAttachment detects ЭДОСч and ON_CHETOP file name', () => {
+        expect(
+            service.documentHasFormalChetopAttachment({
+                Вложение: [{ Тип: 'ЭДОСч', Файл: { Имя: 'ON_CHETOP_1.xml' } }],
+            }),
+        ).toBe(true);
+        expect(
+            service.documentHasFormalChetopAttachment({
+                Вложение: [{ Тип: 'PDF', Файл: { Имя: 'invoice.pdf' } }],
+            }),
+        ).toBe(false);
+    });
+
+    it('sendDocumentToEdo calls only ВыполнитьДействие without separate prepare', async () => {
+        delete process.env.SBIS_EDO_USE_PREPARE;
+        process.env.SBIS_EDO_CERT_THUMBPRINT = 'ABC';
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: {
+                                Идентификатор: 'doc-send',
+                                Редакция: { Идентификатор: 'rev-1' },
+                                Этап: [
+                                    {
+                                        Идентификатор: 'stage-1',
+                                        Название: 'Отправка',
+                                        Действие: [{ Название: 'Отправить' }],
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                }),
+            )
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: {
+                                Состояние: { Код: '7', Название: 'Отправлен' },
+                            },
+                        },
+                    },
+                }),
+            );
+
+        const sent = await service.sendDocumentToEdo('doc-send', 'rev-1');
+        expect(sent.stateName).toBe('Отправлен');
+        const methods = httpPost.mock.calls.map((c) => c[1].method);
+        expect(methods).toContain('СБИС.ПрочитатьДокумент');
+        expect(methods).toContain('СБИС.ВыполнитьДействие');
+        expect(methods).not.toContain('СБИС.ПодготовитьДействие');
+        const executeBody = httpPost.mock.calls.find((c) => c[1].method === 'СБИС.ВыполнитьДействие')?.[1];
+        expect(executeBody.params.Документ.Редакция).toEqual({ Идентификатор: 'rev-1' });
+        expect(executeBody.params.Документ.Этап.Идентификатор).toBe('stage-1');
+    });
+
+    it('sendDocumentToEdo calls ПодготовитьДействие when document has ЭДОСч attachment', async () => {
+        delete process.env.SBIS_EDO_USE_PREPARE;
+        process.env.SBIS_EDO_CERT_THUMBPRINT = 'ABC';
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: {
+                                Идентификатор: 'doc-chetop-send',
+                                Редакция: { Идентификатор: 'rev-1' },
+                                Вложение: [
+                                    {
+                                        Тип: 'ЭДОСч',
+                                        Идентификатор: 'att-1',
+                                        Файл: { Имя: 'ON_CHETOP_1.xml' },
+                                    },
+                                ],
+                                Этап: [
+                                    {
+                                        Идентификатор: 'stage-1',
+                                        Название: 'Отправка',
+                                        Действие: [{ Название: 'Отправить' }],
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                }),
+            )
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: {
+                                Идентификатор: 'doc-chetop-send',
+                                Редакция: { Идентификатор: 'rev-1' },
+                                Этап: [
+                                    {
+                                        Идентификатор: 'stage-1',
+                                        Название: 'Отправка',
+                                        Действие: [{ Название: 'Отправить' }],
+                                        Вложение: [
+                                            {
+                                                Идентификатор: 'att-1',
+                                                Подпись: [
+                                                    {
+                                                        Файл: {
+                                                            Имя: 'ON_CHETOP_1.xml.sgn',
+                                                            ДвоичныеДанные: 'c2ln',
+                                                        },
+                                                    },
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                }),
+            )
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: {
+                                Состояние: { Код: '7', Название: 'Отправлен' },
+                            },
+                        },
+                    },
+                }),
+            );
+
+        await service.sendDocumentToEdo('doc-chetop-send', 'rev-1');
+        const methods = httpPost.mock.calls.map((c) => c[1].method);
+        expect(methods).toContain('СБИС.ПодготовитьДействие');
+        expect(methods).toContain('СБИС.ВыполнитьДействие');
+        const executeBody = httpPost.mock.calls.find((c) => c[1].method === 'СБИС.ВыполнитьДействие')?.[1];
+        expect(executeBody.params.Документ.Этап.Вложение).toEqual([
+            {
+                Идентификатор: 'att-1',
+                Подпись: [{ Файл: { ДвоичныеДанные: 'c2ln', Имя: 'ON_CHETOP_1.xml.sgn' } }],
+            },
+        ]);
+    });
+
+    it('sendDocumentToEdo omits Этап.Вложение when prepare returns no signatures', async () => {
+        delete process.env.SBIS_EDO_USE_PREPARE;
+        process.env.SBIS_EDO_CERT_THUMBPRINT = 'ABC';
+        httpPost
+            .mockReturnValueOnce(of({ data: { result: 'session-1' } }))
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: {
+                                Идентификатор: 'doc-unsigned',
+                                Редакция: { Идентификатор: 'rev-1' },
+                                Вложение: [
+                                    {
+                                        Тип: 'ЭДОСч',
+                                        Идентификатор: 'att-1',
+                                        Файл: { Имя: 'ON_CHETOP_1.xml', Хеш: 'abc=' },
+                                    },
+                                ],
+                                Этап: [
+                                    {
+                                        Идентификатор: 'stage-1',
+                                        Название: 'Отправка',
+                                        Действие: [{ Название: 'Отправить' }],
+                                        Вложение: [{ Идентификатор: 'att-1' }],
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                }),
+            )
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: {
+                                Идентификатор: 'doc-unsigned',
+                                Редакция: { Идентификатор: 'rev-1' },
+                                Этап: [
+                                    {
+                                        Идентификатор: 'stage-1',
+                                        Название: 'Отправка',
+                                        Действие: [{ Название: 'Отправить' }],
+                                        Вложение: [{ Идентификатор: 'att-1' }],
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                }),
+            )
+            .mockReturnValueOnce(
+                of({
+                    data: {
+                        result: {
+                            Документ: {
+                                Состояние: { Код: '7', Название: 'Отправлен' },
+                            },
+                        },
+                    },
+                }),
+            );
+
+        await service.sendDocumentToEdo('doc-unsigned', 'rev-1');
+        const executeBody = httpPost.mock.calls.find((c) => c[1].method === 'СБИС.ВыполнитьДействие')?.[1];
+        expect(executeBody.params.Документ.Этап.Вложение).toBeUndefined();
     });
 
     it('sendEdoInvitation treats Saby already-registered as state 7', async () => {

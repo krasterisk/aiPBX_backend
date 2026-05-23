@@ -42,6 +42,10 @@ export type CounterpartyLookupApiResult =
     | { status: 'choose'; inn: string; candidates: CounterpartyLookupResult[] }
     | { status: 'requires_kpp'; inn: string };
 
+import type { InvoiceChetopParty } from './sbis-invoice-party';
+
+export type { InvoiceChetopParty };
+
 export interface SbisInvoiceDraftInput {
     counterpartyInn: string;
     counterpartyName: string;
@@ -54,6 +58,10 @@ export interface SbisInvoiceDraftInput {
     amountRub: number;
     subject: string;
     paymentPurpose: string;
+    /** Parties for ON_CHETOP 5.01 (ЭДОСч attachment). */
+    seller?: InvoiceChetopParty;
+    buyer?: InvoiceChetopParty;
+    personalAccountNumber?: string | null;
 }
 
 export interface SbisInvoiceDraftResult {
@@ -62,6 +70,31 @@ export interface SbisInvoiceDraftResult {
     sbisNumber: string | null;
     sbisUrl: string | null;
 }
+
+export interface SbisUpdDraftInput {
+    counterpartyInn: string;
+    counterpartyName: string;
+    counterpartyKpp?: string | null;
+    legalForm?: OrganizationLegalForm;
+    ourOrganizationInn?: string | null;
+    ourOrganizationKpp?: string | null;
+    /** Omit — SBIS assigns Номер on shell; used in ON_NSCHFDOPPR after response. */
+    number?: string | null;
+    documentDate: string;
+    periodFrom: string;
+    periodTo: string;
+    amountRub: number;
+    /** Fixed nomenclature line (УПД). */
+    subject: string;
+    /** SBIS Примечание: personal account + period. */
+    note: string;
+    personalAccountNumber?: string | null;
+    /** Parties for ON_NSCHFDOPPR 5.03 (formalized attachment). */
+    seller?: InvoiceChetopParty;
+    buyer?: InvoiceChetopParty;
+}
+
+export type SbisUpdDraftResult = SbisInvoiceDraftResult;
 
 export interface SbisEdoSendResult {
     documentId: string;

@@ -14,6 +14,11 @@ export function resolveInvoiceSubject(input: SubjectResolveInput): string {
     return HARDCODED_SUBJECT_FALLBACK;
 }
 
+/** Base nomenclature for ON_CHETOP (without «л/с …» suffix). */
+export function stripLineItemPersonalAccountFromSubject(lineItem: string): string {
+    return lineItem.replace(/\s*\(л\/с\s+[^)]+\)\s*$/iu, '').trim();
+}
+
 /** Line item on invoice PDF / SBIS: base nomenclature + personal account for identification. */
 export function formatInvoiceLineItemSubject(subject: string, personalAccountNumber?: string | null): string {
     const base = subject.trim();

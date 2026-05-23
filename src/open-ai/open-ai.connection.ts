@@ -73,13 +73,11 @@ export class OpenAiConnection {
 
         const authPrefix = this.assistant.model?.startsWith('yandex') ? 'Api-Key' : 'Bearer';
 
-        this.ws = new WebSocket(api_url, {
-            headers: {
-                Authorization: `${authPrefix} ${apiKey}`,
-                "OpenAI-Beta": "realtime=v1"
+        const headers: Record<string, string> = {
+            Authorization: `${authPrefix} ${apiKey}`,
+        };
 
-            }
-        });
+        this.ws = new WebSocket(api_url, { headers });
         this.logger.log(`Assistant ${this.assistant.name}_${this.assistant.uniqueId} Started (${this.channelId})`);
 
         this.ws.on('open', () => {

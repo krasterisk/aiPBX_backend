@@ -32,6 +32,22 @@ export class OurOrganizationsService {
         };
     }
 
+    /**
+     * Issuer for tenant billing documents: owner user's ourOrganizationId, else primary org.
+     */
+    async resolveIssuerForTenant(
+        ourOrganizationId: number | null | undefined,
+    ): Promise<OurOrganization> {
+        const org = await this.resolveForUser(ourOrganizationId);
+        if (!org) {
+            throw new HttpException(
+                'Issuer organization is not configured (set tenant ourOrganizationId or primary our_organizations)',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+        return org;
+    }
+
     private assertRuRequisites(dto: CreateOurOrganizationDto) {
         const lf = dto.legalForm || 'ul';
         const tin = String(dto.tin).replace(/\D/g, '');

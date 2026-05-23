@@ -89,6 +89,52 @@ function normaliseParams(raw: any): any {
     return params;
 }
 
+/** Map assistant audio format to GA Realtime API `audio.*.format` object. */
+function mapGaAudioFormat(format: string): { type: string; rate?: number } {
+    switch (format) {
+        case 'g711_ulaw':
+            return { type: 'audio/pcmu' };
+        case 'g711_alaw':
+            return { type: 'audio/pcma' };
+        case 'pcm16':
+        default:
+            return { type: 'audio/pcm', rate: 24000 };
+    }
+}
+
+/** GA Realtime allows only `['audio']` or `['text']`, not both. */
+const GA_VOICE_OUTPUT_MODALITIES = ['audio'] as const;
+
+function normalizeGaMaxOutputTokens(value: unknown): number | 'inf' | undefined {
+    if (value === undefined || value === null || value === '') {
+        return undefined;
+    }
+    if (value === 'inf' || value === Infinity) {
+        return 'inf';
+    }
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
+}
+
+function buildGaTurnDetection(assistant: any): Record<string, unknown> {
+    const turnDetection: Record<string, unknown> = {
+        type: assistant.turn_detection_type || 'server_vad',
+        threshold: Number(assistant.turn_detection_threshold),
+        prefix_padding_ms: Number(assistant.turn_detection_prefix_padding_ms),
+        silence_duration_ms: Number(assistant.turn_detection_silence_duration_ms),
+        create_response: true,
+        interrupt_response: assistant.interrupt_response !== false,
+    };
+
+    if (assistant.turn_detection_type === 'semantic_vad') {
+        delete turnDetection.threshold;
+        delete turnDetection.prefix_padding_ms;
+        delete turnDetection.silence_duration_ms;
+    }
+
+    return turnDetection;
+}
+
 /**
  * Execute a function call item through the tool gateway, send the result back,
  * and request a new response from the model.
@@ -140,36 +186,39 @@ export class OpenAiAdapter implements RealtimeModelAdapter {
     }
 
     buildSessionUpdate(assistant: any, tools: any[], instructions: string): object {
+        const inputAudio: Record<string, unknown> = {
+            format: mapGaAudioFormat(assistant.input_audio_format),
+            turn_detection: buildGaTurnDetection(assistant),
+            transcription: {
+                model: assistant.input_audio_transcription_model || 'whisper-1',
+                ...(assistant.input_audio_transcription_language && {
+                    language: assistant.input_audio_transcription_language,
+                }),
+            },
+        };
+
+        if (assistant.input_audio_noise_reduction) {
+            inputAudio.noise_reduction = {
+                type: assistant.input_audio_noise_reduction,
+            };
+        }
+
+        const maxOutputTokens = normalizeGaMaxOutputTokens(assistant.max_response_output_tokens);
+
         return {
             type: 'session.update',
             session: {
-                modalities: ['text', 'audio'],
+                type: 'realtime',
                 instructions,
-                voice: assistant.voice,
-                input_audio_format: assistant.input_audio_format,
-                output_audio_format: assistant.output_audio_format,
-                input_audio_transcription: {
-                    model: assistant.input_audio_transcription_model || 'whisper-1',
-                    ...(assistant.input_audio_transcription_language && {
-                        language: assistant.input_audio_transcription_language,
-                    }),
+                output_modalities: [...GA_VOICE_OUTPUT_MODALITIES],
+                audio: {
+                    input: inputAudio,
+                    output: {
+                        format: mapGaAudioFormat(assistant.output_audio_format),
+                        voice: assistant.voice,
+                    },
                 },
-                turn_detection: {
-                    type: assistant.turn_detection_type,
-                    threshold: Number(assistant.turn_detection_threshold),
-                    prefix_padding_ms: Number(assistant.turn_detection_prefix_padding_ms),
-                    silence_duration_ms: Number(assistant.turn_detection_silence_duration_ms),
-                    create_response: true,
-                    interrupt_response: assistant.interrupt_response !== false,
-                    idle_timeout_ms: Number(assistant.idle_timeout_ms) || 10000,
-                },
-                ...(assistant.input_audio_noise_reduction ? {
-                    input_audio_noise_reduction: {
-                        type: assistant.input_audio_noise_reduction
-                    }
-                } : {}),
-                temperature: Number(assistant.temperature),
-                max_response_output_tokens: assistant.max_response_output_tokens,
+                ...(maxOutputTokens !== undefined ? { max_output_tokens: maxOutputTokens } : {}),
                 tools,
                 tool_choice: assistant.tool_choice || 'auto',
             },
@@ -180,7 +229,7 @@ export class OpenAiAdapter implements RealtimeModelAdapter {
         return {
             type: 'response.create',
             response: {
-                modalities: ['text', 'audio'],
+                output_modalities: [...GA_VOICE_OUTPUT_MODALITIES],
             },
         };
     }

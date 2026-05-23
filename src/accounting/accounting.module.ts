@@ -16,6 +16,7 @@ import { AlfawebhookClient } from './alfawebhook-client.service';
 import { SbisService } from './sbis.service';
 import { OrganizationDocumentsService } from './organization-documents.service';
 import { ClosingTask } from './closing.task';
+import { ClosingService } from './closing.service';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { EgrulCache } from './egrul-cache.model';
 import { SbisController } from './sbis.controller';
@@ -51,9 +52,11 @@ import { User } from '../users/users.model';
         InvoiceService,
         OrganizationDocumentsService,
         ClosingTask,
+        ClosingService,
     ],
     exports: [
         InvoiceService,
+        ClosingService,
         OrganizationDocumentsService,
         SbisService,
         DocumentCounterService,

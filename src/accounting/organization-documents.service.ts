@@ -129,9 +129,7 @@ export class OrganizationDocumentsService {
 
 
         if (doc.sbisId && this.sbis.isConfigured()) {
-
             try {
-
                 const pdf = await this.sbis.fetchDocumentPdfBytes(doc.sbisId);
 
                 res.setHeader('Content-Type', 'application/pdf');

@@ -13,6 +13,7 @@ async function start() {
 
     const httpServer = app.getHttpAdapter().getInstance();
     httpServer.use('/api/payments/alfa-callback', express.urlencoded({ extended: false }));
+    httpServer.use('/api/payments/robokassa/result', express.urlencoded({ extended: false }));
 
     const config = new DocumentBuilder()
         .setTitle('AI PBX')

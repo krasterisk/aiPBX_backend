@@ -75,8 +75,13 @@ export class PaymentsController {
     }
 
     @ApiOperation({ summary: "Robokassa Result URL callback (server-to-server)" })
+    @SkipThrottle()
     @Post('robokassa/result')
-    async robokassaResult(@Body() body: any) {
+    async robokassaResult(@Req() req: Request) {
+        const body = (req.body || {}) as Record<string, string | undefined>;
+        if (!body.OutSum || !body.InvId || !body.SignatureValue) {
+            throw new HttpException('Missing Robokassa callback parameters', HttpStatus.BAD_REQUEST);
+        }
         const result = await this.paymentsService.handleRobokassaResult(
             body.OutSum,
             Number(body.InvId),

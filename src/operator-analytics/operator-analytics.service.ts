@@ -32,6 +32,7 @@ export class OperatorAnalyticsService {
     private readonly ollamaClient: OpenAI | null = null;
     private readonly analyticsModel: string;
     private readonly fallbackModel: string;
+    private readonly minAnalysisDurationSec: number;
     private readonly sttProviders: Map<string, ITranscriptionProvider> = new Map();
 
     // ─── Batch Processing Tracker ─────────────────────────────────────
@@ -69,6 +70,13 @@ export class OperatorAnalyticsService {
 
         this.analyticsModel = process.env.ANALYTICS_LLM_MODEL || 'gpt-4o-mini';
         this.fallbackModel = process.env.ANALYTICS_FALLBACK_MODEL || process.env.DEFAULT_OLLAMA_MODEL || 'gemma4:e4b';
+        const configuredMinDuration = Number(
+            this.configService.get<string>('OPERATOR_ANALYSIS_MIN_DURATION_SEC')
+            || process.env.OPERATOR_ANALYSIS_MIN_DURATION_SEC,
+        );
+        this.minAnalysisDurationSec = Number.isFinite(configuredMinDuration) && configuredMinDuration > 0
+            ? configuredMinDuration
+            : 10;
 
         // Register STT providers
         const openaiSttEnabled = (this.configService.get<string>('OPENAI_STT_ENABLED') || process.env.OPENAI_STT_ENABLED || 'false').toLowerCase() === 'true';
@@ -250,6 +258,13 @@ export class OperatorAnalyticsService {
                 options.provider,
             );
 
+            if (await this.rejectIfRecordingTooShort(record, sttResult)) {
+                throw new HttpException(
+                    { message: this.getTooShortMessage(sttResult.duration) },
+                    HttpStatus.BAD_REQUEST,
+                );
+            }
+
             await record.update({
                 transcription: sttResult.text,
                 duration: sttResult.duration,
@@ -333,11 +348,22 @@ export class OperatorAnalyticsService {
 
             return record.reload();
         } catch (e) {
-            this.logger.error(`Analysis failed for "${filename}" (id=${record.id}): ${e.message}`);
-            await record.update({
-                status: AnalyticsStatus.ERROR,
-                errorMessage: e.message,
-            });
+            const tooShortResponse = e instanceof HttpException
+                && e.getStatus() === HttpStatus.BAD_REQUEST
+                && String((e.getResponse() as { message?: string })?.message || '').includes('too short');
+
+            const errorMessage = tooShortResponse
+                ? String((e.getResponse() as { message?: string }).message)
+                : e.message;
+
+            this.logger.error(`Analysis failed for "${filename}" (id=${record.id}): ${errorMessage}`);
+
+            if (!tooShortResponse) {
+                await record.update({
+                    status: AnalyticsStatus.ERROR,
+                    errorMessage,
+                });
+            }
             throw e;
         }
     }
@@ -558,7 +584,18 @@ export class OperatorAnalyticsService {
                 provider,
             );
 
-            await record.update({ transcription: sttResult.text, duration: sttResult.duration, sttProvider: sttResult.provider });
+            if (await this.rejectIfRecordingTooShort(record, sttResult)) {
+                this.logger.warn(
+                    `Background analysis skipped for record #${recordId}: recording too short (${sttResult.duration}s)`,
+                );
+                return;
+            }
+
+            await record.update({
+                transcription: sttResult.text,
+                duration: sttResult.duration,
+                sttProvider: sttResult.provider,
+            });
 
             const { metrics, customMetricsResult, usage, diarizedText } = await this.analyzeTranscription(
                 sttResult.text,
@@ -649,6 +686,172 @@ export class OperatorAnalyticsService {
                 }
             }
         }
+    }
+
+    async regenerateAnalysis(channelId: string, userId: string, isAdmin: boolean): Promise<AiCdr> {
+        const recordId = Number(channelId);
+        if (!Number.isFinite(recordId)) {
+            throw new HttpException('Invalid channelId', HttpStatus.BAD_REQUEST);
+        }
+
+        const record = await this.analyticsRepository.findByPk(recordId);
+        if (!record) {
+            throw new HttpException('Operator analysis record not found', HttpStatus.NOT_FOUND);
+        }
+
+        if (!isAdmin && String(record.userId) !== String(userId)) {
+            throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+        }
+
+        const aiCdr = await this.aiCdrRepository.findOne({
+            where: { channelId: String(recordId) },
+            include: [
+                { model: AiAnalytics, as: 'analytics' },
+                { model: BillingRecord, as: 'billingRecords' },
+            ],
+        });
+        if (!aiCdr) {
+            throw new HttpException('Call record not found', HttpStatus.NOT_FOUND);
+        }
+
+        const recordUrl = record.recordUrl || aiCdr.recordUrl;
+        if (!recordUrl) {
+            throw new HttpException('Recording URL is missing', HttpStatus.BAD_REQUEST);
+        }
+
+        await this.checkBalance(record.userId);
+        await record.update({ status: AnalyticsStatus.PROCESSING, errorMessage: null });
+
+        const url = this.sanitizeUrl(recordUrl);
+        this.logger.log(`Regenerating analysis for record #${recordId}: downloading ${url}`);
+
+        const response = await axios.get(url, {
+            responseType: 'arraybuffer',
+            timeout: 120_000,
+            maxContentLength: 50 * 1024 * 1024,
+            maxRedirects: 5,
+        });
+        const buffer = Buffer.from(response.data);
+
+        let project: OperatorProject | null = null;
+        if (record.projectId) {
+            project = await this.projectRepository.findByPk(record.projectId);
+        }
+
+        const sttResult = await this.transcribeWithFallback(
+            buffer,
+            record.filename,
+            record.language || 'auto',
+            record.sttProvider || undefined,
+        );
+
+        if (await this.rejectIfRecordingTooShort(record, sttResult)) {
+            throw new HttpException(
+                { message: this.getTooShortMessage(sttResult.duration) },
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        await record.update({
+            transcription: sttResult.text,
+            duration: sttResult.duration,
+            sttProvider: sttResult.provider,
+        });
+
+        const { metrics, customMetricsResult, usage, diarizedText } = await this.analyzeTranscription(
+            sttResult.text,
+            undefined,
+            project,
+        );
+
+        if (diarizedText) {
+            await record.update({ transcription: diarizedText });
+        }
+
+        const totalTokens = usage?.total_tokens || 0;
+        const { totalCost, llmCost, sttCost } = await this.chargeCost(
+            record.userId,
+            totalTokens,
+            sttResult.duration,
+            sttResult.provider,
+        );
+
+        await record.update({ status: AnalyticsStatus.COMPLETED });
+
+        const mergedMetrics = customMetricsResult ? { ...metrics, metrics: customMetricsResult } : metrics;
+        const cdrCost = await this.cdrCostFields(totalCost);
+        const billingFx = await this.billingFx.fieldsForUsdAmount(totalCost);
+        const channelIdStr = String(recordId);
+
+        const prevCdrAmountCurrency = Number(aiCdr.amountCurrency) || 0;
+        await aiCdr.update({
+            duration: Math.round(sttResult.duration),
+            cost: parseFloat((Number(aiCdr.cost || 0) + totalCost).toFixed(6)),
+            tokens: (aiCdr.tokens || 0) + totalTokens,
+            amountCurrency: parseFloat(
+                (prevCdrAmountCurrency + Number(cdrCost.amountCurrency || 0)).toFixed(4),
+            ),
+            costCurrency: cdrCost.costCurrency || aiCdr.costCurrency,
+        });
+
+        const existingAnalytics = await this.aiAnalyticsRepository.findOne({
+            where: { channelId: channelIdStr },
+        });
+        if (existingAnalytics) {
+            await existingAnalytics.update({
+                metrics: mergedMetrics,
+                summary: metrics.summary || '',
+                sentiment: metrics.customer_sentiment || '',
+                csat: metrics.csat || null,
+                cost: parseFloat((Number(existingAnalytics.cost || 0) + totalCost).toFixed(6)),
+                tokens: (existingAnalytics.tokens || 0) + totalTokens,
+            });
+        } else {
+            await this.aiAnalyticsRepository.create({
+                channelId: channelIdStr,
+                metrics: mergedMetrics,
+                summary: metrics.summary || '',
+                sentiment: metrics.customer_sentiment || '',
+                csat: metrics.csat || null,
+                cost: totalCost,
+                tokens: totalTokens,
+            });
+        }
+
+        await this.billingRecordRepository.create({
+            channelId: channelIdStr,
+            type: 'analytic',
+            userId: record.userId,
+            description: 'File analysis (regenerated)',
+            totalTokens,
+            textTokens: totalTokens,
+            audioTokens: 0,
+            totalCost,
+            sttCost,
+            textCost: llmCost,
+            ...billingFx,
+        });
+
+        this.logger.log(
+            `Analysis regenerated for record #${recordId}, added cost=${totalCost} (llm=${llmCost}, stt=${sttCost})`,
+        );
+
+        if (project) {
+            this.callWebhook(project, 'analysis.completed', {
+                recordId,
+                filename: record.filename,
+                metrics,
+                customMetrics: customMetricsResult,
+                regenerated: true,
+            }).catch(err => this.logger.warn(`Webhook error: ${err.message}`));
+        }
+
+        return aiCdr.reload({
+            include: [
+                { model: AiAnalytics, as: 'analytics' },
+                { model: BillingRecord, as: 'billingRecords' },
+            ],
+        });
     }
 
     // ─── Read Endpoints ──────────────────────────────────────────────
@@ -1479,6 +1682,35 @@ Write insights in Russian. Be specific and actionable.`;
     }
 
     // ─── Private Helpers ─────────────────────────────────────────────
+
+    private isRecordingTooShort(durationSeconds: number): boolean {
+        return durationSeconds < this.minAnalysisDurationSec;
+    }
+
+    private getTooShortMessage(durationSeconds: number): string {
+        const roundedDuration = Math.round(durationSeconds * 10) / 10;
+        return `Recording is too short for analysis (minimum ${this.minAnalysisDurationSec} seconds, got ${roundedDuration}s)`;
+    }
+
+    private async rejectIfRecordingTooShort(
+        record: OperatorAnalytics,
+        sttResult: TranscriptionResult & { provider: string },
+    ): Promise<boolean> {
+        if (!this.isRecordingTooShort(sttResult.duration)) {
+            return false;
+        }
+
+        const errorMessage = this.getTooShortMessage(sttResult.duration);
+        await record.update({
+            transcription: sttResult.text,
+            duration: sttResult.duration,
+            sttProvider: sttResult.provider,
+            status: AnalyticsStatus.ERROR,
+            errorMessage,
+        });
+        this.logger.warn(`Analysis skipped for record #${record.id}: ${errorMessage}`);
+        return true;
+    }
 
     private async checkBalance(userId: string): Promise<void> {
         const user = await this.userRepository.findByPk(userId, { attributes: ['balance'] });

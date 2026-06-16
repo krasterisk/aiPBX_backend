@@ -53,8 +53,12 @@ describe('BillingService', () => {
         mockBillingRecordRepository = {
             findOrCreate: jest.fn().mockResolvedValue([mockRecord, true]),
             findOne: jest.fn(),
+            findAll: jest.fn().mockResolvedValue([]),
         };
-        mockUsersService = { decrementUserBalance: jest.fn().mockResolvedValue(true) };
+        mockUsersService = {
+            decrementUserBalance: jest.fn().mockResolvedValue(true),
+            updateUserBalance: jest.fn().mockResolvedValue(true),
+        };
         mockLoggerService = { logAction: jest.fn().mockResolvedValue(undefined) };
         mockBillingFxService = {
             captureSnapshot: jest.fn().mockImplementation((amountUsd: number) => Promise.resolve({
@@ -321,6 +325,51 @@ describe('BillingService', () => {
             const cost = await service.chargeAnalytics('test-channel-123', 1000);
             expect(cost).toBe(0);
             expect(mockUsersService.decrementUserBalance).not.toHaveBeenCalled();
+        });
+    });
+
+    // ─── refundBillingForChannel ─────────────────────────────────────────
+
+    describe('refundBillingForChannel', () => {
+        it('should credit balance for summed billing records', async () => {
+            mockBillingRecordRepository.findAll.mockResolvedValue([
+                { userId: '1', totalCost: 0.05 },
+                { userId: '1', totalCost: 0.03 },
+            ]);
+
+            const result = await service.refundBillingForChannel('channel-1', '1', {
+                externalId: 'refund_report_10',
+            });
+
+            expect(result).toEqual({ refundedUsd: 0.08, recordsCount: 2 });
+            expect(mockUsersService.updateUserBalance).toHaveBeenCalledWith('1', 0.08, {
+                source: 'refund',
+                externalId: 'refund_report_10',
+                transaction: undefined,
+                meta: { channelId: 'channel-1', recordsCount: 2 },
+            });
+        });
+
+        it('should use fallbackUsd when billing records are missing', async () => {
+            mockBillingRecordRepository.findAll.mockResolvedValue([]);
+
+            const result = await service.refundBillingForChannel('channel-1', '1', {
+                fallbackUsd: 0.12,
+            });
+
+            expect(result).toEqual({ refundedUsd: 0.12, recordsCount: 0 });
+            expect(mockUsersService.updateUserBalance).toHaveBeenCalledWith('1', 0.12, expect.any(Object));
+        });
+
+        it('should not credit when amount is zero', async () => {
+            mockBillingRecordRepository.findAll.mockResolvedValue([
+                { userId: '1', totalCost: 0 },
+            ]);
+
+            const result = await service.refundBillingForChannel('channel-1', '1');
+
+            expect(result).toEqual({ refundedUsd: 0, recordsCount: 1 });
+            expect(mockUsersService.updateUserBalance).not.toHaveBeenCalled();
         });
     });
 });

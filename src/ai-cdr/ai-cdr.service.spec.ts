@@ -7,6 +7,9 @@ import { AiEvents } from './ai-events.model';
 import { Assistant } from '../assistants/assistants.model';
 import { BillingService } from '../billing/billing.service';
 import { AiAnalyticsService } from '../ai-analytics/ai-analytics.service';
+import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
+import { BillingRecord } from '../billing/billing-record.model';
+import { OperatorAnalytics } from '../operator-analytics/operator-analytics.model';
 
 describe('AiCdrService', () => {
     let service: AiCdrService;
@@ -71,21 +74,26 @@ describe('AiCdrService', () => {
             recordUrl: null,
             createdAt: '2026-02-13T10:00:00.000Z',
             update: jest.fn().mockResolvedValue(undefined),
+            destroy: jest.fn().mockResolvedValue(undefined),
         };
 
         mockAiCdrRepository = {
             create: jest.fn(),
             findOne: jest.fn(),
+            findByPk: jest.fn(),
             findAndCountAll: jest.fn(),
             sum: jest.fn(),
             sequelize: {
                 query: jest.fn(),
+                getDialect: jest.fn().mockReturnValue('postgres'),
+                transaction: jest.fn(async (cb: (t: unknown) => Promise<void>) => cb({})),
             },
         };
 
         mockAiEventsRepository = {
             create: jest.fn(),
             findAll: jest.fn(),
+            destroy: jest.fn(),
         };
 
         mockAssistantRepository = {
@@ -95,6 +103,7 @@ describe('AiCdrService', () => {
 
         mockBillingService = {
             finalizeCallBilling: jest.fn().mockResolvedValue({ totalCost: 0.05 }),
+            refundBillingForChannel: jest.fn().mockResolvedValue({ refundedUsd: 0.08, recordsCount: 2 }),
         };
 
         mockAiAnalyticsService = {
@@ -106,6 +115,9 @@ describe('AiCdrService', () => {
                 AiCdrService,
                 { provide: getModelToken(AiCdr), useValue: mockAiCdrRepository },
                 { provide: getModelToken(AiEvents), useValue: mockAiEventsRepository },
+                { provide: getModelToken(AiAnalytics), useValue: { destroy: jest.fn() } },
+                { provide: getModelToken(BillingRecord), useValue: { destroy: jest.fn() } },
+                { provide: getModelToken(OperatorAnalytics), useValue: { destroy: jest.fn() } },
                 { provide: getModelToken(Assistant), useValue: mockAssistantRepository },
                 { provide: BillingService, useValue: mockBillingService },
                 { provide: AiAnalyticsService, useValue: mockAiAnalyticsService },
@@ -727,6 +739,37 @@ describe('AiCdrService', () => {
             expect(result.allTokensCount).toBe(0);
             expect(result.allDurationCount).toBe(0);
             expect(result.allCost).toBe(0);
+        });
+    });
+
+    // ─── deleteReport ───────────────────────────────────────────────────
+
+    describe('deleteReport', () => {
+        it('should refund billing and delete related records for admin', async () => {
+            mockAiCdrRepository.findByPk.mockResolvedValue({
+                ...mockCdrRecord,
+                id: 2416,
+                channelId: '55',
+                userId: '1',
+                cost: 0.12,
+                source: 'external-api',
+                destroy: jest.fn().mockResolvedValue(undefined),
+            });
+
+            const result = await service.deleteReport('2416', true);
+
+            expect(mockBillingService.refundBillingForChannel).toHaveBeenCalledWith('55', '1', {
+                externalId: 'refund_report_2416',
+                transaction: expect.anything(),
+                fallbackUsd: 0.12,
+            });
+            expect(result).toEqual({ success: true, id: '2416', refundedUsd: 0.08 });
+        });
+
+        it('should reject non-admin delete', async () => {
+            await expect(service.deleteReport('2416', false))
+                .rejects
+                .toThrow(new HttpException('Forbidden', HttpStatus.FORBIDDEN));
         });
     });
 });

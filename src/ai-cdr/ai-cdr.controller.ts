@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, HttpException, HttpStatus, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse } from "@nestjs/swagger";
 import { Roles } from "../auth/roles-auth.decorator";
 import { RolesGuard } from "../auth/roles.guard";
@@ -73,6 +73,19 @@ export class AiCdrController {
         } catch (e) {
             console.log(e)
         }
+    }
+
+    @ApiOperation({ summary: 'Delete call report (admin only)' })
+    @ApiResponse({ status: 200, description: 'Report deleted' })
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
+    @Delete(':id')
+    deleteReport(
+        @Param('id') id: string,
+        @Req() request: RequestWithUser,
+    ) {
+        const isAdmin = request.isAdmin ?? false;
+        return this.aiCdrService.deleteReport(id, isAdmin);
     }
 
 }

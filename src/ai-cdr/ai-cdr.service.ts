@@ -41,6 +41,8 @@ export class AiCdrService {
     constructor(
         @InjectModel(AiCdr) private aiCdrRepository: typeof AiCdr,
         @InjectModel(AiEvents) private aiEventsRepository: typeof AiEvents,
+        @InjectModel(AiAnalytics) private aiAnalyticsRepository: typeof AiAnalytics,
+        @InjectModel(BillingRecord) private billingRecordRepository: typeof BillingRecord,
         @InjectModel(Assistant) private readonly assistantRepository: typeof Assistant,
         @InjectModel(OperatorAnalytics) private readonly operatorAnalyticsRepository: typeof OperatorAnalytics,
         private readonly billingService: BillingService,
@@ -504,6 +506,47 @@ export class AiCdrService {
                 HttpStatus.BAD_REQUEST
             );
         }
+    }
+
+    async deleteReport(id: string, isAdmin: boolean): Promise<{ success: boolean; id: string; refundedUsd: number }> {
+        if (!isAdmin) {
+            throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+        }
+
+        const cdr = await this.aiCdrRepository.findByPk(id);
+        if (!cdr) {
+            throw new HttpException('Report not found', HttpStatus.NOT_FOUND);
+        }
+
+        const channelId = cdr.channelId;
+        const isOperatorSource = cdr.source === 'external-api' || cdr.source === 'external-front';
+        const operatorAnalyticsId = Number(channelId);
+        let refundedUsd = 0;
+
+        await this.aiCdrRepository.sequelize.transaction(async (transaction) => {
+            const refund = await this.billingService.refundBillingForChannel(channelId, cdr.userId, {
+                externalId: `refund_report_${id}`,
+                transaction,
+                fallbackUsd: Number(cdr.cost) || 0,
+            });
+            refundedUsd = refund.refundedUsd;
+
+            await this.billingRecordRepository.destroy({ where: { channelId }, transaction });
+            await this.aiAnalyticsRepository.destroy({ where: { channelId }, transaction });
+            await this.aiEventsRepository.destroy({ where: { channelId }, transaction });
+
+            if (isOperatorSource && Number.isFinite(operatorAnalyticsId)) {
+                await this.operatorAnalyticsRepository.destroy({
+                    where: { id: operatorAnalyticsId },
+                    transaction,
+                });
+            }
+
+            await cdr.destroy({ transaction });
+        });
+
+        this.logger.log(`Deleted report id=${id}, channelId=${channelId}, refundedUsd=${refundedUsd}`);
+        return { success: true, id, refundedUsd };
     }
 
     async getDashboardData(query: GetDashboardDto, isAdmin: boolean) {

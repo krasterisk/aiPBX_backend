@@ -12,7 +12,7 @@ import { UsersService } from '../users/users.service';
 
 import { OpenAiUsage, BillingResult } from './interfaces/openai-usage.interface';
 
-import { Op } from 'sequelize';
+import { Op, Transaction } from 'sequelize';
 
 import { GetBillingDto } from './dto/get-billing.dto';
 
@@ -666,6 +666,55 @@ export class BillingService {
     }
 
 
+
+    /**
+     * Credit user balance for all billing charges tied to a channel (report delete / admin refund).
+     */
+    async refundBillingForChannel(
+        channelId: string,
+        userId: string | null | undefined,
+        opts?: {
+            externalId?: string;
+            transaction?: Transaction;
+            fallbackUsd?: number;
+        },
+    ): Promise<{ refundedUsd: number; recordsCount: number }> {
+        const records = await this.billingRecordRepository.findAll({
+            where: { channelId },
+            transaction: opts?.transaction,
+        });
+
+        let refundedUsd = records.reduce(
+            (sum, record) => sum + (Number(record.totalCost) || 0),
+            0,
+        );
+
+        if (refundedUsd <= 0 && (opts?.fallbackUsd ?? 0) > 0) {
+            refundedUsd = opts!.fallbackUsd!;
+        }
+
+        const resolvedUserId = userId || records.find((record) => record.userId)?.userId;
+
+        if (refundedUsd > 0 && resolvedUserId) {
+            await this.usersService.updateUserBalance(resolvedUserId, refundedUsd, {
+                source: 'refund',
+                externalId: opts?.externalId ?? `refund_${channelId}`,
+                transaction: opts?.transaction,
+                meta: { channelId, recordsCount: records.length },
+            });
+
+            this.logger.log(
+                `Refunded $${refundedUsd.toFixed(6)} for channelId=${channelId}, userId=${resolvedUserId}`,
+            );
+        } else if (refundedUsd > 0 && !resolvedUserId) {
+            this.logger.warn(
+                `Cannot refund $${refundedUsd.toFixed(6)} for channelId=${channelId}: userId missing`,
+            );
+            refundedUsd = 0;
+        }
+
+        return { refundedUsd, recordsCount: records.length };
+    }
 
     async backfillFxSnapshots(limit = 5000, userId?: string): Promise<{ updated: number; userId: string | null }> {
         const userIdTrimmed = userId?.trim() || null;

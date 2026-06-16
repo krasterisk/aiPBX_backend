@@ -147,6 +147,23 @@ export class OperatorAnalyticsController {
         return { batchId, total: files.length, items: responseItems };
     }
 
+    @Post('regenerate/:channelId')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Regenerate operator analytics for an existing call record' })
+    @ApiResponse({ status: 200, description: 'Updated call record with new analytics and billing entry' })
+    @ApiResponse({ status: 402, description: 'Insufficient balance' })
+    async regenerateAnalysis(
+        @Param('channelId') channelId: string,
+        @Req() req: RequestWithUser,
+    ) {
+        const userId = req.vpbxUserId || req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        const isAdmin = req.isAdmin ?? false;
+        return this.service.regenerateAnalysis(channelId, userId, isAdmin);
+    }
+
     // ─── External API: Upload file (API Token Auth) ───────────────────
 
     @Post('analyze-file')

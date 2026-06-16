@@ -67,6 +67,7 @@ describe('OperatorAnalyticsService', () => {
         operatorName: 'Operator',
         clientPhone: '+7900000',
         language: 'auto',
+        recordUrl: 'https://example.com/audio.mp3',
         update: jest.fn().mockResolvedValue(undefined),
         reload: jest.fn().mockResolvedValue(undefined),
     };
@@ -222,6 +223,101 @@ describe('OperatorAnalyticsService', () => {
             await expect(
                 service.analyzeFile(Buffer.from('audio'), 'test.mp3', '1', AnalyticsSource.FRONTEND),
             ).rejects.toThrow('Whisper STT error');
+        });
+    });
+
+    // ═════════════════════════════════════════════════════════════════
+    // Minimum recording duration
+    // ═════════════════════════════════════════════════════════════════
+
+    describe('minimum recording duration', () => {
+        beforeEach(() => {
+            mockUserRepo.findByPk.mockResolvedValue({ balance: 100 });
+            mockProjectRepo.findByPk.mockResolvedValue(null);
+            mockWhisperService.transcribe.mockResolvedValue({ text: '', duration: 1 });
+        });
+
+        it('should reject analyzeFile when recording is shorter than 10 seconds', async () => {
+            await expect(
+                service.analyzeFile(Buffer.from('audio'), 'short.mp3', '1', AnalyticsSource.FRONTEND),
+            ).rejects.toMatchObject({
+                status: HttpStatus.BAD_REQUEST,
+            });
+
+            expect(mockRecord.update).toHaveBeenCalledWith(expect.objectContaining({
+                status: AnalyticsStatus.ERROR,
+                duration: 1,
+                errorMessage: expect.stringContaining('minimum 10 seconds'),
+            }));
+            expect(mockAiCdrRepo.create).not.toHaveBeenCalled();
+            expect(mockAiAnalyticsRepo.create).not.toHaveBeenCalled();
+            expect(mockBillingRecordRepo.create).not.toHaveBeenCalled();
+            expect(mockUsersService.decrementUserBalance).not.toHaveBeenCalled();
+        });
+
+        it('should skip background analysis when recording is shorter than 10 seconds', async () => {
+            await service.processInBackground(1, Buffer.from('audio'));
+
+            expect(mockRecord.update).toHaveBeenCalledWith(expect.objectContaining({
+                status: AnalyticsStatus.ERROR,
+                duration: 1,
+                errorMessage: expect.stringContaining('minimum 10 seconds'),
+            }));
+            expect(mockAiCdrRepo.create).not.toHaveBeenCalled();
+            expect(mockAiAnalyticsRepo.create).not.toHaveBeenCalled();
+            expect(mockBillingRecordRepo.create).not.toHaveBeenCalled();
+            expect(mockUsersService.decrementUserBalance).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('regenerateAnalysis', () => {
+        let axiosGetSpy: jest.SpyInstance;
+
+        beforeEach(() => {
+            mockUserRepo.findByPk.mockResolvedValue({ balance: 100 });
+            mockProjectRepo.findByPk.mockResolvedValue(null);
+            mockWhisperService.transcribe.mockResolvedValue({ text: '', duration: 1 });
+            mockAiCdrRepo.findOne.mockResolvedValue({
+                channelId: '1',
+                cost: 0.01,
+                tokens: 100,
+                amountCurrency: 0.01,
+                costCurrency: 'USD',
+                recordUrl: 'https://example.com/audio.mp3',
+                update: jest.fn().mockResolvedValue(undefined),
+                reload: jest.fn().mockResolvedValue({ channelId: '1' }),
+            });
+
+            const axios = require('axios');
+            axiosGetSpy = jest.spyOn(axios, 'get').mockResolvedValue({
+                data: Buffer.from('audio'),
+                headers: { 'content-length': '5' },
+            });
+        });
+
+        afterEach(() => {
+            axiosGetSpy?.mockRestore();
+        });
+
+        it('should reject regeneration when recording is shorter than 10 seconds', async () => {
+            await expect(
+                service.regenerateAnalysis('1', '1', false),
+            ).rejects.toMatchObject({
+                status: HttpStatus.BAD_REQUEST,
+            });
+
+            expect(mockBillingRecordRepo.create).not.toHaveBeenCalled();
+            expect(mockUsersService.decrementUserBalance).not.toHaveBeenCalled();
+        });
+
+        it('should throw 404 when operator record is missing', async () => {
+            mockAnalyticsRepo.findByPk.mockResolvedValue(null);
+
+            await expect(
+                service.regenerateAnalysis('1', '1', false),
+            ).rejects.toMatchObject({
+                status: HttpStatus.NOT_FOUND,
+            });
         });
     });
 

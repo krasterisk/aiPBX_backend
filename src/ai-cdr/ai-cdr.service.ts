@@ -16,6 +16,7 @@ import { AiAnalyticsService } from "../ai-analytics/ai-analytics.service";
 import { forwardRef } from "@nestjs/common";
 import { OperatorAnalytics } from "../operator-analytics/operator-analytics.model";
 import { isRubTenant } from '../shared/tenant/tenant-currency';
+import { buildCsatWhereCondition, parseCsatFilter } from './parse-csat-filter';
 
 interface AudioTranscriptionEvent {
     type: 'conversation.item.input_audio_transcription.completed';
@@ -401,52 +402,73 @@ export class AiCdrService {
                 whereClause.source = query.source;
             }
 
+            const { scores: csatScores, includeNone: includeNoCsat } = parseCsatFilter(query.csat);
+            const csatWhere = buildCsatWhereCondition(csatScores, includeNoCsat);
+            if (csatWhere) {
+                whereClause[sequelize.Op.and] = [...(whereClause[sequelize.Op.and] || []), csatWhere];
+            }
+
             if (query.projectId !== undefined && query.projectId !== '') {
                 whereClause.projectId = Number(query.projectId);
             }
 
             const sortField = query.sortField || 'createdAt';
-            const sortOrder = query.sortOrder || 'DESC';
+            const sortOrder = query.sortOrder === 'ASC' ? 'ASC' : 'DESC';
+            const directSortFields = new Set([
+                'createdAt',
+                'assistantName',
+                'callerId',
+                'source',
+                'duration',
+                'cost',
+            ]);
 
             // Build order clause based on field type
             let orderClause: any[];
             const isAssociatedSort = sortField === 'csat' || sortField === 'sentiment' || sortField === 'scenarioSuccess';
+            const isCsatFilter = Boolean(csatWhere);
             // subQuery: false needed when sorting/searching by JOINed fields
-            const needsFlatQuery = isAssociatedSort || (search && search.trim() !== '');
+            const needsFlatQuery = isAssociatedSort || isCsatFilter || (search && search.trim() !== '');
+            const nullsLast = this.dialect === 'postgres' ? ' NULLS LAST' : '';
 
             if (sortField === 'csat') {
-                // Sort by associated AiAnalytics.csat column
-                orderClause = [[{ model: AiAnalytics, as: 'analytics' }, 'csat', sortOrder]];
+                orderClause = this.dialect === 'postgres'
+                    ? [[sequelize.literal(`"analytics"."csat" ${sortOrder}${nullsLast}`)]]
+                    : [[{ model: AiAnalytics, as: 'analytics' }, 'csat', sortOrder]];
             } else if (sortField === 'sentiment') {
-                // Sort by associated AiAnalytics.sentiment column
-                orderClause = [[{ model: AiAnalytics, as: 'analytics' }, 'sentiment', sortOrder]];
+                orderClause = this.dialect === 'postgres'
+                    ? [[sequelize.literal(`"analytics"."sentiment" ${sortOrder}${nullsLast}`)]]
+                    : [[{ model: AiAnalytics, as: 'analytics' }, 'sentiment', sortOrder]];
             } else if (sortField === 'scenarioSuccess') {
-                // Sort by JSON field inside analytics.metrics (dialect-aware)
-                orderClause = [[sequelize.literal(`${this.sqlJsonExtract('analytics', 'metrics', '$.scenario_analysis.success')} ${sortOrder}`)]];
-            } else {
+                orderClause = [[sequelize.literal(
+                    `${this.sqlJsonExtract('analytics', 'metrics', '$.scenario_analysis.success')} ${sortOrder}${nullsLast}`,
+                )]];
+            } else if (directSortFields.has(sortField)) {
                 orderClause = [[sortField, sortOrder]];
+            } else {
+                orderClause = [['createdAt', sortOrder]];
             }
+            orderClause = [...orderClause, ['id', sortOrder]];
 
             const { count, rows } = await this.aiCdrRepository.findAndCountAll({
                 offset,
                 limit,
-                distinct: true,
-                // subQuery: false needed for PostgreSQL compatibility with distinct + includes
-                subQuery: false,
+                subQuery: needsFlatQuery ? false : undefined,
                 where: whereClause,
                 order: orderClause,
                 include: [
                     {
                         model: AiAnalytics,
                         as: 'analytics',
-                        required: false
+                        required: false,
                     },
                     {
                         model: BillingRecord,
                         as: 'billingRecords',
-                        required: false
-                    }
-                ]
+                        required: false,
+                        separate: true,
+                    },
+                ],
             });
 
             // Build a sum-specific where clause that strips $analytics.*$ conditions
@@ -459,6 +481,14 @@ export class AiCdrService {
                 sumWhereClause[sequelize.Op.or] = (sumWhereClause[sequelize.Op.or] as any[]).filter(
                     (cond: any) => !Object.keys(cond).some(k => String(k).startsWith('$analytics'))
                 );
+            }
+            if (sumWhereClause[sequelize.Op.and]) {
+                sumWhereClause[sequelize.Op.and] = (sumWhereClause[sequelize.Op.and] as any[]).filter(
+                    (cond: any) => !JSON.stringify(cond).includes('$analytics'),
+                );
+                if (!(sumWhereClause[sequelize.Op.and] as any[]).length) {
+                    delete sumWhereClause[sequelize.Op.and];
+                }
             }
 
             const totalCostRaw = await this.aiCdrRepository.sum('cost', {

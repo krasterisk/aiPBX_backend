@@ -24,4 +24,8 @@ export class GetAiCdrDto {
     @IsOptional()
     @IsIn(['ASC', 'DESC'], { message: 'sortOrder must be ASC or DESC' })
     sortOrder?: 'ASC' | 'DESC'
+
+    @IsOptional()
+    @IsString()
+    csat?: string
 }

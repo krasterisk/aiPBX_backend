@@ -149,7 +149,7 @@ export class OperatorAnalyticsController {
 
     @Post('regenerate/:channelId')
     @ApiBearerAuth()
-    @Roles('ADMIN', 'USER')
+    @Roles('ADMIN')
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Regenerate operator analytics for an existing call record' })
     @ApiResponse({ status: 200, description: 'Updated call record with new analytics and billing entry' })

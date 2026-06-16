@@ -604,6 +604,44 @@ describe('AiCdrService', () => {
             expect(callArgs.offset).toBe(10); // (3 - 1) * 5
             expect(callArgs.limit).toBe(5);
         });
+
+        it('should sort by csat without distinct (postgres-compatible order)', async () => {
+            const query = { ...baseQuery, sortField: 'csat', sortOrder: 'ASC' };
+            mockAiCdrRepository.findAndCountAll.mockResolvedValue({ count: 0, rows: [] });
+            mockAiCdrRepository.sum.mockResolvedValue(0);
+
+            await service.get(query as any, false, '1');
+
+            const callArgs = mockAiCdrRepository.findAndCountAll.mock.calls[0][0];
+            expect(callArgs.distinct).toBeUndefined();
+            expect(callArgs.subQuery).toBe(false);
+            expect(callArgs.order[0][0].val).toContain('"analytics"."csat" ASC NULLS LAST');
+            const billingInclude = callArgs.include.find((item: { as: string }) => item.as === 'billingRecords');
+            expect(billingInclude.separate).toBe(true);
+        });
+
+        it('should sort direct columns by aiCdr field', async () => {
+            const query = { ...baseQuery, sortField: 'cost', sortOrder: 'DESC' };
+            mockAiCdrRepository.findAndCountAll.mockResolvedValue({ count: 0, rows: [] });
+            mockAiCdrRepository.sum.mockResolvedValue(0);
+
+            await service.get(query as any, false, '1');
+
+            const callArgs = mockAiCdrRepository.findAndCountAll.mock.calls[0][0];
+            expect(callArgs.order).toEqual([['cost', 'DESC']]);
+            expect(callArgs.distinct).toBeUndefined();
+        });
+
+        it('should fall back to createdAt for unknown sortField', async () => {
+            const query = { ...baseQuery, sortField: 'invalid', sortOrder: 'ASC' };
+            mockAiCdrRepository.findAndCountAll.mockResolvedValue({ count: 0, rows: [] });
+            mockAiCdrRepository.sum.mockResolvedValue(0);
+
+            await service.get(query as any, false, '1');
+
+            const callArgs = mockAiCdrRepository.findAndCountAll.mock.calls[0][0];
+            expect(callArgs.order).toEqual([['createdAt', 'ASC']]);
+        });
     });
 
     // ─── getDashboardData ───────────────────────────────────────────────

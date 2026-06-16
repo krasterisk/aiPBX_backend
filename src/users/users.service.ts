@@ -100,9 +100,16 @@ export class UsersService {
             await user.$set("roles", validRoles.map(r => r.id));
 
             if (user.vpbx_user_id == null) {
-                await user.update({
-                    personalAccountNumber: formatPersonalAccountNumber(user.id),
-                });
+                try {
+                    await user.update({
+                        personalAccountNumber: formatPersonalAccountNumber(user.id),
+                    });
+                } catch (e) {
+                    this.logger.warn(
+                        `Failed to assign personal account for new user #${user.id}`,
+                        e,
+                    );
+                }
             }
 
             const price: CreatePriceDto = {
@@ -737,6 +744,9 @@ export class UsersService {
                 this.usersRepository,
                 Number(ownerIdForPa),
             );
+            if (!personalAccountNumber) {
+                return;
+            }
             if (typeof user.setDataValue === 'function') {
                 user.setDataValue('personalAccountNumber', personalAccountNumber);
             } else {

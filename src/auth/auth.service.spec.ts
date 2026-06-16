@@ -31,6 +31,7 @@ describe('AuthService', () => {
         telegramId: null,
         avatar: null,
         save: jest.fn().mockResolvedValue(undefined),
+        update: jest.fn().mockResolvedValue(undefined),
     };
 
     beforeEach(async () => {
@@ -55,6 +56,7 @@ describe('AuthService', () => {
 
         // Reset mock user state
         mockUser.save.mockClear();
+        mockUser.update.mockClear();
         mockUser.isActivated = false;
         mockUser.activationCode = null;
         mockUser.activationExpires = null;
@@ -158,11 +160,37 @@ describe('AuthService', () => {
                 .rejects.toThrow('Email is empty');
         });
 
-        it('should throw when user already exists', async () => {
-            mockUsersService.getCandidateByEmail.mockResolvedValue(mockUser);
+        it('should throw when activated user already exists', async () => {
+            mockUsersService.getCandidateByEmail.mockResolvedValue({
+                ...mockUser,
+                isActivated: true,
+            });
 
             await expect(service.signup({ email: 'test@example.com' }))
                 .rejects.toThrow('User already exists');
+        });
+
+        it('should resend activation code for unactivated user', async () => {
+            mockUsersService.getCandidateByEmail.mockResolvedValue({
+                ...mockUser,
+                isActivated: false,
+            });
+
+            const result = await service.signup({ email: 'test@example.com' });
+
+            expect(mockUsersService.create).not.toHaveBeenCalled();
+            expect(mockUser.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    activationCode: expect.stringMatching(/^\d{6}$/),
+                    activationExpires: expect.any(Number),
+                }),
+            );
+            expect(mockMailerService.sendActivationMail).toHaveBeenCalledWith(
+                'test@example.com',
+                expect.stringMatching(/^\d{6}$/),
+                'signup',
+            );
+            expect(result).toEqual({ success: true });
         });
 
         it('should create user with USER role', async () => {

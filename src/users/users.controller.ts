@@ -4,6 +4,7 @@ import {
     Delete,
     Get, HttpException, HttpStatus,
     Param,
+    ParseIntPipe,
     Patch,
     Post,
     Put,
@@ -278,7 +279,7 @@ export class UsersController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Get('/:id')
-    getOne(@Param('id') id: number,
+    getOne(@Param('id', ParseIntPipe) id: number,
         @Req() request: RequestWithUser) {
         const isAdmin = request.isAdmin
         const tokenId = request.tokenUserId

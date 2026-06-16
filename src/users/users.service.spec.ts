@@ -543,6 +543,56 @@ describe('UsersService', () => {
     });
 
     // ═══════════════════════════════════════════════════════════════════
+    // getUserById
+    // ═══════════════════════════════════════════════════════════════════
+
+    describe('getUserById', () => {
+        it('should throw 404 when user not found', async () => {
+            mockUsersRepo.findOne.mockResolvedValue(null);
+
+            await expect(service.getUserById('999', '1', true)).rejects.toThrow('User not found');
+        });
+
+        it('should return user for admin even when owner balance lookup fails', async () => {
+            const subUser = {
+                ...mockUser,
+                id: 115,
+                vpbx_user_id: 5,
+                setDataValue: jest.fn(),
+            };
+            mockUsersRepo.findOne.mockResolvedValue(subUser);
+            mockUsersRepo.findByPk.mockResolvedValue(null);
+
+            const result = await service.getUserById('115', '1', true);
+
+            expect(result.id).toBe(115);
+        });
+
+        it('should throw 403 for non-admin without access', async () => {
+            mockUsersRepo.findOne.mockResolvedValue({ ...mockUser, id: 99, vpbx_user_id: 5 });
+
+            await expect(service.getUserById('99', '1', false)).rejects.toThrow('Editing Forbidden');
+        });
+
+        it('should allow owner to load their sub-user', async () => {
+            const subUser = {
+                ...mockUser,
+                id: 115,
+                vpbx_user_id: 5,
+                setDataValue: jest.fn(),
+            };
+            mockUsersRepo.findOne.mockResolvedValue(subUser);
+            mockUsersRepo.findByPk
+                .mockResolvedValueOnce({ id: 5, vpbx_user_id: null })
+                .mockResolvedValueOnce({ balance: 50, currency: 'USD' });
+
+            const result = await service.getUserById('115', '5', false);
+
+            expect(result.id).toBe(115);
+        });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════
     // getMe
     // ═══════════════════════════════════════════════════════════════════
 

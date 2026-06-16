@@ -66,6 +66,8 @@ export class UsersService {
     }
 
     async create(dto: CreateUserDto) {
+        let createdUserId: number | null = null;
+
         try {
             // создаём пользователя
             const { currency: _dtoCurrency, ...createPayload } = dto as CreateUserDto & { currency?: string };
@@ -84,14 +86,14 @@ export class UsersService {
                 throw new HttpException({ message: "User not created" }, HttpStatus.BAD_REQUEST);
             }
 
+            createdUserId = user.id;
+
             // устанавливаем роли
             const roleValues = dto.roles.map(r => r.value);
             const roles = await Promise.all(roleValues.map(v => this.roleService.getRoleByValue(v)));
 
             const validRoles = roles.filter(r => r !== null);
             if (validRoles.length === 0) {
-                await this.usersRepository.destroy({ where: { id: user.id } });
-                this.logger.warn("Role not found");
                 throw new HttpException({ message: "Role not found" }, HttpStatus.NOT_FOUND);
             }
 
@@ -132,6 +134,21 @@ export class UsersService {
             return userWithRoles;
 
         } catch (e) {
+            if (createdUserId != null) {
+                try {
+                    await this.usersRepository.destroy({ where: { id: createdUserId } });
+                } catch (cleanupError) {
+                    this.logger.error(
+                        `Failed to cleanup user #${createdUserId} after creation error`,
+                        cleanupError,
+                    );
+                }
+            }
+
+            if (e instanceof HttpException) {
+                throw e;
+            }
+
             this.logger.error("User creation error", e);
             throw new HttpException({ message: "User creation error" }, HttpStatus.BAD_REQUEST);
         }
@@ -390,7 +407,6 @@ export class UsersService {
                     "resetPasswordLink",
                     "googleId",
                     "telegramId",
-                    "isActivated"
                 ]
             }
         });
@@ -688,71 +704,90 @@ export class UsersService {
         return user
     }
 
-    async getUserById(id: string | number, tokenId: string | number, isAdmin: boolean) {
+    private async attachOwnerBalanceForDisplay(user: User): Promise<void> {
+        if (!user.vpbx_user_id) {
+            return;
+        }
+
         try {
-            const user = await this.usersRepository.findOne({
-                where: { id },
-                include: { all: true },
-                attributes: {
-                    exclude: [
-                        "password",
-                        "activationCode",
-                        "resetPasswordLink",
-                        "googleId",
-                        "telegramId",
-                        "activationExpires",
-                        "isActivated"
-                    ]
-                }
-            });
-
-            if (!user) {
-                throw new HttpException("User not found", HttpStatus.NOT_FOUND);
+            const ownerBalance = await this.getUserBalance(String(user.vpbx_user_id));
+            if (typeof user.setDataValue === 'function') {
+                user.setDataValue('balance', ownerBalance.balance);
+                user.setDataValue('currency', ownerBalance.currency);
+            } else {
+                user.balance = ownerBalance.balance;
+                user.currency = ownerBalance.currency;
             }
-
-            if (user.vpbx_user_id) {
-                const ownerBalance = await this.getUserBalance(String(user.vpbx_user_id));
-                if (typeof user.setDataValue === 'function') {
-                    user.setDataValue('balance', ownerBalance.balance);
-                    user.setDataValue('currency', ownerBalance.currency);
-                } else {
-                    user.balance = ownerBalance.balance;
-                    user.currency = ownerBalance.currency;
-                }
-            }
-
-            const isCanEdit =
-                user.id === Number(tokenId) ||
-                user.vpbx_user_id === Number(tokenId)
-
-            if (!isAdmin && !isCanEdit) {
-                this.logger.warn('Edit Forbidden');
-                throw new HttpException(
-                    "Editing Forbidden", HttpStatus.FORBIDDEN
-                );
-            }
-
-            if (isInvoiceBillingEnabled()) {
-                const ownerIdForPa = user.vpbx_user_id ?? user.id;
-                const personalAccountNumber = await ensureOwnerPersonalAccount(
-                    this.usersRepository,
-                    Number(ownerIdForPa),
-                );
-                if (typeof user.setDataValue === 'function') {
-                    user.setDataValue('personalAccountNumber', personalAccountNumber);
-                } else {
-                    (user as User & { personalAccountNumber?: string }).personalAccountNumber =
-                        personalAccountNumber;
-                }
-            }
-
-            return user;
         } catch (e) {
-            this.logger.warn('User not found', e);
-            throw new HttpException(
-                "User not found", HttpStatus.NOT_FOUND
+            this.logger.warn(
+                `Failed to load owner balance for user #${user.id} (owner #${user.vpbx_user_id})`,
+                e,
             );
         }
+    }
+
+    private async attachPersonalAccountForDisplay(user: User): Promise<void> {
+        if (!isInvoiceBillingEnabled()) {
+            return;
+        }
+
+        try {
+            const ownerIdForPa = user.vpbx_user_id ?? user.id;
+            const personalAccountNumber = await ensureOwnerPersonalAccount(
+                this.usersRepository,
+                Number(ownerIdForPa),
+            );
+            if (typeof user.setDataValue === 'function') {
+                user.setDataValue('personalAccountNumber', personalAccountNumber);
+            } else {
+                (user as User & { personalAccountNumber?: string }).personalAccountNumber =
+                    personalAccountNumber;
+            }
+        } catch (e) {
+            this.logger.warn(`Failed to load personal account for user #${user.id}`, e);
+        }
+    }
+
+    async getUserById(id: string | number, tokenId: string | number, isAdmin: boolean) {
+        const userId = parseUserId(id);
+        const requesterId = parseUserId(tokenId, 'requester id');
+
+        const user = await this.usersRepository.findOne({
+            where: { id: userId },
+            include: { all: true },
+            attributes: {
+                exclude: [
+                    "password",
+                    "activationCode",
+                    "resetPasswordLink",
+                    "googleId",
+                    "telegramId",
+                    "activationExpires",
+                    "isActivated"
+                ]
+            }
+        });
+
+        if (!user) {
+            throw new HttpException("User not found", HttpStatus.NOT_FOUND);
+        }
+
+        await this.attachOwnerBalanceForDisplay(user);
+
+        const isCanEdit =
+            user.id === requesterId ||
+            user.vpbx_user_id === requesterId;
+
+        if (!isAdmin && !isCanEdit) {
+            this.logger.warn('Edit Forbidden');
+            throw new HttpException(
+                "Editing Forbidden", HttpStatus.FORBIDDEN
+            );
+        }
+
+        await this.attachPersonalAccountForDisplay(user);
+
+        return user;
     }
 
     async addRole(dto: AddRoleDto) {

@@ -101,13 +101,25 @@ export class AuthService {
 
         const candidate = await this.userService.getCandidateByEmail(userDto.email)
 
-        if (candidate) {
+        if (candidate?.isActivated) {
             this.logger.warn("Email already exists!", candidate.email)
             throw new HttpException('User already exists!', HttpStatus.BAD_REQUEST)
         }
 
         const activationCode = ("" + Math.floor(100000 + Math.random() * 900000)).substring(0, 6);
         const activationExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+        if (candidate) {
+            await candidate.update({
+                activationCode,
+                activationExpires,
+            })
+
+            await this.safeRecordAcceptance(candidate.id, userDto.legalAcceptance, 'signup', ctx)
+            await this.mailerService.sendActivationMail(userDto.email, activationCode, 'signup')
+
+            return { success: true }
+        }
 
         const roles: CreateRoleDto[] = [
             {

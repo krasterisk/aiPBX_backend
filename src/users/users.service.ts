@@ -26,6 +26,7 @@ import { ensureOwnerPersonalAccount, formatPersonalAccountNumber } from './perso
 import { BalanceThresholdAlertsService } from './balance-threshold-alerts.service';
 import { isBalanceDepleted } from './balance-notification.util';
 import { parseUserId } from './user-id.util';
+import { emailWhereClause, normalizeAuthEmail } from './email.util';
 import { isInvoiceBillingEnabled } from '../shared/tenant/invoice-billing-context';
 
 export interface BalanceCreditOptions {
@@ -77,6 +78,7 @@ export class UsersService {
             }
             const user = await this.usersRepository.create({
                 ...createPayload,
+                email: createPayload.email ? normalizeAuthEmail(createPayload.email) : createPayload.email,
                 currency: getTenantCurrency(),
                 ourOrganizationId,
             } as any);
@@ -177,13 +179,14 @@ export class UsersService {
             }
 
             // Проверяем, что email не занят
-            const existing = await this.usersRepository.findOne({ where: { email: dto.email } });
+            const normalizedEmail = normalizeAuthEmail(dto.email);
+            const existing = await this.usersRepository.findOne({ where: emailWhereClause(normalizedEmail) });
             if (existing) {
                 throw new HttpException('User with this email already exists', HttpStatus.BAD_REQUEST);
             }
 
             const user = await this.usersRepository.create({
-                email: dto.email,
+                email: normalizedEmail,
                 password: dto.password || null,
                 vpbx_user_id: parsedOwnerId,
                 balance: 0,
@@ -363,6 +366,7 @@ export class UsersService {
             }
             );
             if (users) {
+                await Promise.all(users.rows.map((user) => this.attachDisplayBalanceForUser(user)));
                 return users;
             }
         } catch (e) {
@@ -374,7 +378,12 @@ export class UsersService {
     async getUserByEmail(email: string) {
         try {
             const user = await this.usersRepository.findOne({
-                where: { email, isActivated: true },
+                where: {
+                    [sequelize.Op.and]: [
+                        emailWhereClause(email),
+                        { isActivated: true },
+                    ],
+                },
                 include: { all: true },
                 plain: true
             });
@@ -385,14 +394,7 @@ export class UsersService {
             }
 
             if (user.vpbx_user_id) {
-                const ownerBalance = await this.getUserBalance(String(user.vpbx_user_id));
-                if (typeof user.setDataValue === 'function') {
-                    user.setDataValue('balance', ownerBalance.balance);
-                    user.setDataValue('currency', ownerBalance.currency);
-                } else {
-                    user.balance = ownerBalance.balance;
-                    user.currency = ownerBalance.currency;
-                }
+                await this.attachDisplayBalanceForUser(user);
             }
 
             return user;
@@ -406,7 +408,7 @@ export class UsersService {
     async getCandidateByEmail(email: string) {
 
         const user = await this.usersRepository.findOne({
-            where: { email },
+            where: emailWhereClause(email),
             include: { all: true },
             attributes: {
                 exclude: [
@@ -697,37 +699,25 @@ export class UsersService {
             throw new HttpException('User not found', HttpStatus.NOT_FOUND);
         }
 
-        if (user.vpbx_user_id) {
-            const ownerBalance = await this.getUserBalance(String(user.vpbx_user_id));
-            if (typeof user.setDataValue === 'function') {
-                user.setDataValue('balance', ownerBalance.balance);
-                user.setDataValue('currency', ownerBalance.currency);
-            } else {
-                user.balance = ownerBalance.balance;
-                user.currency = ownerBalance.currency;
-            }
-        }
+        await this.attachDisplayBalanceForUser(user);
 
         return user
     }
 
-    private async attachOwnerBalanceForDisplay(user: User): Promise<void> {
-        if (!user.vpbx_user_id) {
-            return;
-        }
-
+    private async attachDisplayBalanceForUser(user: User): Promise<void> {
         try {
-            const ownerBalance = await this.getUserBalance(String(user.vpbx_user_id));
+            const ownerId = user.vpbx_user_id ?? user.id;
+            const display = await this.getUserBalance(String(ownerId));
             if (typeof user.setDataValue === 'function') {
-                user.setDataValue('balance', ownerBalance.balance);
-                user.setDataValue('currency', ownerBalance.currency);
+                user.setDataValue('balance', display.balance);
+                user.setDataValue('currency', display.currency);
             } else {
-                user.balance = ownerBalance.balance;
-                user.currency = ownerBalance.currency;
+                user.balance = display.balance;
+                user.currency = display.currency;
             }
         } catch (e) {
             this.logger.warn(
-                `Failed to load owner balance for user #${user.id} (owner #${user.vpbx_user_id})`,
+                `Failed to load display balance for user #${user.id}`,
                 e,
             );
         }
@@ -782,7 +772,7 @@ export class UsersService {
             throw new HttpException("User not found", HttpStatus.NOT_FOUND);
         }
 
-        await this.attachOwnerBalanceForDisplay(user);
+        await this.attachDisplayBalanceForUser(user);
 
         const isCanEdit =
             user.id === requesterId ||

@@ -5,6 +5,8 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 import { OperatorAnalyticsService } from './operator-analytics.service';
 import { OperatorAnalytics, AnalyticsSource, AnalyticsStatus } from './operator-analytics.model';
 import { OperatorProject } from './operator-project.model';
+import { MetricValue } from './operator-metric-value.model';
+import { MetricOverride } from './operator-metric-override.model';
 import { OperatorApiToken } from './operator-api-token.model';
 import { AiCdr } from '../ai-cdr/ai-cdr.model';
 import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
@@ -27,6 +29,8 @@ describe('OperatorAnalyticsService', () => {
     let mockBillingRecordRepo: any;
     let mockApiTokenRepo: any;
     let mockProjectRepo: any;
+    let mockMetricValueRepo: any;
+    let mockMetricOverrideRepo: any;
     let mockPricesRepo: any;
     let mockUserRepo: any;
     let mockUsersService: any;
@@ -79,12 +83,19 @@ describe('OperatorAnalyticsService', () => {
             findByPk: jest.fn().mockResolvedValue(mockRecord),
             findOne: jest.fn(),
             findAll: jest.fn().mockResolvedValue([]),
+            update: jest.fn().mockResolvedValue([0]),
         };
 
         mockAiCdrRepo = {
             create: jest.fn().mockResolvedValue({}),
             findAll: jest.fn().mockResolvedValue([]),
-            findOne: jest.fn(),
+            findOne: jest.fn().mockResolvedValue(null),
+            count: jest.fn().mockResolvedValue(0),
+            sum: jest.fn().mockResolvedValue(0),
+            sequelize: {
+                getDialect: jest.fn().mockReturnValue('postgres'),
+                query: jest.fn().mockResolvedValue([[]]),
+            },
         };
 
         mockAiAnalyticsRepo = {
@@ -107,6 +118,19 @@ describe('OperatorAnalyticsService', () => {
             findAll: jest.fn().mockResolvedValue([mockProject]),
             findOne: jest.fn().mockResolvedValue(mockProject),
             findByPk: jest.fn().mockResolvedValue(mockProject),
+        };
+
+        mockMetricValueRepo = {
+            bulkCreate: jest.fn().mockResolvedValue([]),
+            destroy: jest.fn().mockResolvedValue(0),
+            findAll: jest.fn().mockResolvedValue([]),
+        };
+
+        mockMetricOverrideRepo = {
+            findAll: jest.fn().mockResolvedValue([]),
+            findOne: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockImplementation((v: any) => Promise.resolve(v)),
+            destroy: jest.fn().mockResolvedValue(0),
         };
 
         mockPricesRepo = {
@@ -147,6 +171,8 @@ describe('OperatorAnalyticsService', () => {
                 { provide: getModelToken(BillingRecord), useValue: mockBillingRecordRepo },
                 { provide: getModelToken(OperatorApiToken), useValue: mockApiTokenRepo },
                 { provide: getModelToken(OperatorProject), useValue: mockProjectRepo },
+                { provide: getModelToken(MetricValue), useValue: mockMetricValueRepo },
+                { provide: getModelToken(MetricOverride), useValue: mockMetricOverrideRepo },
                 { provide: getModelToken(Prices), useValue: mockPricesRepo },
                 { provide: getModelToken(User), useValue: mockUserRepo },
                 { provide: UsersService, useValue: mockUsersService },
@@ -256,8 +282,10 @@ describe('OperatorAnalyticsService', () => {
         });
 
         it('should skip background analysis when recording is shorter than 10 seconds', async () => {
-            await service.processInBackground(1, Buffer.from('audio'));
+            const status = await service.processInBackground(1, Buffer.from('audio'));
 
+            // Must report ERROR so batch accounting does not count it as success.
+            expect(status).toBe(AnalyticsStatus.ERROR);
             expect(mockRecord.update).toHaveBeenCalledWith(expect.objectContaining({
                 status: AnalyticsStatus.ERROR,
                 duration: 1,
@@ -267,6 +295,18 @@ describe('OperatorAnalyticsService', () => {
             expect(mockAiAnalyticsRepo.create).not.toHaveBeenCalled();
             expect(mockBillingRecordRepo.create).not.toHaveBeenCalled();
             expect(mockUsersService.decrementUserBalance).not.toHaveBeenCalled();
+        });
+
+        it('returns ERROR (not throw) when STT fails, so batch counts it as failed', async () => {
+            mockWhisperService.transcribe.mockRejectedValueOnce(new Error('getaddrinfo EAI_AGAIN gpu.aipbx.net'));
+
+            const status = await service.processInBackground(1, Buffer.from('audio'));
+
+            expect(status).toBe(AnalyticsStatus.ERROR);
+            expect(mockRecord.update).toHaveBeenCalledWith(expect.objectContaining({
+                status: AnalyticsStatus.ERROR,
+            }));
+            expect(mockAiCdrRepo.create).not.toHaveBeenCalled();
         });
     });
 
@@ -821,6 +861,25 @@ describe('OperatorAnalyticsService', () => {
                 expect.objectContaining({ projectId: null }),
             );
         });
+
+        it('should persist consent fields when provided', async () => {
+            await service.createProcessingRecord(
+                'file.mp3', '1', AnalyticsSource.API,
+                { consentObtained: true, consentSource: 'ivr' },
+            );
+
+            expect(mockAnalyticsRepo.create).toHaveBeenCalledWith(
+                expect.objectContaining({ consentObtained: true, consentSource: 'ivr' }),
+            );
+        });
+
+        it('should default consent fields to null when omitted', async () => {
+            await service.createProcessingRecord('file.mp3', '1', AnalyticsSource.FRONTEND);
+
+            expect(mockAnalyticsRepo.create).toHaveBeenCalledWith(
+                expect.objectContaining({ consentObtained: null, consentSource: null }),
+            );
+        });
     });
 
     // ═════════════════════════════════════════════════════════════════
@@ -1008,8 +1067,9 @@ describe('OperatorAnalyticsService', () => {
 
     describe('getDashboard', () => {
         beforeEach(() => {
-            // Default: return empty array so dashboard returns zeros
+            mockAiCdrRepo.count.mockResolvedValue(0);
             mockAiCdrRepo.findAll.mockResolvedValue([]);
+            mockAiCdrRepo.sequelize.query.mockResolvedValue([[]]);
         });
 
         it('should NOT filter by userId when admin requests without userId', async () => {
@@ -1019,7 +1079,7 @@ describe('OperatorAnalyticsService', () => {
                 null,   // realUserId (null for admin)
             );
 
-            expect(mockAiCdrRepo.findAll).toHaveBeenCalledWith(
+            expect(mockAiCdrRepo.count).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: expect.not.objectContaining({ userId: expect.anything() }),
                 }),
@@ -1033,7 +1093,7 @@ describe('OperatorAnalyticsService', () => {
                 null,   // realUserId
             );
 
-            expect(mockAiCdrRepo.findAll).toHaveBeenCalledWith(
+            expect(mockAiCdrRepo.count).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: expect.objectContaining({ userId: '96' }),
                 }),
@@ -1047,7 +1107,7 @@ describe('OperatorAnalyticsService', () => {
                 '42',   // realUserId
             );
 
-            expect(mockAiCdrRepo.findAll).toHaveBeenCalledWith(
+            expect(mockAiCdrRepo.count).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: expect.objectContaining({ userId: '42' }),
                 }),
@@ -1055,7 +1115,7 @@ describe('OperatorAnalyticsService', () => {
         });
 
         it('should return empty dashboard when no records found', async () => {
-            mockAiCdrRepo.findAll.mockResolvedValue([]);
+            mockAiCdrRepo.count.mockResolvedValue(0);
 
             const result = await service.getDashboard({}, true, null);
 
@@ -1076,11 +1136,373 @@ describe('OperatorAnalyticsService', () => {
                 null,
             );
 
-            expect(mockAiCdrRepo.findAll).toHaveBeenCalledWith(
+            expect(mockAiCdrRepo.count).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: expect.objectContaining({ projectId: 5 }),
                 }),
             );
+        });
+    });
+
+    // ═════════════════════════════════════════════════════════════════
+    // applyRetention — PII lifecycle
+    // ═════════════════════════════════════════════════════════════════
+
+    describe('applyRetention', () => {
+        const ENV = { ...process.env };
+        afterEach(() => {
+            process.env = { ...ENV };
+        });
+
+        it('is a no-op when OPERATOR_RETENTION_DAYS is 0 (disabled)', async () => {
+            mockConfigService.get.mockImplementation((k: string) =>
+                k === 'OPERATOR_RETENTION_DAYS' ? '0' : undefined);
+
+            const result = await service.applyRetention();
+
+            expect(result.enabled).toBe(false);
+            expect(result.affected).toBe(0);
+            expect(mockAnalyticsRepo.findAll).not.toHaveBeenCalled();
+        });
+
+        it('anonymizes PII in place by default and never touches billing', async () => {
+            mockConfigService.get.mockImplementation((k: string) => {
+                if (k === 'OPERATOR_RETENTION_DAYS') return '30';
+                if (k === 'OPERATOR_RETENTION_MODE') return 'anonymize';
+                return undefined;
+            });
+            mockAnalyticsRepo.findAll.mockResolvedValue([{ id: 11 }, { id: 12 }]);
+            mockAnalyticsRepo.update = jest.fn().mockResolvedValue([2]);
+            mockAiCdrRepo.update = jest.fn().mockResolvedValue([2]);
+
+            const result = await service.applyRetention();
+
+            expect(result.mode).toBe('anonymize');
+            expect(result.affected).toBe(2);
+            expect(mockAnalyticsRepo.update).toHaveBeenCalledWith(
+                { transcription: null, clientPhone: null },
+                expect.objectContaining({ where: expect.anything() }),
+            );
+            expect(mockAiCdrRepo.update).toHaveBeenCalledWith(
+                { callerId: null },
+                expect.objectContaining({ where: expect.anything() }),
+            );
+            // Billing untouched
+            expect(mockBillingRecordRepo.create).not.toHaveBeenCalled();
+        });
+
+        it('delete mode cascades to analytics + cdr but preserves billing', async () => {
+            mockConfigService.get.mockImplementation((k: string) => {
+                if (k === 'OPERATOR_RETENTION_DAYS') return '30';
+                if (k === 'OPERATOR_RETENTION_MODE') return 'delete';
+                return undefined;
+            });
+            mockAnalyticsRepo.findAll.mockResolvedValue([{ id: 21 }]);
+            mockAnalyticsRepo.destroy = jest.fn().mockResolvedValue(1);
+            mockAiCdrRepo.destroy = jest.fn().mockResolvedValue(1);
+            mockAiAnalyticsRepo.destroy = jest.fn().mockResolvedValue(1);
+
+            const result = await service.applyRetention();
+
+            expect(result.mode).toBe('delete');
+            expect(result.affected).toBe(1);
+            expect(mockAiAnalyticsRepo.destroy).toHaveBeenCalled();
+            expect(mockAiCdrRepo.destroy).toHaveBeenCalled();
+            expect(mockAnalyticsRepo.destroy).toHaveBeenCalled();
+            expect(mockMetricValueRepo.destroy).toHaveBeenCalled();
+        });
+
+        it('returns zero when nothing matches the cutoff', async () => {
+            mockConfigService.get.mockImplementation((k: string) =>
+                k === 'OPERATOR_RETENTION_DAYS' ? '30' : undefined);
+            mockAnalyticsRepo.findAll.mockResolvedValue([]);
+
+            const result = await service.applyRetention();
+
+            expect(result.enabled).toBe(true);
+            expect(result.scanned).toBe(0);
+            expect(result.affected).toBe(0);
+        });
+    });
+
+    // ═════════════════════════════════════════════════════════════════
+    // §10 Billing — token split, regenerate policy, project budgets
+    // ═════════════════════════════════════════════════════════════════
+
+    describe('extractTokenSplit', () => {
+        it('reads Chat Completions prompt/completion tokens', () => {
+            const r = (service as any).extractTokenSplit({ prompt_tokens: 100, completion_tokens: 25, total_tokens: 125 });
+            expect(r).toEqual({ inTokens: 100, outTokens: 25 });
+        });
+
+        it('falls back to input/output tokens (responses shape)', () => {
+            const r = (service as any).extractTokenSplit({ input_tokens: 80, output_tokens: 12 });
+            expect(r).toEqual({ inTokens: 80, outTokens: 12 });
+        });
+
+        it('returns nulls when usage is missing or partial', () => {
+            expect((service as any).extractTokenSplit(undefined)).toEqual({ inTokens: null, outTokens: null });
+            expect((service as any).extractTokenSplit({ total_tokens: 50 })).toEqual({ inTokens: null, outTokens: null });
+        });
+    });
+
+    describe('normalizeBudget', () => {
+        it('keeps positive numbers, disables on zero/negative/invalid', () => {
+            expect((service as any).normalizeBudget(50)).toBe(50);
+            expect((service as any).normalizeBudget(0)).toBeNull();
+            expect((service as any).normalizeBudget(-5)).toBeNull();
+            expect((service as any).normalizeBudget(null)).toBeNull();
+            expect((service as any).normalizeBudget('abc')).toBeNull();
+        });
+    });
+
+    describe('checkProjectBudget', () => {
+        const makeProject = (over: Partial<any> = {}) => ({
+            id: 7,
+            name: 'Sales',
+            monthlyBudgetUsd: 10,
+            budgetLastAlertAt: null,
+            budgetAlertEmails: ['ops@example.com'],
+            update: jest.fn().mockResolvedValue(undefined),
+            ...over,
+        });
+
+        it('is a no-op when project has no budget', async () => {
+            const project = makeProject({ monthlyBudgetUsd: null });
+            const spy = jest.spyOn(service, 'callWebhook').mockResolvedValue(undefined as any);
+
+            await (service as any).checkProjectBudget(project, '5');
+
+            expect(mockAiCdrRepo.sum).not.toHaveBeenCalled();
+            expect(spy).not.toHaveBeenCalled();
+            spy.mockRestore();
+        });
+
+        it('does not alert while spend is under budget', async () => {
+            const project = makeProject();
+            mockAiCdrRepo.sum.mockResolvedValueOnce(4);
+            const spy = jest.spyOn(service, 'callWebhook').mockResolvedValue(undefined as any);
+
+            await (service as any).checkProjectBudget(project, '5');
+
+            expect(project.update).not.toHaveBeenCalled();
+            expect(spy).not.toHaveBeenCalled();
+            spy.mockRestore();
+        });
+
+        it('fires a budget.exceeded webhook and stamps the alert when over budget', async () => {
+            const project = makeProject();
+            mockAiCdrRepo.sum.mockResolvedValueOnce(12.5);
+            const spy = jest.spyOn(service, 'callWebhook').mockResolvedValue(undefined as any);
+
+            await (service as any).checkProjectBudget(project, '5');
+
+            expect(project.update).toHaveBeenCalledWith(
+                expect.objectContaining({ budgetLastAlertAt: expect.any(Date) }),
+            );
+            expect(spy).toHaveBeenCalledWith(
+                project,
+                'budget.exceeded',
+                expect.objectContaining({ projectId: 7, monthlyBudgetUsd: 10, spentUsd: 12.5 }),
+            );
+            spy.mockRestore();
+        });
+
+        it('dedupes — does not re-alert if already alerted this month', async () => {
+            const project = makeProject({ budgetLastAlertAt: new Date() });
+            mockAiCdrRepo.sum.mockResolvedValueOnce(99);
+            const spy = jest.spyOn(service, 'callWebhook').mockResolvedValue(undefined as any);
+
+            await (service as any).checkProjectBudget(project, '5');
+
+            expect(project.update).not.toHaveBeenCalled();
+            expect(spy).not.toHaveBeenCalled();
+            spy.mockRestore();
+        });
+
+        it('never throws into the pipeline when the sum query fails', async () => {
+            const project = makeProject();
+            mockAiCdrRepo.sum.mockRejectedValueOnce(new Error('db down'));
+            await expect((service as any).checkProjectBudget(project, '5')).resolves.toBeUndefined();
+        });
+    });
+
+    // ═════════════════════════════════════════════════════════════════
+    // writeMetricValues — normalized dual-write
+    // ═════════════════════════════════════════════════════════════════
+
+    describe('writeMetricValues (dual-write)', () => {
+        it('maps default/summary/custom metrics to typed columns and clears prior rows', async () => {
+            const metrics = {
+                greeting_quality: 80,
+                csat: 4,
+                success: true,
+                customer_sentiment: 'Positive',
+                custom_metrics: {
+                    profanity: false,
+                    satisfaction_0_10: 7,
+                    tone: 'friendly',
+                    empty: null,
+                },
+            };
+
+            await (service as any).writeMetricValues('123', '5', 1, 2, metrics);
+
+            expect(mockMetricValueRepo.destroy).toHaveBeenCalledWith({ where: { channelId: '123' } });
+            const rows = mockMetricValueRepo.bulkCreate.mock.calls[0][0] as any[];
+            const byId = (id: string) => rows.find(r => r.metricId === id);
+
+            expect(byId('greeting_quality')).toMatchObject({ origin: 'default', numValue: 80 });
+            expect(byId('csat')).toMatchObject({ origin: 'summary', numValue: 4 });
+            expect(byId('success')).toMatchObject({ origin: 'summary', boolValue: true });
+            expect(byId('customer_sentiment')).toMatchObject({ origin: 'summary', strValue: 'Positive' });
+            expect(byId('profanity')).toMatchObject({ origin: 'custom', boolValue: false });
+            expect(byId('satisfaction_0_10')).toMatchObject({ origin: 'custom', numValue: 7 });
+            expect(byId('tone')).toMatchObject({ origin: 'custom', strValue: 'friendly' });
+            // null custom value is skipped
+            expect(byId('empty')).toBeUndefined();
+            // ownership/version carried on every row
+            expect(rows.every(r => r.userId === '5' && r.projectId === 1 && r.schemaVersion === 2)).toBe(true);
+        });
+
+        it('never throws when the repository fails (JSON stays source of truth)', async () => {
+            mockMetricValueRepo.destroy.mockRejectedValueOnce(new Error('db down'));
+            await expect(
+                (service as any).writeMetricValues('9', '5', 1, 1, { greeting_quality: 50 }),
+            ).resolves.toBeUndefined();
+        });
+    });
+
+    // ═════════════════════════════════════════════════════════════════
+    // getBatchStatus — ownership (IDOR)
+    // ═════════════════════════════════════════════════════════════════
+
+    describe('getBatchStatus (ownership)', () => {
+        const seedBatch = () => {
+            (service as any).batches.set('batch_x', {
+                batchId: 'batch_x',
+                userId: '1',
+                total: 1,
+                completed: 1,
+                failed: 0,
+                items: [{ id: 10, filename: 'secret.mp3', status: 'completed' }],
+                startedAt: new Date(),
+            });
+        };
+
+        it('returns the batch to its owner', () => {
+            seedBatch();
+            expect(service.getBatchStatus('batch_x', '1')?.batchId).toBe('batch_x');
+        });
+
+        it('hides the batch from another user (IDOR)', () => {
+            seedBatch();
+            expect(service.getBatchStatus('batch_x', '999')).toBeNull();
+        });
+
+        it('allows an admin to read any batch', () => {
+            seedBatch();
+            expect(service.getBatchStatus('batch_x', '999', true)?.batchId).toBe('batch_x');
+        });
+
+        it('returns null for unknown batch', () => {
+            expect(service.getBatchStatus('missing', '1')).toBeNull();
+        });
+    });
+
+    // ═════════════════════════════════════════════════════════════════
+    // getById — project scoping (token least privilege)
+    // ═════════════════════════════════════════════════════════════════
+
+    describe('getById (project scoping)', () => {
+        it('applies projectId filter when provided', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue({ channelId: '7' });
+            await service.getById(7, '1', 3);
+
+            const call = mockAiCdrRepo.findOne.mock.calls[0][0];
+            expect(call.where).toMatchObject({ channelId: '7', userId: '1', projectId: 3 });
+        });
+
+        it('does not add projectId filter when omitted', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue({ channelId: '7' });
+            await service.getById(7, '1');
+
+            const call = mockAiCdrRepo.findOne.mock.calls[0][0];
+            expect(call.where).not.toHaveProperty('projectId');
+        });
+
+        it('emits a structured audit log on transcript read', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue({ channelId: '7' });
+            const logSpy = jest.spyOn((service as any).logger, 'log');
+
+            await service.getById(7, '42');
+
+            const audit = logSpy.mock.calls.map(c => String(c[0])).find(m => m.includes('operator_transcript_access'));
+            expect(audit).toBeDefined();
+            expect(audit).toContain('"actorUserId":"42"');
+            expect(audit).toContain('"recordId":7');
+            logSpy.mockRestore();
+        });
+    });
+
+    // ═════════════════════════════════════════════════════════════════
+    // Human-in-the-loop metric overrides
+    // ═════════════════════════════════════════════════════════════════
+
+    describe('metric overrides', () => {
+        it('rejects override on a record the user does not own (IDOR)', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue(null);
+            await expect(
+                service.saveMetricOverrides('7', '999', false, [{ metricId: 'greeting_quality', numValue: 100 }]),
+            ).rejects.toThrow('Analysis not found');
+        });
+
+        it('creates a new override scoped to the record owner', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue({ channelId: '7', userId: '1' });
+            mockMetricOverrideRepo.findOne.mockResolvedValue(null);
+
+            await service.saveMetricOverrides('7', '1', false, [
+                { metricId: 'greeting_quality', origin: 'default', numValue: 100, note: 'model missed greeting' },
+            ]);
+
+            const created = mockMetricOverrideRepo.create.mock.calls[0][0];
+            expect(created).toMatchObject({
+                channelId: '7',
+                userId: '1',
+                actorUserId: '1',
+                metricId: 'greeting_quality',
+                origin: 'default',
+                numValue: 100,
+                note: 'model missed greeting',
+            });
+        });
+
+        it('updates an existing override instead of duplicating', async () => {
+            const existing = { update: jest.fn().mockResolvedValue(undefined) };
+            mockAiCdrRepo.findOne.mockResolvedValue({ channelId: '7', userId: '1' });
+            mockMetricOverrideRepo.findOne.mockResolvedValue(existing);
+
+            await service.saveMetricOverrides('7', '1', false, [
+                { metricId: 'csat', origin: 'summary', numValue: 4 },
+            ]);
+
+            expect(existing.update).toHaveBeenCalled();
+            expect(mockMetricOverrideRepo.create).not.toHaveBeenCalled();
+        });
+
+        it('rejects an empty override list', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue({ channelId: '7', userId: '1' });
+            await expect(service.saveMetricOverrides('7', '1', false, [])).rejects.toThrow('No overrides');
+        });
+
+        it('lets an admin read overrides for any record', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue({ channelId: '7', userId: '2' });
+            mockMetricOverrideRepo.findAll.mockResolvedValue([{ metricId: 'success' }]);
+
+            const result = await service.getMetricOverrides('7', '999', true);
+            expect(result).toHaveLength(1);
+            // admin: ownership filter not applied
+            expect(mockAiCdrRepo.findOne.mock.calls[0][0].where).not.toHaveProperty('userId');
         });
     });
 
@@ -1126,6 +1548,82 @@ describe('OperatorAnalyticsService', () => {
             expect(result).toEqual({
                 data: [], total: 0, page: 1, limit: 20,
             });
+        });
+    });
+
+    describe('buildAgentScorecards', () => {
+        it('groups records by assistantName and computes averages', () => {
+            const records = [
+                {
+                    assistantName: 'Alice',
+                    analytics: {
+                        metrics: { greeting_quality: 100, success: true, customer_sentiment: 'Positive', csat: 5 },
+                        sentiment: 'Positive',
+                        csat: 5,
+                    },
+                },
+                {
+                    assistantName: 'Alice',
+                    analytics: {
+                        metrics: { greeting_quality: 50, success: false, customer_sentiment: 'Negative', csat: 3 },
+                        sentiment: 'Negative',
+                        csat: 3,
+                    },
+                },
+                {
+                    assistantName: 'Bob',
+                    analytics: {
+                        metrics: { greeting_quality: 75, success: true, customer_sentiment: 'Neutral' },
+                        sentiment: 'Neutral',
+                    },
+                },
+            ] as any[];
+
+            const cards = (service as any).buildAgentScorecards(records);
+            expect(cards).toHaveLength(2);
+            expect(cards[0].operatorName).toBe('Alice');
+            expect(cards[0].callsCount).toBe(2);
+            expect(cards[0].avgCsat).toBe(4);
+            expect(cards[0].negativeRate).toBe(50);
+        });
+    });
+
+    describe('checkAnomalies', () => {
+        it('is a no-op when OPERATOR_ANOMALY_ENABLED is false', async () => {
+            mockConfigService.get.mockImplementation((key: string) =>
+                key === 'OPERATOR_ANOMALY_ENABLED' ? 'false' : undefined);
+            const result = await service.checkAnomalies();
+            expect(result).toEqual({ enabled: false, checked: 0, alerted: 0 });
+            expect(mockProjectRepo.findAll).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('spotTopicKeywords', () => {
+        it('returns null when no keywords configured', () => {
+            expect((service as any).spotTopicKeywords('любой текст')).toBeNull();
+        });
+    });
+
+    describe('reapStuckProcessing', () => {
+        it('is disabled when OPERATOR_STUCK_MINUTES is 0', async () => {
+            (service as any).stuckMinutes = 0;
+            const result = await service.reapStuckProcessing();
+            expect(result).toEqual({ enabled: false, cutoffMinutes: 0, reaped: 0 });
+            expect(mockAnalyticsRepo.update).not.toHaveBeenCalled();
+        });
+
+        it('marks stuck processing records as ERROR', async () => {
+            (service as any).stuckMinutes = 45;
+            mockAnalyticsRepo.update = jest.fn().mockResolvedValue([3]);
+            const result = await service.reapStuckProcessing();
+            expect(result.enabled).toBe(true);
+            expect(result.reaped).toBe(3);
+            expect(mockAnalyticsRepo.update).toHaveBeenCalledWith(
+                expect.objectContaining({ status: AnalyticsStatus.ERROR }),
+                expect.objectContaining({
+                    where: expect.objectContaining({ status: AnalyticsStatus.PROCESSING }),
+                }),
+            );
         });
     });
 });

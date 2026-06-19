@@ -3,6 +3,16 @@ import { InjectModel } from '@nestjs/sequelize';
 import { OperatorAnalytics, AnalyticsSource, AnalyticsStatus } from './operator-analytics.model';
 import { OperatorApiToken } from './operator-api-token.model';
 import { OperatorProject } from './operator-project.model';
+import { MetricValue, MetricValueOrigin } from './operator-metric-value.model';
+import { MetricOverride, MetricOverrideOrigin } from './operator-metric-override.model';
+import { parseKeywordList, spotKeywords } from './lib/keyword-spotting';
+import { computeAudioSha256 } from './lib/audio-hash';
+import {
+    aggregateMetricsFromSql,
+    buildDashboardCdrWhere,
+    countLowQualityCdrs,
+    DASHBOARD_PAGE_SIZE,
+} from './lib/dashboard-aggregation';
 import { OpenAiTranscriptionProvider } from './providers/openai-transcription.provider';
 import { ExternalSttProvider } from './providers/external-stt.provider';
 import { WhisperService } from '../whisper/whisper.service';
@@ -17,8 +27,27 @@ import { isRubTenant } from '../shared/tenant/tenant-currency';
 import {
     OperatorMetrics, CustomMetricDef, ITranscriptionProvider, TranscriptionResult,
     MetricDefinition, DefaultMetricKey, WebhookEvent, BatchStatus,
+    TranscriptionQualityLevel, StoredMetricMeta, ALL_DEFAULT_METRIC_KEYS,
 } from './interfaces/operator-metrics.interface';
+import {
+    assessTranscriptionQuality,
+    combineTranscriptionQuality,
+    TranscriptionQualityAssessment,
+    TranscriptionQualityThresholds,
+    DEFAULT_TRANSCRIPTION_QUALITY_THRESHOLDS,
+} from './lib/assess-transcription-quality';
+import {
+    AnalysisSchemaValidationError,
+    buildAnalysisContext,
+    buildAnalysisPrompt,
+    buildCustomMetricMeta,
+    buildOpenAiJsonSchema,
+    parseAndValidateAnalysisResponse,
+    MetricAssessment,
+    PROMPT_VERSION,
+} from './lib/analysis-schema';
 import { PROJECT_TEMPLATES } from './project-templates';
+import { OPERATOR_CDR_SOURCE } from './lib/analytics-source';
 import { Op, Sequelize } from 'sequelize';
 import OpenAI from 'openai';
 import { ConfigService } from '@nestjs/config';
@@ -33,6 +62,10 @@ export class OperatorAnalyticsService {
     private readonly analyticsModel: string;
     private readonly fallbackModel: string;
     private readonly minAnalysisDurationSec: number;
+    private readonly qualityThresholds: TranscriptionQualityThresholds;
+    private readonly keywordSpottingList: string[];
+    private readonly dedupByHashEnabled: boolean;
+    private readonly stuckMinutes: number;
     private readonly sttProviders: Map<string, ITranscriptionProvider> = new Map();
 
     // ─── Batch Processing Tracker ─────────────────────────────────────
@@ -46,6 +79,8 @@ export class OperatorAnalyticsService {
         @InjectModel(BillingRecord) private readonly billingRecordRepository: typeof BillingRecord,
         @InjectModel(OperatorApiToken) private readonly apiTokenRepository: typeof OperatorApiToken,
         @InjectModel(OperatorProject) private readonly projectRepository: typeof OperatorProject,
+        @InjectModel(MetricValue) private readonly metricValueRepository: typeof MetricValue,
+        @InjectModel(MetricOverride) private readonly metricOverrideRepository: typeof MetricOverride,
         @InjectModel(Prices) private readonly pricesRepository: typeof Prices,
         @InjectModel(User) private readonly userRepository: typeof User,
         private readonly usersService: UsersService,
@@ -78,6 +113,17 @@ export class OperatorAnalyticsService {
             ? configuredMinDuration
             : 10;
 
+        this.qualityThresholds = {
+            minWords: this.readPositiveEnv('OPERATOR_QUALITY_MIN_WORDS', DEFAULT_TRANSCRIPTION_QUALITY_THRESHOLDS.minWords),
+            avgLogprobMin: this.readNumericEnv('OPERATOR_QUALITY_AVG_LOGPROB_MIN', DEFAULT_TRANSCRIPTION_QUALITY_THRESHOLDS.avgLogprobMin),
+            avgLogprobUnusable: this.readNumericEnv('OPERATOR_QUALITY_AVG_LOGPROB_UNUSABLE', DEFAULT_TRANSCRIPTION_QUALITY_THRESHOLDS.avgLogprobUnusable),
+            maxNoSpeech: this.readNumericEnv('OPERATOR_QUALITY_MAX_NOSPEECH', DEFAULT_TRANSCRIPTION_QUALITY_THRESHOLDS.maxNoSpeech),
+            maxNoSpeechUnusable: this.readNumericEnv('OPERATOR_QUALITY_MAX_NOSPEECH_UNUSABLE', DEFAULT_TRANSCRIPTION_QUALITY_THRESHOLDS.maxNoSpeechUnusable),
+            maxCompression: this.readNumericEnv('OPERATOR_QUALITY_MAX_COMPRESSION', DEFAULT_TRANSCRIPTION_QUALITY_THRESHOLDS.maxCompression),
+            minCompression: this.readNumericEnv('OPERATOR_QUALITY_MIN_COMPRESSION', DEFAULT_TRANSCRIPTION_QUALITY_THRESHOLDS.minCompression),
+            minLanguageProbability: this.readNumericEnv('OPERATOR_QUALITY_MIN_LANGUAGE_PROB', DEFAULT_TRANSCRIPTION_QUALITY_THRESHOLDS.minLanguageProbability),
+        };
+
         // Register STT providers
         const openaiSttEnabled = (this.configService.get<string>('OPENAI_STT_ENABLED') || process.env.OPENAI_STT_ENABLED || 'false').toLowerCase() === 'true';
         if (openaiSttEnabled) {
@@ -88,6 +134,11 @@ export class OperatorAnalyticsService {
         }
         this.sttProviders.set('external', this.externalSttProvider);
         this.sttProviders.set('whisper', this.whisperService);
+        this.keywordSpottingList = parseKeywordList(
+            this.configService.get<string>('OPERATOR_KEYWORD_SPOTTING') || process.env.OPERATOR_KEYWORD_SPOTTING,
+        );
+        this.dedupByHashEnabled = this.readBooleanEnv('OPERATOR_DEDUP_BY_HASH', false);
+        this.stuckMinutes = this.readNumericEnv('OPERATOR_STUCK_MINUTES', 0);
     }
 
     // ─── LLM with fallback ─────────────────────────────────────────
@@ -97,20 +148,39 @@ export class OperatorAnalyticsService {
      */
     private async chatWithFallback(
         messages: any[],
-        jsonFormat = true,
-    ): Promise<{ content: string; usage?: any }> {
+        options: {
+            jsonSchema?: Record<string, unknown>;
+            schemaName?: string;
+            temperature?: number;
+            jsonObject?: boolean;
+        } = {},
+    ): Promise<{ content: string; usage?: any; model: string }> {
+        const temperature = options.temperature ?? 0;
         // Primary: OpenAI
         try {
             const params: any = {
                 messages,
                 model: this.analyticsModel,
+                temperature,
             };
-            if (jsonFormat) params.response_format = { type: 'json_object' };
+            if (options.jsonSchema) {
+                params.response_format = {
+                    type: 'json_schema',
+                    json_schema: {
+                        name: options.schemaName || 'operator_analysis',
+                        strict: true,
+                        schema: options.jsonSchema,
+                    },
+                };
+            } else if (options.jsonObject !== false) {
+                params.response_format = { type: 'json_object' };
+            }
 
             const completion = await this.openAiClient.chat.completions.create(params);
             return {
                 content: completion.choices[0]?.message?.content || '{}',
                 usage: completion.usage,
+                model: this.analyticsModel,
             };
         } catch (err) {
             this.logger.warn(`[Analytics LLM] OpenAI (${this.analyticsModel}) failed: ${err.message}. Falling back to Ollama...`);
@@ -122,23 +192,19 @@ export class OperatorAnalyticsService {
         }
 
         try {
-            // Gemma 4 doesn't need /no_think, but strip <think> blocks as safety net
-            const fallbackMessages = messages;
-
             const params: any = {
-                messages: fallbackMessages,
+                messages,
                 model: this.fallbackModel,
+                temperature,
+                response_format: { type: 'json_object' },
             };
-            if (jsonFormat) params.response_format = { type: 'json_object' };
 
             const completion = await this.ollamaClient.chat.completions.create(params);
             const raw = completion.choices[0]?.message?.content || '{}';
-
-            // Strip <think>...</think> blocks if present
             const content = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
             this.logger.log(`[Analytics LLM] Ollama fallback (${this.fallbackModel}) succeeded`);
-            return { content, usage: completion.usage };
+            return { content, usage: completion.usage, model: this.fallbackModel };
         } catch (fallbackErr) {
             this.logger.error(`[Analytics LLM] Ollama fallback also failed: ${fallbackErr.message}`);
             throw fallbackErr;
@@ -158,6 +224,12 @@ export class OperatorAnalyticsService {
         return dialect === 'postgres'
             ? `(${this.q(table)}.${this.q(column)}::jsonb${pgPath})`
             : `JSON_EXTRACT(${this.q(table)}.${this.q(column)}, '${jsonPath}')`;
+    }
+
+    private likeOp(value: string): Record<string, string> {
+        const dialect = this.analyticsRepository.sequelize.getDialect();
+        const op = dialect === 'postgres' ? Op.iLike : Op.like;
+        return { [op]: value };
     }
 
     /**
@@ -216,10 +288,23 @@ export class OperatorAnalyticsService {
             provider?: string;
             projectId?: number;
             recordUrl?: string;
+            consentObtained?: boolean;
+            consentSource?: string;
         } = {},
     ): Promise<OperatorAnalytics> {
         // 1. Pre-check balance
         await this.checkBalance(userId);
+
+        const audioSha256 = computeAudioSha256(buffer);
+        if (this.dedupByHashEnabled && options.projectId) {
+            const duplicate = await this.findCompletedDuplicate(userId, options.projectId, audioSha256);
+            if (duplicate) {
+                this.logger.log(
+                    `Dedup: reusing completed analysis #${duplicate.id} for "${filename}" (hash=${audioSha256.slice(0, 8)}…)`,
+                );
+                return duplicate;
+            }
+        }
 
         // 2. Create record
         const record = await this.analyticsRepository.create({
@@ -232,6 +317,9 @@ export class OperatorAnalyticsService {
             language: options.language || 'auto',
             projectId: options.projectId || null,
             recordUrl: options.recordUrl || null,
+            consentObtained: options.consentObtained ?? null,
+            consentSource: options.consentSource ?? null,
+            audioSha256,
         });
 
         if (options.customMetrics?.length) {
@@ -245,10 +333,9 @@ export class OperatorAnalyticsService {
                 project = await this.projectRepository.findByPk(options.projectId);
             }
 
-            // schemaVersion from project removed
-            if (project?.currentSchemaVersion) {
-                // not updating record with schemaVersion anymore
-            }
+            // Snapshot the project schema version onto the record for honest historical trends.
+            const schemaVersion = project?.currentSchemaVersion ?? null;
+            await this.persistSchemaVersion(record, schemaVersion);
 
             // 3. Transcribe (external first, fallback to OpenAI Whisper)
             const sttResult = await this.transcribeWithFallback(
@@ -258,12 +345,15 @@ export class OperatorAnalyticsService {
                 options.provider,
             );
 
-            if (await this.rejectIfRecordingTooShort(record, sttResult)) {
+            if (await this.rejectIfUnusable(record, sttResult)) {
                 throw new HttpException(
-                    { message: this.getTooShortMessage(sttResult.duration) },
+                    { message: record.errorMessage || this.getTooShortMessage(sttResult.duration) },
                     HttpStatus.BAD_REQUEST,
                 );
             }
+
+            const sttQuality = this.assessSttQuality(sttResult);
+            await this.saveQualityOnRecord(record, sttResult, sttQuality);
 
             await record.update({
                 transcription: sttResult.text,
@@ -272,11 +362,19 @@ export class OperatorAnalyticsService {
             });
 
             // 4. Analyze metrics via LLM (with project context if available)
-            const { metrics, customMetricsResult, usage, diarizedText } = await this.analyzeTranscription(
-                sttResult.text,
-                options.customMetrics,
-                project,
-            );
+            const { metrics, customMetricsResult, usage, diarizedText, analysisConfidence, insufficientContent, assessments, customMeta, customMetricsInvalid, modelName } =
+                await this.analyzeTranscription(
+                    sttResult.text,
+                    options.customMetrics,
+                    project,
+                    sttQuality.quality === 'low' ? sttQuality : undefined,
+                );
+
+            const finalQuality = combineTranscriptionQuality(sttQuality, {
+                analysis_confidence: analysisConfidence,
+                insufficient_content: insufficientContent,
+            });
+            await this.saveQualityOnRecord(record, sttResult, finalQuality);
 
             // 5. Update transcription with speaker-labeled version if available
             if (diarizedText) {
@@ -285,6 +383,7 @@ export class OperatorAnalyticsService {
 
             // 6. Calculate cost and charge (LLM tokens + STT duration)
             const totalTokens = usage?.total_tokens || 0;
+            const { inTokens: textTokensIn, outTokens: textTokensOut } = this.extractTokenSplit(usage);
             const { totalCost, llmCost, sttCost } = await this.chargeCost(userId, totalTokens, sttResult.duration, sttResult.provider);
 
             // 7. Save results locally
@@ -293,9 +392,13 @@ export class OperatorAnalyticsService {
             });
 
             const channelId = record.id.toString();
-            const cdrSource = source === AnalyticsSource.API ? 'external-api' : 'external-front';
+            const cdrSource = source === AnalyticsSource.API ? OPERATOR_CDR_SOURCE.EXTERNAL_API : OPERATOR_CDR_SOURCE.EXTERNAL_FRONT;
             const assistantName = options.operatorName || 'Unknown Operator';
-            const mergedMetrics = customMetricsResult ? { ...metrics, metrics: customMetricsResult } : metrics;
+            const mergedMetrics = this.enrichStoredMetrics(
+                customMetricsResult ? { ...metrics, custom_metrics: customMetricsResult } : metrics,
+                finalQuality,
+                { assessments, customMeta, model: modelName, schemaVersion, customInvalid: customMetricsInvalid, promptVersion: PROMPT_VERSION, topics: this.spotTopicKeywords(sttResult.text) },
+            );
 
             const cdrCost = await this.cdrCostFields(totalCost);
             const billingFx = await this.billingFx.fieldsForUsdAmount(totalCost);
@@ -322,6 +425,7 @@ export class OperatorAnalyticsService {
                 cost: totalCost,
                 tokens: totalTokens,
             });
+            await this.writeMetricValues(channelId, record.userId, record.projectId, schemaVersion, mergedMetrics);
 
             await this.billingRecordRepository.create({
                 channelId,
@@ -330,12 +434,15 @@ export class OperatorAnalyticsService {
                 description: 'File analysis',
                 totalTokens: totalTokens,
                 textTokens: totalTokens,
+                textTokensIn,
+                textTokensOut,
                 audioTokens: 0,
                 totalCost: totalCost,
                 sttCost: sttCost,
                 textCost: llmCost,
                 ...billingFx,
             });
+            await this.checkProjectBudget(project, record.userId);
 
             this.logger.log(`Analysis completed for "${filename}" (id=${record.id}), cost=${totalCost} (llm=${llmCost}, stt=${sttCost}), tokens=${totalTokens}`);
 
@@ -352,9 +459,13 @@ export class OperatorAnalyticsService {
                 && e.getStatus() === HttpStatus.BAD_REQUEST
                 && String((e.getResponse() as { message?: string })?.message || '').includes('too short');
 
+            const invalidAnalysis = e instanceof AnalysisSchemaValidationError;
+
             const errorMessage = tooShortResponse
                 ? String((e.getResponse() as { message?: string }).message)
-                : e.message;
+                : invalidAnalysis
+                    ? `Invalid LLM analysis output: ${e.message}`
+                    : e.message;
 
             this.logger.error(`Analysis failed for "${filename}" (id=${record.id}): ${errorMessage}`);
 
@@ -483,15 +594,21 @@ export class OperatorAnalyticsService {
             .catch(e => this.logger.error(`Batch ${batchId} fatal error: ${e.message}`));
     }
 
-    getBatchStatus(batchId: string): BatchStatus | null {
-        return this.batches.get(batchId) || null;
+    getBatchStatus(batchId: string, userId?: string, isAdmin = false): BatchStatus | null {
+        const batch = this.batches.get(batchId);
+        if (!batch) return null;
+        // Ownership check — prevent cross-user batch enumeration (IDOR)
+        if (!isAdmin && userId != null && String(batch.userId) !== String(userId)) {
+            return null;
+        }
+        return batch;
     }
 
     getActiveBatches(userId: string): BatchStatus[] {
         this.cleanupOldBatches();
         const result: BatchStatus[] = [];
         for (const batch of this.batches.values()) {
-            if (batch.userId === userId) {
+            if (batch.userId === userId && !batch.finishedAt) {
                 result.push(batch);
             }
         }
@@ -510,9 +627,15 @@ export class OperatorAnalyticsService {
             batch.items[i].status = 'processing';
 
             try {
-                await this.processInBackground(item.recordId, item.buffer, provider);
-                batch.items[i].status = 'completed';
-                batch.completed++;
+                const status = await this.processInBackground(item.recordId, item.buffer, provider);
+                if (status === AnalyticsStatus.COMPLETED) {
+                    batch.items[i].status = 'completed';
+                    batch.completed++;
+                } else {
+                    batch.items[i].status = 'error';
+                    batch.failed++;
+                    this.logger.warn(`Batch ${batch.batchId} item #${item.recordId} did not complete (status: ${status})`);
+                }
             } catch (e) {
                 batch.items[i].status = 'error';
                 batch.failed++;
@@ -546,6 +669,8 @@ export class OperatorAnalyticsService {
             customMetrics?: CustomMetricDef[];
             projectId?: number;
             recordUrl?: string;
+            consentObtained?: boolean;
+            consentSource?: string;
         } = {},
     ): Promise<OperatorAnalytics> {
         return this.analyticsRepository.create({
@@ -558,24 +683,41 @@ export class OperatorAnalyticsService {
             language: options.language || 'auto',
             projectId: options.projectId || null,
             recordUrl: options.recordUrl || null,
+            consentObtained: options.consentObtained ?? null,
+            consentSource: options.consentSource ?? null,
         });
     }
 
-    async processInBackground(recordId: number, buffer: Buffer, provider?: string): Promise<void> {
+    async processInBackground(recordId: number, buffer: Buffer, provider?: string): Promise<AnalyticsStatus> {
         try {
             const record = await this.analyticsRepository.findByPk(recordId);
-            if (!record) return;
+            if (!record) return AnalyticsStatus.ERROR;
 
             await this.checkBalance(record.userId);
+
+            const audioSha256 = computeAudioSha256(buffer);
+            await this.persistAudioSha256(record, audioSha256);
+
+            if (this.dedupByHashEnabled && record.projectId) {
+                const duplicate = await this.findCompletedDuplicate(
+                    record.userId,
+                    record.projectId,
+                    audioSha256,
+                    record.id,
+                );
+                if (duplicate) {
+                    await this.completeFromDuplicate(record, duplicate);
+                    return AnalyticsStatus.COMPLETED;
+                }
+            }
 
             // Resolve project
             let project: OperatorProject | null = null;
             if (record.projectId) {
                 project = await this.projectRepository.findByPk(record.projectId);
-                if (project?.currentSchemaVersion) {
-                    // not updating record with schemaVersion anymore
-                }
             }
+            const schemaVersion = project?.currentSchemaVersion ?? null;
+            await this.persistSchemaVersion(record, schemaVersion);
 
             const sttResult = await this.transcribeWithFallback(
                 buffer,
@@ -584,12 +726,15 @@ export class OperatorAnalyticsService {
                 provider,
             );
 
-            if (await this.rejectIfRecordingTooShort(record, sttResult)) {
+            if (await this.rejectIfUnusable(record, sttResult)) {
                 this.logger.warn(
-                    `Background analysis skipped for record #${recordId}: recording too short (${sttResult.duration}s)`,
+                    `Background analysis skipped for record #${recordId}: ${record.errorMessage || 'unusable transcript'}`,
                 );
-                return;
+                return AnalyticsStatus.ERROR;
             }
+
+            const sttQuality = this.assessSttQuality(sttResult);
+            await this.saveQualityOnRecord(record, sttResult, sttQuality);
 
             await record.update({
                 transcription: sttResult.text,
@@ -597,11 +742,19 @@ export class OperatorAnalyticsService {
                 sttProvider: sttResult.provider,
             });
 
-            const { metrics, customMetricsResult, usage, diarizedText } = await this.analyzeTranscription(
-                sttResult.text,
-                undefined,
-                project,
-            );
+            const { metrics, customMetricsResult, usage, diarizedText, analysisConfidence, insufficientContent, assessments, customMeta, customMetricsInvalid, modelName } =
+                await this.analyzeTranscription(
+                    sttResult.text,
+                    undefined,
+                    project,
+                    sttQuality.quality === 'low' ? sttQuality : undefined,
+                );
+
+            const finalQuality = combineTranscriptionQuality(sttQuality, {
+                analysis_confidence: analysisConfidence,
+                insufficient_content: insufficientContent,
+            });
+            await this.saveQualityOnRecord(record, sttResult, finalQuality);
 
             // Update transcription with speaker-labeled version if available
             if (diarizedText) {
@@ -609,6 +762,7 @@ export class OperatorAnalyticsService {
             }
 
             const totalTokens = usage?.total_tokens || 0;
+            const { inTokens: textTokensIn, outTokens: textTokensOut } = this.extractTokenSplit(usage);
             const { totalCost, llmCost, sttCost } = await this.chargeCost(record.userId, totalTokens, sttResult.duration, sttResult.provider);
 
             await record.update({
@@ -617,9 +771,13 @@ export class OperatorAnalyticsService {
 
             const channelId = record.id.toString();
             // Source is frontend or api depending on what's set
-            const cdrSource = record.source === AnalyticsSource.API ? 'external-api' : 'external-front';
+            const cdrSource = record.source === AnalyticsSource.API ? OPERATOR_CDR_SOURCE.EXTERNAL_API : OPERATOR_CDR_SOURCE.EXTERNAL_FRONT;
             const assistantName = record.operatorName || 'Unknown Operator';
-            const mergedMetrics = customMetricsResult ? { ...metrics, metrics: customMetricsResult } : metrics;
+            const mergedMetrics = this.enrichStoredMetrics(
+                customMetricsResult ? { ...metrics, custom_metrics: customMetricsResult } : metrics,
+                finalQuality,
+                { assessments, customMeta, model: modelName, schemaVersion, customInvalid: customMetricsInvalid, promptVersion: PROMPT_VERSION, topics: this.spotTopicKeywords(sttResult.text) },
+            );
 
             const cdrCost = await this.cdrCostFields(totalCost);
             const billingFx = await this.billingFx.fieldsForUsdAmount(totalCost);
@@ -646,6 +804,7 @@ export class OperatorAnalyticsService {
                 cost: totalCost,
                 tokens: totalTokens,
             });
+            await this.writeMetricValues(channelId, record.userId, record.projectId, schemaVersion, mergedMetrics);
 
             await this.billingRecordRepository.create({
                 channelId,
@@ -654,12 +813,15 @@ export class OperatorAnalyticsService {
                 description: 'File analysis (background)',
                 totalTokens: totalTokens,
                 textTokens: totalTokens,
+                textTokensIn,
+                textTokensOut,
                 audioTokens: 0,
                 totalCost: totalCost,
                 sttCost: sttCost,
                 textCost: llmCost,
                 ...billingFx,
             });
+            await this.checkProjectBudget(project, record.userId);
 
             this.logger.log(`Background analysis completed for record #${recordId}`);
 
@@ -669,6 +831,8 @@ export class OperatorAnalyticsService {
                     recordId, filename: record.filename, metrics, customMetrics: customMetricsResult,
                 }).catch(err => this.logger.warn(`Webhook error: ${err.message}`));
             }
+
+            return AnalyticsStatus.COMPLETED;
         } catch (e) {
             this.logger.error(`Background analysis failed for record #${recordId}: ${e.message}`);
             const record = await this.analyticsRepository.findByPk(recordId);
@@ -685,6 +849,7 @@ export class OperatorAnalyticsService {
                     }
                 }
             }
+            return AnalyticsStatus.ERROR;
         }
     }
 
@@ -722,6 +887,7 @@ export class OperatorAnalyticsService {
         await this.checkBalance(record.userId);
         await record.update({ status: AnalyticsStatus.PROCESSING, errorMessage: null });
 
+        try {
         const url = this.sanitizeUrl(recordUrl);
         this.logger.log(`Regenerating analysis for record #${recordId}: downloading ${url}`);
 
@@ -737,6 +903,8 @@ export class OperatorAnalyticsService {
         if (record.projectId) {
             project = await this.projectRepository.findByPk(record.projectId);
         }
+        const schemaVersion = project?.currentSchemaVersion ?? null;
+        await this.persistSchemaVersion(record, schemaVersion);
 
         const sttResult = await this.transcribeWithFallback(
             buffer,
@@ -745,12 +913,15 @@ export class OperatorAnalyticsService {
             record.sttProvider || undefined,
         );
 
-        if (await this.rejectIfRecordingTooShort(record, sttResult)) {
+        if (await this.rejectIfUnusable(record, sttResult)) {
             throw new HttpException(
-                { message: this.getTooShortMessage(sttResult.duration) },
+                { message: record.errorMessage || this.getTooShortMessage(sttResult.duration) },
                 HttpStatus.BAD_REQUEST,
             );
         }
+
+        const sttQuality = this.assessSttQuality(sttResult);
+        await this.saveQualityOnRecord(record, sttResult, sttQuality);
 
         await record.update({
             transcription: sttResult.text,
@@ -758,17 +929,26 @@ export class OperatorAnalyticsService {
             sttProvider: sttResult.provider,
         });
 
-        const { metrics, customMetricsResult, usage, diarizedText } = await this.analyzeTranscription(
-            sttResult.text,
-            undefined,
-            project,
-        );
+        const { metrics, customMetricsResult, usage, diarizedText, analysisConfidence, insufficientContent, assessments, customMeta, customMetricsInvalid, modelName } =
+            await this.analyzeTranscription(
+                sttResult.text,
+                undefined,
+                project,
+                sttQuality.quality === 'low' ? sttQuality : undefined,
+            );
+
+        const finalQuality = combineTranscriptionQuality(sttQuality, {
+            analysis_confidence: analysisConfidence,
+            insufficient_content: insufficientContent,
+        });
+        await this.saveQualityOnRecord(record, sttResult, finalQuality);
 
         if (diarizedText) {
             await record.update({ transcription: diarizedText });
         }
 
         const totalTokens = usage?.total_tokens || 0;
+        const { inTokens: textTokensIn, outTokens: textTokensOut } = this.extractTokenSplit(usage);
         const { totalCost, llmCost, sttCost } = await this.chargeCost(
             record.userId,
             totalTokens,
@@ -778,19 +958,31 @@ export class OperatorAnalyticsService {
 
         await record.update({ status: AnalyticsStatus.COMPLETED });
 
-        const mergedMetrics = customMetricsResult ? { ...metrics, metrics: customMetricsResult } : metrics;
+        const mergedMetrics = this.enrichStoredMetrics(
+            customMetricsResult ? { ...metrics, custom_metrics: customMetricsResult } : metrics,
+            finalQuality,
+            { assessments, customMeta, model: modelName, schemaVersion, customInvalid: customMetricsInvalid, promptVersion: PROMPT_VERSION, topics: this.spotTopicKeywords(sttResult.text) },
+        );
         const cdrCost = await this.cdrCostFields(totalCost);
         const billingFx = await this.billingFx.fieldsForUsdAmount(totalCost);
         const channelIdStr = String(recordId);
 
+        // Regenerate cost policy: by default keep legacy accumulation (BC); when
+        // OPERATOR_REGEN_REPLACE_COST=true, the displayed AiCdr/AiAnalytics aggregate
+        // reflects only the latest run instead of silently summing every regenerate.
+        // Either way the per-charge BillingRecord history is preserved for audit.
+        const replaceCost = this.readBooleanEnv('OPERATOR_REGEN_REPLACE_COST', false);
+
         const prevCdrAmountCurrency = Number(aiCdr.amountCurrency) || 0;
         await aiCdr.update({
             duration: Math.round(sttResult.duration),
-            cost: parseFloat((Number(aiCdr.cost || 0) + totalCost).toFixed(6)),
-            tokens: (aiCdr.tokens || 0) + totalTokens,
-            amountCurrency: parseFloat(
-                (prevCdrAmountCurrency + Number(cdrCost.amountCurrency || 0)).toFixed(4),
-            ),
+            cost: replaceCost
+                ? totalCost
+                : parseFloat((Number(aiCdr.cost || 0) + totalCost).toFixed(6)),
+            tokens: replaceCost ? totalTokens : (aiCdr.tokens || 0) + totalTokens,
+            amountCurrency: replaceCost
+                ? Number(cdrCost.amountCurrency || 0)
+                : parseFloat((prevCdrAmountCurrency + Number(cdrCost.amountCurrency || 0)).toFixed(4)),
             costCurrency: cdrCost.costCurrency || aiCdr.costCurrency,
         });
 
@@ -803,8 +995,10 @@ export class OperatorAnalyticsService {
                 summary: metrics.summary || '',
                 sentiment: metrics.customer_sentiment || '',
                 csat: metrics.csat || null,
-                cost: parseFloat((Number(existingAnalytics.cost || 0) + totalCost).toFixed(6)),
-                tokens: (existingAnalytics.tokens || 0) + totalTokens,
+                cost: replaceCost
+                    ? totalCost
+                    : parseFloat((Number(existingAnalytics.cost || 0) + totalCost).toFixed(6)),
+                tokens: replaceCost ? totalTokens : (existingAnalytics.tokens || 0) + totalTokens,
             });
         } else {
             await this.aiAnalyticsRepository.create({
@@ -817,20 +1011,24 @@ export class OperatorAnalyticsService {
                 tokens: totalTokens,
             });
         }
+        await this.writeMetricValues(channelIdStr, record.userId, record.projectId, schemaVersion, mergedMetrics);
 
         await this.billingRecordRepository.create({
             channelId: channelIdStr,
-            type: 'analytic',
+            type: 'analytic_regen',
             userId: record.userId,
             description: 'File analysis (regenerated)',
             totalTokens,
             textTokens: totalTokens,
+            textTokensIn,
+            textTokensOut,
             audioTokens: 0,
             totalCost,
             sttCost,
             textCost: llmCost,
             ...billingFx,
         });
+        await this.checkProjectBudget(project, record.userId);
 
         this.logger.log(
             `Analysis regenerated for record #${recordId}, added cost=${totalCost} (llm=${llmCost}, stt=${sttCost})`,
@@ -852,13 +1050,23 @@ export class OperatorAnalyticsService {
                 { model: BillingRecord, as: 'billingRecords' },
             ],
         });
+        } catch (e) {
+            const invalidAnalysis = e instanceof AnalysisSchemaValidationError;
+            const errorMessage = invalidAnalysis
+                ? `Invalid LLM analysis output: ${e.message}`
+                : e.message;
+            await record.update({ status: AnalyticsStatus.ERROR, errorMessage });
+            throw e;
+        }
     }
 
     // ─── Read Endpoints ──────────────────────────────────────────────
 
-    async getById(id: number, userId?: string): Promise<AiCdr> {
+    async getById(id: number, userId?: string, projectId?: number): Promise<AiCdr> {
         const where: any = { channelId: String(id) };
         if (userId) where.userId = userId;
+        // Project-scoped API tokens may only read records of their project (least privilege)
+        if (projectId != null) where.projectId = projectId;
 
         const record = await this.aiCdrRepository.findOne({
             where,
@@ -870,7 +1078,120 @@ export class OperatorAnalyticsService {
         if (!record) {
             throw new HttpException('Analysis not found', HttpStatus.NOT_FOUND);
         }
+        // Compliance: audit every full-record (transcript) read.
+        this.logTranscriptAccess(userId, id, 'read');
         return record;
+    }
+
+    /**
+     * Structured access audit for PII reads (transcript/recording).
+     * Emitted as a JSON log line so it can be shipped to a SIEM without a new table.
+     */
+    private logTranscriptAccess(actorUserId: string | undefined, recordId: number, action: 'read'): void {
+        try {
+            this.logger.log(`AUDIT ${JSON.stringify({
+                kind: 'operator_transcript_access',
+                action,
+                recordId,
+                actorUserId: actorUserId ?? null,
+                at: new Date().toISOString(),
+            })}`);
+        } catch {
+            // never let audit logging break the read path
+        }
+    }
+
+    // ─── Human-in-the-loop metric overrides ──────────────────────────
+    // Supervisor corrections stored SEPARATELY from LLM values (calibration set).
+
+    private async assertRecordAccess(channelId: string, userId?: string, isAdmin?: boolean): Promise<AiCdr> {
+        const where: any = { channelId: String(channelId) };
+        if (!isAdmin && userId) where.userId = String(userId);
+        const record = await this.aiCdrRepository.findOne({ where });
+        if (!record) {
+            throw new HttpException('Analysis not found', HttpStatus.NOT_FOUND);
+        }
+        return record;
+    }
+
+    async getMetricOverrides(channelId: string, userId?: string, isAdmin?: boolean): Promise<MetricOverride[]> {
+        await this.assertRecordAccess(channelId, userId, isAdmin);
+        return this.metricOverrideRepository.findAll({
+            where: { channelId: String(channelId) },
+            order: [['metricId', 'ASC']],
+        });
+    }
+
+    async saveMetricOverrides(
+        channelId: string,
+        actorUserId: string,
+        isAdmin: boolean,
+        overrides: Array<{
+            metricId: string;
+            origin?: MetricOverrideOrigin;
+            numValue?: number | null;
+            boolValue?: boolean | null;
+            strValue?: string | null;
+            note?: string | null;
+        }>,
+    ): Promise<MetricOverride[]> {
+        const record = await this.assertRecordAccess(channelId, actorUserId, isAdmin);
+        const ownerUserId = String(record.userId);
+
+        if (!Array.isArray(overrides) || overrides.length === 0) {
+            throw new HttpException('No overrides provided', HttpStatus.BAD_REQUEST);
+        }
+
+        for (const o of overrides) {
+            if (!o || typeof o.metricId !== 'string' || !o.metricId) {
+                throw new HttpException('Each override requires a metricId', HttpStatus.BAD_REQUEST);
+            }
+            const payload = {
+                channelId: String(channelId),
+                userId: ownerUserId,
+                actorUserId: String(actorUserId),
+                metricId: o.metricId,
+                origin: (o.origin || 'default') as MetricOverrideOrigin,
+                numValue: o.numValue ?? null,
+                boolValue: o.boolValue ?? null,
+                strValue: o.strValue ?? null,
+                note: o.note ?? null,
+            };
+            const existing = await this.metricOverrideRepository.findOne({
+                where: { channelId: String(channelId), metricId: o.metricId },
+            });
+            if (existing) {
+                await existing.update(payload);
+            } else {
+                await this.metricOverrideRepository.create(payload as any);
+            }
+        }
+
+        this.logger.log(`AUDIT ${JSON.stringify({
+            kind: 'operator_metric_override',
+            channelId: String(channelId),
+            actorUserId: String(actorUserId),
+            metrics: overrides.map(o => o.metricId),
+            at: new Date().toISOString(),
+        })}`);
+
+        return this.metricOverrideRepository.findAll({
+            where: { channelId: String(channelId) },
+            order: [['metricId', 'ASC']],
+        });
+    }
+
+    async deleteMetricOverride(
+        channelId: string,
+        metricId: string,
+        userId: string,
+        isAdmin: boolean,
+    ): Promise<{ deleted: number }> {
+        await this.assertRecordAccess(channelId, userId, isAdmin);
+        const deleted = await this.metricOverrideRepository.destroy({
+            where: { channelId: String(channelId), metricId },
+        });
+        return { deleted };
     }
 
     async getCdrs(query: {
@@ -908,22 +1229,31 @@ export class OperatorAnalyticsService {
         }
 
         if (query.operatorName) {
-            where.assistantName = { [Op.iLike || Op.like]: `%${query.operatorName}%` };
+            where.assistantName = this.likeOp(`%${query.operatorName}%`);
         }
 
         if (query.projectId) {
             where.projectId = query.projectId;
         }
 
-        // Search logic
+        // Search logic (name, phone, transcription — additive)
         if (query.search && query.search.trim() !== '') {
             const searchStr = `%${query.search.trim()}%`;
-            const searchConditions = [
-                { assistantName: { [Op.iLike || Op.like]: searchStr } },
-                { callerId: { [Op.iLike || Op.like]: searchStr } },
+            const searchConditions: any[] = [
+                { assistantName: this.likeOp(searchStr) },
+                { callerId: this.likeOp(searchStr) },
             ];
-            // subquery issues in sqlite/postgres generally require true JSON query or left join. 
-            // We just let the search logic from aiCdrService apply here.
+            const oaWhere: any = { transcription: this.likeOp(searchStr) };
+            if (!isAdmin) oaWhere.userId = realUserId;
+            if (query.projectId) oaWhere.projectId = query.projectId;
+            const matchingOa = await this.analyticsRepository.findAll({
+                where: oaWhere,
+                attributes: ['id'],
+                limit: 500,
+            });
+            if (matchingOa.length) {
+                searchConditions.push({ channelId: { [Op.in]: matchingOa.map(r => String(r.id)) } });
+            }
             where[Op.or] = searchConditions;
         }
 
@@ -948,14 +1278,22 @@ export class OperatorAnalyticsService {
         const oaRecords = analyticsIds.length > 0
             ? await this.analyticsRepository.findAll({
                 where: { id: { [Op.in]: analyticsIds } },
-                attributes: ['id', 'transcription'],
+                attributes: [
+                    'id', 'transcription', 'transcriptionQuality', 'transcriptionConfidence',
+                    'detectedLanguage', 'qualityReasons',
+                ],
             })
             : [];
-        const transcriptionMap = new Map(oaRecords.map(r => [String(r.id), r.transcription]));
+        const oaMap = new Map(oaRecords.map(r => [String(r.id), r]));
 
         const enrichedData = data.map(row => {
             const json = row.toJSON() as any;
-            json.transcription = transcriptionMap.get(row.channelId) || null;
+            const oa = oaMap.get(row.channelId);
+            json.transcription = oa?.transcription || null;
+            json.transcriptionQuality = oa?.transcriptionQuality || json.analytics?.metrics?._quality?.quality || null;
+            json.transcriptionConfidence = oa?.transcriptionConfidence ?? json.analytics?.metrics?._quality?.confidence ?? null;
+            json.detectedLanguage = oa?.detectedLanguage || null;
+            json.qualityReasons = oa?.qualityReasons || json.analytics?.metrics?._quality?.reasons || null;
             return json;
         });
 
@@ -969,109 +1307,132 @@ export class OperatorAnalyticsService {
         operatorName?: string;
         projectId?: number;
     }, isAdmin: boolean, realUserId: string) {
-        const where: any = {};
+        const where = buildDashboardCdrWhere(query, isAdmin, realUserId, (v) => this.likeOp(v));
+        const numericKeys = [
+            'greeting_quality', 'script_compliance', 'politeness_empathy',
+            'active_listening', 'objection_handling', 'product_knowledge',
+            'problem_resolution', 'speech_clarity_pace', 'closing_quality',
+        ] as const;
 
-        // Access control: non-admins see only their own data;
-        // admins can filter by userId from query params
-        if (!isAdmin) {
-            where.userId = String(realUserId);
-        } else if (query.userId) {
-            where.userId = query.userId;
-        }
-
-        if (query.startDate && query.endDate) {
-            where.createdAt = {
-                [Op.between]: [
-                    new Date(`${query.startDate}T00:00:00`),
-                    new Date(`${query.endDate}T23:59:59`),
-                ],
-            };
-        } else if (query.startDate) {
-            where.createdAt = { [Op.gte]: new Date(`${query.startDate}T00:00:00`) };
-        } else if (query.endDate) {
-            where.createdAt = { [Op.lte]: new Date(`${query.endDate}T23:59:59`) };
-        }
-
-        if (query.operatorName) {
-            where.assistantName = { [Op.iLike || Op.like]: `%${query.operatorName}%` };
-        }
-
-        if (query.projectId) {
-            where.projectId = query.projectId;
-        }
-
-        const records = await this.aiCdrRepository.findAll({
-            where,
-            include: [{ model: AiAnalytics, as: 'analytics' }],
-            order: [['createdAt', 'ASC']],
-            limit: 50000,
-        });
-
-        const totalAnalyzed = records.length;
+        const totalAnalyzed = await this.aiCdrRepository.count({ where });
         if (totalAnalyzed === 0) {
             return {
                 totalAnalyzed: 0, totalCost: 0, averageDuration: 0,
                 averageScore: 0, successRate: 0,
                 aggregatedMetrics: this.emptyAggregatedMetrics(),
+                customMetricsAggregated: {},
                 sentimentDistribution: { positive: 0, neutral: 0, negative: 0 },
                 timeSeries: { monthly: [], daily: [] },
+                excludedLowQualityCount: 0,
+                agentScorecards: [],
             };
         }
 
-        const totalCostUsd = records.reduce((sum, r) => sum + Number(r.cost || 0), 0);
-        const totalAmountCurrency = isRubTenant()
-            ? records.reduce((sum, r) => {
-                const ac = Number(r.amountCurrency);
-                return sum + (Number.isFinite(ac) && ac > 0 ? ac : Number(r.cost || 0));
-            }, 0)
-            : null;
-        const totalCost = isRubTenant() && totalAmountCurrency != null
-            ? totalAmountCurrency
-            : totalCostUsd;
-        const averageDuration = records.reduce((sum, r) => sum + (r.duration || 0), 0) / totalAnalyzed;
-
-        // Aggregate metrics
-        const numericKeys = [
-            'greeting_quality', 'script_compliance', 'politeness_empathy',
-            'active_listening', 'objection_handling', 'product_knowledge',
-            'problem_resolution', 'speech_clarity_pace', 'closing_quality',
-        ];
-
-        const sums: Record<string, number> = {};
-        numericKeys.forEach(k => sums[k] = 0);
-        let successCount = 0;
-        let positiveCount = 0, neutralCount = 0, negativeCount = 0;
-
-        records.forEach(r => {
-            const m = r.analytics?.metrics;
-            if (!m) return;
-            numericKeys.forEach(k => { sums[k] += (m[k] || 0); });
-            if (m.success) successCount++;
-            const sentiment = (r.analytics?.sentiment || '').toLowerCase();
-            if (sentiment === 'positive') positiveCount++;
-            else if (sentiment === 'neutral') neutralCount++;
-            else if (sentiment === 'negative') negativeCount++;
-        });
-
-        const aggregatedMetrics: any = {};
-        numericKeys.forEach(k => {
-            aggregatedMetrics[k] = parseFloat((sums[k] / totalAnalyzed).toFixed(2));
-        });
-
-        const averageScore = parseFloat(
-            (numericKeys.reduce((s, k) => s + aggregatedMetrics[k], 0) / numericKeys.length).toFixed(2),
+        const excludedLowQualityCount = await countLowQualityCdrs(
+            this.aiCdrRepository.sequelize,
+            query,
+            isAdmin,
+            realUserId,
         );
 
-        const successRate = parseFloat(((successCount / totalAnalyzed) * 100).toFixed(2));
+        const totalsRow = await this.aiCdrRepository.findOne({
+            where,
+            attributes: [
+                [Sequelize.fn('SUM', Sequelize.col('cost')), 'totalCostUsd'],
+                [Sequelize.fn('SUM', Sequelize.col('amountCurrency')), 'totalAmountCurrency'],
+                [Sequelize.fn('AVG', Sequelize.col('duration')), 'avgDuration'],
+            ],
+            raw: true,
+        }) as { totalCostUsd?: string | number; totalAmountCurrency?: string | number; avgDuration?: string | number } | null;
 
-        const sentimentDistribution = {
-            positive: parseFloat(((positiveCount / totalAnalyzed) * 100).toFixed(2)),
-            neutral: parseFloat(((neutralCount / totalAnalyzed) * 100).toFixed(2)),
-            negative: parseFloat(((negativeCount / totalAnalyzed) * 100).toFixed(2)),
-        };
+        const totalCostUsd = Number(totalsRow?.totalCostUsd ?? 0);
+        const totalAmountCurrency = isRubTenant()
+            ? Number(totalsRow?.totalAmountCurrency ?? 0)
+            : null;
+        const totalCost = isRubTenant() && totalAmountCurrency != null && totalAmountCurrency > 0
+            ? totalAmountCurrency
+            : totalCostUsd;
 
-        // Time series
-        const timeSeries = this.buildTimeSeries(records, query.startDate, query.endDate);
+        let sqlAgg = await aggregateMetricsFromSql(
+            this.aiCdrRepository.sequelize,
+            query,
+            isAdmin,
+            realUserId,
+            excludedLowQualityCount > 0,
+        );
+
+        const aggregationRecords = await this.loadDashboardCdrPages(where);
+        const eligibleRecords = aggregationRecords.filter(r => {
+            const quality = (r.analytics?.metrics as any)?._quality?.quality as TranscriptionQualityLevel | undefined;
+            return quality !== 'low' && quality !== 'unusable';
+        });
+        const recordsForDerived = eligibleRecords.length > 0 ? eligibleRecords : aggregationRecords;
+        const aggregationCount = recordsForDerived.length;
+
+        let aggregatedMetrics: Record<string, number>;
+        let averageScore: number;
+        let successRate: number;
+        let sentimentDistribution: { positive: number; neutral: number; negative: number };
+
+        if (sqlAgg.usedSql && sqlAgg.aggregationCount > 0) {
+            aggregatedMetrics = { ...sqlAgg.numericAverages };
+            averageScore = parseFloat(
+                (numericKeys.reduce((s, k) => s + (aggregatedMetrics[k] || 0), 0) / numericKeys.length).toFixed(2),
+            );
+            const denom = sqlAgg.aggregationCount || 1;
+            successRate = parseFloat(((sqlAgg.successCount / denom) * 100).toFixed(2));
+            const sentimentTotal = sqlAgg.positiveCount + sqlAgg.neutralCount + sqlAgg.negativeCount || denom;
+            sentimentDistribution = {
+                positive: parseFloat(((sqlAgg.positiveCount / sentimentTotal) * 100).toFixed(2)),
+                neutral: parseFloat(((sqlAgg.neutralCount / sentimentTotal) * 100).toFixed(2)),
+                negative: parseFloat(((sqlAgg.negativeCount / sentimentTotal) * 100).toFixed(2)),
+            };
+        } else {
+            const sums: Record<string, number> = {};
+            numericKeys.forEach(k => { sums[k] = 0; });
+            let successCount = 0;
+            let positiveCount = 0;
+            let neutralCount = 0;
+            let negativeCount = 0;
+
+            recordsForDerived.forEach(r => {
+                const m = r.analytics?.metrics;
+                if (!m) return;
+                numericKeys.forEach(k => { sums[k] += (m[k] || 0); });
+                if (m.success) successCount++;
+                const sentiment = (r.analytics?.sentiment || '').toLowerCase();
+                if (sentiment === 'positive') positiveCount++;
+                else if (sentiment === 'neutral') neutralCount++;
+                else if (sentiment === 'negative') negativeCount++;
+            });
+
+            aggregatedMetrics = {};
+            numericKeys.forEach(k => {
+                aggregatedMetrics[k] = parseFloat((sums[k] / aggregationCount).toFixed(2));
+            });
+            averageScore = parseFloat(
+                (numericKeys.reduce((s, k) => s + aggregatedMetrics[k], 0) / numericKeys.length).toFixed(2),
+            );
+            successRate = parseFloat(((successCount / aggregationCount) * 100).toFixed(2));
+            sentimentDistribution = {
+                positive: parseFloat(((positiveCount / aggregationCount) * 100).toFixed(2)),
+                neutral: parseFloat(((neutralCount / aggregationCount) * 100).toFixed(2)),
+                negative: parseFloat(((negativeCount / aggregationCount) * 100).toFixed(2)),
+            };
+        }
+
+        const averageDuration = recordsForDerived.reduce((sum, r) => sum + (r.duration || 0), 0) / aggregationCount;
+        const timeSeries = this.buildTimeSeries(recordsForDerived, query.startDate, query.endDate);
+
+        let customMetricsAggregated: Record<string, { type: string; value?: number; distribution?: Record<string, number> }> = {};
+        if (query.projectId) {
+            const project = await this.projectRepository.findByPk(query.projectId);
+            if (project?.customMetricsSchema?.length) {
+                customMetricsAggregated = this.aggregateCustomMetrics(recordsForDerived, project.customMetricsSchema);
+            }
+        }
+
+        const agentScorecards = this.buildAgentScorecards(recordsForDerived);
 
         return {
             totalAnalyzed,
@@ -1083,10 +1444,207 @@ export class OperatorAnalyticsService {
             averageScore,
             successRate,
             aggregatedMetrics,
+            customMetricsAggregated,
             sentimentDistribution,
             timeSeries,
-            insightsAvailable: totalAnalyzed >= 5,
+            insightsAvailable: aggregationCount >= 5,
+            excludedLowQualityCount,
+            agentScorecards,
         };
+    }
+
+    /**
+     * Marks operator-analytics records stuck in `processing` as ERROR (no extra billing).
+     * Enabled when OPERATOR_STUCK_MINUTES > 0.
+     */
+    async reapStuckProcessing(): Promise<{ enabled: boolean; cutoffMinutes: number; reaped: number }> {
+        const cutoffMinutes = this.stuckMinutes;
+        if (cutoffMinutes <= 0) {
+            return { enabled: false, cutoffMinutes: 0, reaped: 0 };
+        }
+
+        const cutoff = new Date(Date.now() - cutoffMinutes * 60 * 1000);
+        const [reaped] = await this.analyticsRepository.update(
+            {
+                status: AnalyticsStatus.ERROR,
+                errorMessage: `Processing timeout after ${cutoffMinutes} minutes (automatic cleanup)`,
+            },
+            {
+                where: {
+                    status: AnalyticsStatus.PROCESSING,
+                    createdAt: { [Op.lt]: cutoff },
+                },
+            },
+        );
+
+        return { enabled: true, cutoffMinutes, reaped };
+    }
+
+    /**
+     * Scheduled anomaly detection across projects with `anomaly.detected` webhook.
+     * Compares the recent window vs the prior baseline window (CSAT drop / negativity spike).
+     */
+    async checkAnomalies(): Promise<{ enabled: boolean; checked: number; alerted: number }> {
+        const enabled = this.readBooleanEnv('OPERATOR_ANOMALY_ENABLED', false);
+        if (!enabled) return { enabled: false, checked: 0, alerted: 0 };
+
+        const windowDays = this.readPositiveEnv('OPERATOR_ANOMALY_WINDOW_DAYS', 7);
+        const csatDropPct = this.readPositiveEnv('OPERATOR_ANOMALY_CSAT_DROP_PCT', 20);
+        const negativeSpikePct = this.readPositiveEnv('OPERATOR_ANOMALY_NEGATIVE_SPIKE_PCT', 15);
+        const minCalls = this.readPositiveEnv('OPERATOR_ANOMALY_MIN_CALLS', 5);
+
+        const now = new Date();
+        const recentStart = new Date(now);
+        recentStart.setUTCDate(recentStart.getUTCDate() - windowDays);
+        const baselineEnd = new Date(recentStart);
+        const baselineStart = new Date(recentStart);
+        baselineStart.setUTCDate(baselineStart.getUTCDate() - windowDays);
+
+        const projects = await this.projectRepository.findAll({
+            where: { webhookUrl: { [Op.ne]: null } },
+        });
+
+        let alerted = 0;
+        for (const project of projects) {
+            if (!project.webhookEvents?.includes('anomaly.detected')) continue;
+
+            const recent = await this.computeAnomalyWindowStats(project.id, recentStart, now);
+            const baseline = await this.computeAnomalyWindowStats(project.id, baselineStart, baselineEnd);
+            if (recent.count < minCalls || baseline.count < minCalls) continue;
+
+            const csatDrop = baseline.avgCsat != null && recent.avgCsat != null
+                ? ((baseline.avgCsat - recent.avgCsat) / baseline.avgCsat) * 100
+                : null;
+            const negativeSpike = recent.negativeRate - baseline.negativeRate;
+
+            const csatTriggered = csatDrop != null && csatDrop >= csatDropPct;
+            const negativeTriggered = negativeSpike >= negativeSpikePct;
+            if (!csatTriggered && !negativeTriggered) continue;
+
+            const last = project.anomalyLastAlertAt ? new Date(project.anomalyLastAlertAt) : null;
+            if (last && last >= recentStart) continue;
+
+            await project.update({ anomalyLastAlertAt: now });
+            alerted++;
+
+            const payload = {
+                projectId: project.id,
+                projectName: project.name,
+                windowDays,
+                recent,
+                baseline,
+                triggers: {
+                    csatDrop: csatTriggered ? parseFloat((csatDrop as number).toFixed(2)) : null,
+                    negativeSpike: negativeTriggered ? parseFloat(negativeSpike.toFixed(2)) : null,
+                },
+            };
+            this.logger.warn(`Anomaly detected for project #${project.id}: ${JSON.stringify(payload.triggers)}`);
+            await this.callWebhook(project, 'anomaly.detected', payload).catch(() => { });
+        }
+
+        return { enabled: true, checked: projects.length, alerted };
+    }
+
+    private async computeAnomalyWindowStats(
+        projectId: number,
+        from: Date,
+        to: Date,
+    ): Promise<{ count: number; avgCsat: number | null; negativeRate: number }> {
+        const records = await this.aiCdrRepository.findAll({
+            where: {
+                projectId,
+                createdAt: { [Op.gte]: from, [Op.lt]: to },
+            },
+            include: [{ model: AiAnalytics, as: 'analytics' }],
+        });
+
+        let csatSum = 0;
+        let csatCount = 0;
+        let negativeCount = 0;
+        for (const r of records) {
+            const m = r.analytics?.metrics as any;
+            const quality = m?._quality?.quality as TranscriptionQualityLevel | undefined;
+            if (quality === 'low' || quality === 'unusable') continue;
+
+            const csat = r.analytics?.csat ?? m?.csat;
+            if (typeof csat === 'number') {
+                csatSum += csat;
+                csatCount++;
+            }
+            const sentiment = (r.analytics?.sentiment || m?.customer_sentiment || '').toLowerCase();
+            if (sentiment === 'negative') negativeCount++;
+        }
+
+        const eligible = records.length || 1;
+        return {
+            count: records.length,
+            avgCsat: csatCount ? parseFloat((csatSum / csatCount).toFixed(2)) : null,
+            negativeRate: parseFloat(((negativeCount / eligible) * 100).toFixed(2)),
+        };
+    }
+
+    private buildAgentScorecards(records: AiCdr[]): Array<{
+        operatorName: string;
+        callsCount: number;
+        averageScore: number;
+        successRate: number;
+        avgCsat: number | null;
+        negativeRate: number;
+    }> {
+        const numericKeys = [
+            'greeting_quality', 'script_compliance', 'politeness_empathy',
+            'active_listening', 'objection_handling', 'product_knowledge',
+            'problem_resolution', 'speech_clarity_pace', 'closing_quality',
+        ];
+        const byOperator = new Map<string, AiCdr[]>();
+        for (const r of records) {
+            const name = (r.assistantName || '').trim() || 'Unknown Operator';
+            if (!byOperator.has(name)) byOperator.set(name, []);
+            byOperator.get(name)!.push(r);
+        }
+
+        const scorecards = Array.from(byOperator.entries()).map(([operatorName, rows]) => {
+            const sums: Record<string, number> = {};
+            numericKeys.forEach(k => { sums[k] = 0; });
+            let successCount = 0;
+            let negativeCount = 0;
+            let csatSum = 0;
+            let csatCount = 0;
+            let scored = 0;
+
+            for (const r of rows) {
+                const m = r.analytics?.metrics;
+                if (!m) continue;
+                scored++;
+                numericKeys.forEach(k => { sums[k] += (m[k] || 0); });
+                if (m.success) successCount++;
+                const sentiment = (r.analytics?.sentiment || m.customer_sentiment || '').toLowerCase();
+                if (sentiment === 'negative') negativeCount++;
+                const csat = r.analytics?.csat ?? m.csat;
+                if (typeof csat === 'number') {
+                    csatSum += csat;
+                    csatCount++;
+                }
+            }
+
+            const denom = scored || 1;
+            const aggregated = numericKeys.reduce((s, k) => s + (sums[k] / denom), 0) / numericKeys.length;
+            return {
+                operatorName,
+                callsCount: rows.length,
+                averageScore: parseFloat(aggregated.toFixed(2)),
+                successRate: parseFloat(((successCount / denom) * 100).toFixed(2)),
+                avgCsat: csatCount ? parseFloat((csatSum / csatCount).toFixed(2)) : null,
+                negativeRate: parseFloat(((negativeCount / denom) * 100).toFixed(2)),
+            };
+        });
+
+        return scorecards.sort((a, b) => b.callsCount - a.callsCount);
+    }
+
+    private spotTopicKeywords(transcription: string): string[] | null {
+        const hits = spotKeywords(transcription, this.keywordSpottingList);
+        return hits.length ? hits : null;
     }
 
     // ─── Projects ────────────────────────────────────────────────────
@@ -1118,6 +1676,8 @@ export class OperatorAnalyticsService {
             webhookUrl?: string;
             webhookEvents?: string[];
             webhookHeaders?: Record<string, string>;
+            monthlyBudgetUsd?: number | null;
+            budgetAlertEmails?: string[] | null;
         },
     ): Promise<OperatorProject> {
         if (!data.name?.trim()) {
@@ -1143,6 +1703,8 @@ export class OperatorAnalyticsService {
         if (data.webhookUrl !== undefined) createData.webhookUrl = data.webhookUrl || null;
         if (data.webhookEvents !== undefined) createData.webhookEvents = data.webhookEvents;
         if (data.webhookHeaders !== undefined) createData.webhookHeaders = data.webhookHeaders;
+        if (data.monthlyBudgetUsd !== undefined) createData.monthlyBudgetUsd = this.normalizeBudget(data.monthlyBudgetUsd);
+        if (data.budgetAlertEmails !== undefined) createData.budgetAlertEmails = data.budgetAlertEmails;
 
         return this.projectRepository.create(createData);
     }
@@ -1159,6 +1721,8 @@ export class OperatorAnalyticsService {
             webhookUrl?: string;
             webhookEvents?: string[];
             webhookHeaders?: Record<string, string>;
+            monthlyBudgetUsd?: number | null;
+            budgetAlertEmails?: string[] | null;
         },
     ): Promise<OperatorProject> {
         const project = await this.projectRepository.findOne({ where: { id, userId } });
@@ -1177,8 +1741,21 @@ export class OperatorAnalyticsService {
         if (data.webhookUrl !== undefined) project.webhookUrl = data.webhookUrl || null;
         if (data.webhookEvents !== undefined) project.webhookEvents = data.webhookEvents as WebhookEvent[];
         if (data.webhookHeaders !== undefined) project.webhookHeaders = data.webhookHeaders;
+        if (data.monthlyBudgetUsd !== undefined) {
+            const next = this.normalizeBudget(data.monthlyBudgetUsd);
+            // Re-arm alerting when the budget changes so a new limit can fire this month.
+            if (next !== project.monthlyBudgetUsd) project.budgetLastAlertAt = null;
+            project.monthlyBudgetUsd = next;
+        }
+        if (data.budgetAlertEmails !== undefined) project.budgetAlertEmails = data.budgetAlertEmails;
         await project.save();
         return project;
+    }
+
+    /** Coerce a budget input to a positive number, or null to disable. */
+    private normalizeBudget(value: number | null | undefined): number | null {
+        const n = Number(value);
+        return Number.isFinite(n) && n > 0 ? n : null;
     }
 
     async deleteProject(id: number, userId: string, isAdmin = false) {
@@ -1536,6 +2113,52 @@ Write insights in Russian. Be specific and actionable.`;
 
     // ─── Webhook ─────────────────────────────────────────────────────
 
+    private monthStartUtc(d: Date = new Date()): Date {
+        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+    }
+
+    /**
+     * Per-project monthly budget guard. Mirrors the balance-threshold-alert pattern
+     * (threshold crossing + dedupe via a "last alerted" timestamp), scoped to a project.
+     * Disabled unless the project has a positive `monthlyBudgetUsd` (BC-safe default).
+     * Best-effort: never throws into the analysis pipeline.
+     */
+    private async checkProjectBudget(project: OperatorProject | null | undefined, userId: string): Promise<void> {
+        try {
+            const budget = project?.monthlyBudgetUsd;
+            if (!project || budget == null || !(budget > 0)) return;
+
+            const monthStart = this.monthStartUtc();
+            const spentRaw = await this.aiCdrRepository.sum('cost', {
+                where: { projectId: project.id, createdAt: { [Op.gte]: monthStart } },
+            });
+            const spent = Number(spentRaw) || 0;
+            if (spent < budget) return;
+
+            // Dedupe: at most one alert per calendar month.
+            const last = project.budgetLastAlertAt ? new Date(project.budgetLastAlertAt) : null;
+            if (last && last >= monthStart) return;
+
+            await project.update({ budgetLastAlertAt: new Date() });
+
+            const month = monthStart.toISOString().slice(0, 7);
+            this.logger.warn(
+                `Project budget exceeded: project #${project.id} "${project.name}" ` +
+                `spent=${spent.toFixed(4)} USD >= budget=${budget} USD (month ${month}, user ${userId})`,
+            );
+            await this.callWebhook(project, 'budget.exceeded', {
+                projectId: project.id,
+                projectName: project.name,
+                monthlyBudgetUsd: budget,
+                spentUsd: parseFloat(spent.toFixed(6)),
+                month,
+                alertEmails: project.budgetAlertEmails || [],
+            }).catch(() => { });
+        } catch (e) {
+            this.logger.warn(`Budget check failed for project #${project?.id}: ${(e as Error).message}`);
+        }
+    }
+
     async callWebhook(
         project: OperatorProject,
         event: WebhookEvent,
@@ -1681,7 +2304,374 @@ Write insights in Russian. Be specific and actionable.`;
         return { success: true };
     }
 
+    // ─── Data Retention (PII lifecycle) ──────────────────────────────
+
+    /**
+     * Apply the configured retention policy to old operator-analytics data.
+     *
+     * Controlled by env (safe defaults — disabled in prod until enabled):
+     *  - OPERATOR_RETENTION_DAYS  (default 0 → disabled, no-op)
+     *  - OPERATOR_RETENTION_MODE  ('anonymize' default | 'delete')
+     *  - OPERATOR_RETENTION_BATCH (default 500 → bounds load per run)
+     *
+     * BillingRecord rows are NEVER deleted (financial record); only PII is stripped.
+     */
+    async applyRetention(): Promise<{
+        enabled: boolean;
+        mode: 'anonymize' | 'delete';
+        cutoff: string | null;
+        scanned: number;
+        affected: number;
+    }> {
+        const days = Number(this.configService.get<string>('OPERATOR_RETENTION_DAYS') || process.env.OPERATOR_RETENTION_DAYS || 0);
+        const mode = ((this.configService.get<string>('OPERATOR_RETENTION_MODE') || process.env.OPERATOR_RETENTION_MODE || 'anonymize')
+            .toLowerCase() === 'delete') ? 'delete' : 'anonymize';
+        const batch = this.readPositiveEnv('OPERATOR_RETENTION_BATCH', 500);
+
+        if (!Number.isFinite(days) || days <= 0) {
+            return { enabled: false, mode, cutoff: null, scanned: 0, affected: 0 };
+        }
+
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+        // Only pick rows that still hold PII (so re-runs are cheap and idempotent for anonymize).
+        const where: any = { createdAt: { [Op.lt]: cutoff } };
+        if (mode === 'anonymize') {
+            where[Op.or] = [
+                { transcription: { [Op.ne]: null } },
+                { clientPhone: { [Op.ne]: null } },
+            ];
+        }
+
+        const records = await this.analyticsRepository.findAll({
+            where,
+            attributes: ['id'],
+            limit: batch,
+            order: [['createdAt', 'ASC']],
+        });
+        const scanned = records.length;
+        if (scanned === 0) {
+            return { enabled: true, mode, cutoff: cutoff.toISOString(), scanned: 0, affected: 0 };
+        }
+
+        const ids = records.map(r => r.id);
+        const channelIds = ids.map(id => String(id));
+        let affected = 0;
+
+        if (mode === 'delete') {
+            // Cascade: operator_analytics + AiAnalytics + AiCdr + metric_values. Keep BillingRecord (finance).
+            await this.aiAnalyticsRepository.destroy({ where: { channelId: { [Op.in]: channelIds } } });
+            await this.aiCdrRepository.destroy({ where: { channelId: { [Op.in]: channelIds } } });
+            await this.metricValueRepository.destroy({ where: { channelId: { [Op.in]: channelIds } } });
+            affected = await this.analyticsRepository.destroy({ where: { id: { [Op.in]: ids } } });
+        } else {
+            // Anonymize PII in place; keep scores/aggregates and billing intact.
+            const [oaCount] = await this.analyticsRepository.update(
+                { transcription: null, clientPhone: null },
+                { where: { id: { [Op.in]: ids } } },
+            );
+            await this.aiCdrRepository.update(
+                { callerId: null },
+                { where: { channelId: { [Op.in]: channelIds } } },
+            );
+            affected = oaCount;
+        }
+
+        this.logger.log(`Retention (${mode}): cutoff=${cutoff.toISOString()} scanned=${scanned} affected=${affected}`);
+        return { enabled: true, mode, cutoff: cutoff.toISOString(), scanned, affected };
+    }
+
     // ─── Private Helpers ─────────────────────────────────────────────
+
+    private async loadDashboardCdrPages(where: Record<string, unknown>): Promise<AiCdr[]> {
+        const records: AiCdr[] = [];
+        let offset = 0;
+        for (;;) {
+            const page = await this.aiCdrRepository.findAll({
+                where,
+                include: [{ model: AiAnalytics, as: 'analytics' }],
+                order: [['createdAt', 'ASC']],
+                limit: DASHBOARD_PAGE_SIZE,
+                offset,
+            });
+            records.push(...page);
+            if (page.length < DASHBOARD_PAGE_SIZE) break;
+            offset += DASHBOARD_PAGE_SIZE;
+        }
+        return records;
+    }
+
+    private async findCompletedDuplicate(
+        userId: string,
+        projectId: number,
+        audioSha256: string,
+        excludeId?: number,
+    ): Promise<OperatorAnalytics | null> {
+        if (!audioSha256) return null;
+        const where: Record<string, unknown> = {
+            userId: String(userId),
+            projectId,
+            audioSha256,
+            status: AnalyticsStatus.COMPLETED,
+        };
+        if (excludeId != null) {
+            where.id = { [Op.ne]: excludeId };
+        }
+        return this.analyticsRepository.findOne({
+            where,
+            order: [['id', 'DESC']],
+        });
+    }
+
+    /**
+     * Copy a completed analysis onto a new record without STT/LLM/billing (dedup path).
+     */
+    private async completeFromDuplicate(
+        target: OperatorAnalytics,
+        source: OperatorAnalytics,
+    ): Promise<void> {
+        const sourceChannelId = String(source.id);
+        const sourceCdr = await this.aiCdrRepository.findOne({
+            where: { channelId: sourceChannelId },
+            include: [{ model: AiAnalytics, as: 'analytics' }],
+        });
+        if (!sourceCdr?.analytics) {
+            throw new Error(`Dedup source #${source.id} has no CDR/analytics`);
+        }
+
+        await target.update({
+            status: AnalyticsStatus.COMPLETED,
+            transcription: source.transcription,
+            duration: source.duration,
+            sttProvider: source.sttProvider,
+            transcriptionQuality: source.transcriptionQuality,
+            transcriptionConfidence: source.transcriptionConfidence,
+            detectedLanguage: source.detectedLanguage,
+            qualityReasons: source.qualityReasons,
+            schemaVersion: source.schemaVersion,
+            promptVersion: source.promptVersion,
+            audioSha256: source.audioSha256,
+            errorMessage: null,
+        });
+
+        const channelId = String(target.id);
+        const cdrSource = target.source === AnalyticsSource.API
+            ? OPERATOR_CDR_SOURCE.EXTERNAL_API
+            : OPERATOR_CDR_SOURCE.EXTERNAL_FRONT;
+        const assistantName = target.operatorName || source.operatorName || 'Unknown Operator';
+        const metrics = sourceCdr.analytics.metrics;
+
+        await this.aiCdrRepository.create({
+            channelId,
+            projectId: target.projectId,
+            duration: sourceCdr.duration ?? Math.round(source.duration || 0),
+            userId: target.userId,
+            cost: 0,
+            amountCurrency: 0,
+            tokens: 0,
+            assistantName,
+            callerId: target.clientPhone || source.clientPhone || '',
+            source: cdrSource,
+            recordUrl: target.recordUrl || source.recordUrl || '',
+        });
+
+        await this.aiAnalyticsRepository.create({
+            channelId,
+            metrics,
+            summary: sourceCdr.analytics.summary || '',
+            sentiment: sourceCdr.analytics.sentiment || '',
+            csat: sourceCdr.analytics.csat ?? null,
+            cost: 0,
+            tokens: 0,
+        });
+        await this.writeMetricValues(
+            channelId,
+            target.userId,
+            target.projectId,
+            source.schemaVersion ?? null,
+            metrics,
+        );
+
+        this.logger.log(`Dedup: record #${target.id} completed from source #${source.id} (no billing)`);
+
+        if (target.projectId) {
+            const project = await this.projectRepository.findByPk(target.projectId);
+            if (project) {
+                this.callWebhook(project, 'analysis.completed', {
+                    recordId: target.id,
+                    filename: target.filename,
+                    deduplicatedFrom: source.id,
+                }).catch(err => this.logger.warn(`Webhook error: ${err.message}`));
+            }
+        }
+    }
+
+    private async persistAudioSha256(record: OperatorAnalytics, audioSha256: string): Promise<void> {
+        if (!audioSha256) return;
+        try {
+            await record.update({ audioSha256 });
+        } catch (e) {
+            this.logger.warn(
+                `Could not persist audioSha256 on record #${record.id} ` +
+                `(apply migration 2026-06-18-operator-audio-hash): ${(e as Error).message}`,
+            );
+        }
+    }
+
+    private readPositiveEnv(key: string, fallback: number): number {
+        const raw = Number(this.configService.get<string>(key) || process.env[key]);
+        return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+    }
+
+    private readNumericEnv(key: string, fallback: number): number {
+        const raw = Number(this.configService.get<string>(key) || process.env[key]);
+        return Number.isFinite(raw) ? raw : fallback;
+    }
+
+    private readBooleanEnv(key: string, fallback = false): boolean {
+        const raw = (this.configService.get<string>(key) ?? process.env[key] ?? '').toString().trim().toLowerCase();
+        if (raw === '') return fallback;
+        return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on';
+    }
+
+    private assessSttQuality(sttResult: TranscriptionResult): TranscriptionQualityAssessment {
+        return assessTranscriptionQuality({
+            text: sttResult.text,
+            avgLogprob: sttResult.avgLogprob,
+            noSpeechProb: sttResult.noSpeechProb,
+            compressionRatio: sttResult.compressionRatio,
+            languageProbability: sttResult.languageProbability,
+            wordsCount: sttResult.wordsCount,
+            segmentsCount: sttResult.segmentsCount,
+        }, this.qualityThresholds);
+    }
+
+    private async saveQualityOnRecord(
+        record: OperatorAnalytics,
+        sttResult: TranscriptionResult,
+        assessment: TranscriptionQualityAssessment,
+    ): Promise<void> {
+        await record.update({
+            transcriptionQuality: assessment.quality,
+            transcriptionConfidence: assessment.confidence,
+            detectedLanguage: sttResult.language || record.detectedLanguage || null,
+            qualityReasons: assessment.reasons,
+        });
+    }
+
+    private enrichStoredMetrics(
+        metrics: Record<string, any>,
+        assessment: TranscriptionQualityAssessment,
+        extras?: {
+            assessments?: Record<string, MetricAssessment> | null;
+            model?: string;
+            customMeta?: Record<string, StoredMetricMeta> | null;
+            schemaVersion?: number | null;
+            customInvalid?: string[] | null;
+            promptVersion?: string | null;
+            topics?: string[] | null;
+        },
+    ) {
+        return {
+            ...metrics,
+            ...(extras?.assessments ? { _assessments: extras.assessments } : {}),
+            ...(extras?.customMeta && Object.keys(extras.customMeta).length
+                ? { _custom_meta: extras.customMeta }
+                : {}),
+            ...(extras?.model || extras?.promptVersion
+                ? { _model: { ...(extras?.model ? { name: extras.model } : {}), ...(extras?.promptVersion ? { promptVersion: extras.promptVersion } : {}) } }
+                : {}),
+            ...(extras?.topics && extras.topics.length ? { _topics: { keywords: extras.topics } } : {}),
+            ...(extras?.schemaVersion != null ? { _schema_version: extras.schemaVersion } : {}),
+            ...(extras?.customInvalid && extras.customInvalid.length
+                ? { _custom_invalid: extras.customInvalid }
+                : {}),
+            _quality: {
+                quality: assessment.quality,
+                confidence: assessment.confidence,
+                reasons: assessment.reasons,
+            },
+        };
+    }
+
+    /**
+     * Persist the project schema version onto the record. Best-effort: the value is
+     * also mirrored inside the metrics JSON (`_schema_version`), so a missing DB column
+     * (un-applied migration) must not abort the whole analysis.
+     */
+    private async persistSchemaVersion(record: OperatorAnalytics, schemaVersion: number | null): Promise<void> {
+        if (schemaVersion != null) {
+            try {
+                await record.update({ schemaVersion });
+            } catch (e) {
+                this.logger.warn(
+                    `Could not persist schemaVersion on record #${record.id} ` +
+                    `(apply migration 2026-06-18-operator-schema-version): ${(e as Error).message}`,
+                );
+            }
+        }
+        // Persisted separately so a missing promptVersion column never blocks schemaVersion.
+        try {
+            await record.update({ promptVersion: PROMPT_VERSION });
+        } catch (e) {
+            this.logger.warn(
+                `Could not persist promptVersion on record #${record.id} ` +
+                `(apply migration 2026-06-18-operator-prompt-version): ${(e as Error).message}`,
+            );
+        }
+    }
+
+    /**
+     * Dual-write metric values into the normalized table alongside the JSON blob.
+     * Best-effort: never throws (JSON remains the source of truth).
+     * Idempotent per channel (clears prior rows first) so regenerate stays consistent.
+     */
+    private async writeMetricValues(
+        channelId: string,
+        userId: string | null,
+        projectId: number | null,
+        schemaVersion: number | null,
+        metrics: Record<string, any>,
+    ): Promise<void> {
+        try {
+            const base = {
+                channelId,
+                userId: userId ?? null,
+                projectId: projectId ?? null,
+                schemaVersion: schemaVersion ?? null,
+            };
+            const rows: Array<Record<string, any>> = [];
+            const add = (metricId: string, origin: MetricValueOrigin, value: { numValue?: number; boolValue?: boolean; strValue?: string }) =>
+                rows.push({ ...base, metricId, origin, numValue: null, boolValue: null, strValue: null, ...value });
+
+            for (const key of ALL_DEFAULT_METRIC_KEYS) {
+                const v = metrics[key];
+                if (typeof v === 'number') add(key, 'default', { numValue: v });
+            }
+            if (typeof metrics.csat === 'number') add('csat', 'summary', { numValue: metrics.csat });
+            if (typeof metrics.success === 'boolean') add('success', 'summary', { boolValue: metrics.success });
+            if (typeof metrics.customer_sentiment === 'string' && metrics.customer_sentiment) {
+                add('customer_sentiment', 'summary', { strValue: metrics.customer_sentiment });
+            }
+
+            const custom = metrics.custom_metrics;
+            if (custom && typeof custom === 'object') {
+                for (const [id, raw] of Object.entries(custom)) {
+                    if (raw === null || raw === undefined) continue;
+                    if (typeof raw === 'boolean') add(id, 'custom', { boolValue: raw });
+                    else if (typeof raw === 'number') add(id, 'custom', { numValue: raw });
+                    else add(id, 'custom', { strValue: String(raw) });
+                }
+            }
+
+            await this.metricValueRepository.destroy({ where: { channelId } });
+            if (rows.length) {
+                await this.metricValueRepository.bulkCreate(rows as any);
+            }
+        } catch (e) {
+            this.logger.warn(`metric_values dual-write failed for channel ${channelId}: ${(e as Error).message}`);
+        }
+    }
 
     private isRecordingTooShort(durationSeconds: number): boolean {
         return durationSeconds < this.minAnalysisDurationSec;
@@ -1692,21 +2682,53 @@ Write insights in Russian. Be specific and actionable.`;
         return `Recording is too short for analysis (minimum ${this.minAnalysisDurationSec} seconds, got ${roundedDuration}s)`;
     }
 
-    private async rejectIfRecordingTooShort(
+    private getUnusableMessage(assessment: TranscriptionQualityAssessment, durationSeconds: number): string {
+        if (assessment.reasons.includes('INSUFFICIENT_CONTENT') && this.isRecordingTooShort(durationSeconds)) {
+            return this.getTooShortMessage(durationSeconds);
+        }
+        if (assessment.reasons.includes('INSUFFICIENT_CONTENT')) {
+            return 'Transcription has insufficient content for reliable analysis';
+        }
+        return 'Transcription quality is too low for reliable analysis';
+    }
+
+    private async rejectIfUnusable(
         record: OperatorAnalytics,
         sttResult: TranscriptionResult & { provider: string },
     ): Promise<boolean> {
-        if (!this.isRecordingTooShort(sttResult.duration)) {
+        if (this.isRecordingTooShort(sttResult.duration)) {
+            const errorMessage = this.getTooShortMessage(sttResult.duration);
+            await record.update({
+                transcription: sttResult.text,
+                duration: sttResult.duration,
+                sttProvider: sttResult.provider,
+                status: AnalyticsStatus.ERROR,
+                errorMessage,
+                transcriptionQuality: 'unusable',
+                transcriptionConfidence: 0,
+                qualityReasons: ['INSUFFICIENT_CONTENT'],
+                detectedLanguage: sttResult.language || null,
+            });
+            this.logger.warn(`Analysis skipped for record #${record.id}: ${errorMessage}`);
+            return true;
+        }
+
+        const assessment = this.assessSttQuality(sttResult);
+        if (assessment.quality !== 'unusable') {
             return false;
         }
 
-        const errorMessage = this.getTooShortMessage(sttResult.duration);
+        const errorMessage = this.getUnusableMessage(assessment, sttResult.duration);
         await record.update({
             transcription: sttResult.text,
             duration: sttResult.duration,
             sttProvider: sttResult.provider,
             status: AnalyticsStatus.ERROR,
             errorMessage,
+            transcriptionQuality: assessment.quality,
+            transcriptionConfidence: assessment.confidence,
+            qualityReasons: assessment.reasons,
+            detectedLanguage: sttResult.language || null,
         });
         this.logger.warn(`Analysis skipped for record #${record.id}: ${errorMessage}`);
         return true;
@@ -1720,6 +2742,20 @@ Write insights in Russian. Be specific and actionable.`;
                 HttpStatus.PAYMENT_REQUIRED,
             );
         }
+    }
+
+    /**
+     * Pull the input/output token split out of an LLM usage object.
+     * Supports both Chat Completions (prompt_tokens/completion_tokens) and the
+     * newer responses shape (input_tokens/output_tokens). Returns null when absent.
+     */
+    private extractTokenSplit(usage: any): { inTokens: number | null; outTokens: number | null } {
+        const inTokens = usage?.prompt_tokens ?? usage?.input_tokens ?? null;
+        const outTokens = usage?.completion_tokens ?? usage?.output_tokens ?? null;
+        return {
+            inTokens: typeof inTokens === 'number' ? inTokens : null,
+            outTokens: typeof outTokens === 'number' ? outTokens : null,
+        };
     }
 
     private async chargeCost(
@@ -1770,123 +2806,116 @@ Write insights in Russian. Be specific and actionable.`;
         transcription: string,
         customMetricsDef?: CustomMetricDef[],
         project?: OperatorProject,
-    ): Promise<{ metrics: OperatorMetrics; customMetricsResult: any; usage: any; diarizedText: string | null }> {
+        qualityHint?: TranscriptionQualityAssessment,
+    ): Promise<{
+        metrics: OperatorMetrics;
+        customMetricsResult: any;
+        usage: any;
+        diarizedText: string | null;
+        analysisConfidence?: number;
+        insufficientContent?: boolean;
+        assessments?: Record<string, MetricAssessment> | null;
+        customMeta?: Record<string, StoredMetricMeta> | null;
+        customMetricsInvalid?: string[];
+        modelName: string;
+    }> {
+        const ctx = buildAnalysisContext(project, customMetricsDef);
+        const jsonSchema = buildOpenAiJsonSchema(ctx);
+        const prompt = buildAnalysisPrompt(transcription, ctx, {
+            systemPrompt: project?.systemPrompt,
+            qualityHintConfidence: qualityHint?.confidence,
+        });
 
-        // Build custom metrics block: prefer project schema, fall back to ad-hoc defs
-        const effectiveMetrics: { name: string; id?: string; type: string; description: string; enumValues?: string[] }[] =
-            project?.customMetricsSchema?.length
-                ? project.customMetricsSchema
-                : (customMetricsDef || []).map(m => ({ ...m, id: m.name }));
-
-        let customMetricsPromptBlock = '';
-        if (effectiveMetrics.length) {
-            const customDefs = effectiveMetrics.map(m => {
-                let typeDef = `<${m.type}>`;
-                if (m.type === 'enum' && (m as any).enumValues?.length) {
-                    typeDef = `one of: ${(m as any).enumValues.join(', ')}`;
-                }
-                return `  "${m.id || m.name}": ${typeDef} — ${m.description}`;
-            }).join('\n');
-            customMetricsPromptBlock = `
-
-Additionally, analyze these CUSTOM metrics and include them in the "custom_metrics" field:
-{
-${customDefs}
-}`;
-        }
-
-        // System prompt from project
-        const businessContext = project?.systemPrompt
-            ? `\nBUSINESS CONTEXT: ${project.systemPrompt}\n`
-            : '';
-
-        const prompt = `
-You are a senior call center quality assurance analyst. Analyze the following transcription of a call between a LIVE HUMAN OPERATOR and a customer. Generate a JSON report with metrics.
-${businessContext}
-TRANSCRIPTION:
-${transcription}
-
-Analyze the dialogue and return a JSON object with EXACTLY this structure:
-
-{
-  "greeting_quality": <0-100>,
-  "script_compliance": <0-100>,
-  "politeness_empathy": <0-100>,
-  "active_listening": <0-100>,
-  "objection_handling": <0-100>,
-  "product_knowledge": <0-100>,
-  "problem_resolution": <0-100>,
-  "speech_clarity_pace": <0-100>,
-  "closing_quality": <0-100>,
-  "customer_sentiment": "<Positive|Neutral|Negative>",
-  "csat": <1-5 integer>,
-  "summary": "<string>",
-  "success": <boolean>,
-  "diarized_text": [
-    { "speaker": "operator", "text": "..." },
-    { "speaker": "customer", "text": "..." }
-  ]${effectiveMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}
-}
-
-Metric descriptions:
-1. greeting_quality: How well did the operator greet and identify themselves and the customer? Did they follow standard opening protocol?
-2. script_compliance: Did the operator follow the conversation script/guidelines? Were required steps followed?
-3. politeness_empathy: Was the operator polite, empathetic? Did they acknowledge the customer's emotions?
-4. active_listening: Did the operator actively listen, paraphrase, and confirm understanding?
-5. objection_handling: How well did the operator handle objections, complaints, or negative emotions?
-6. product_knowledge: Did the operator demonstrate competent knowledge of the product/service?
-7. problem_resolution: Was the customer's issue resolved? First Call Resolution quality.
-8. speech_clarity_pace: Was the operator's speech clear, well-paced, and professional?
-9. closing_quality: Did the operator properly close the call with next steps and farewell?
-10. customer_sentiment: Overall customer sentiment at the end of the call.
-11. csat: Customer Satisfaction Score from 1 to 5 based on the customer's apparent satisfaction during the call.
-- summary: Brief summary of what the call was about and its outcome.
-- success: Was the customer's question or problem resolved?
-${customMetricsPromptBlock}
-
-12. diarized_text: An array of dialogue turns. Each element has:
-   - "speaker": "operator" or "customer" (always lowercase English)
-   - "text": the exact spoken text for that turn
-   Identify speakers by context: the person providing service/information is "operator", the person asking questions/requesting help is "customer".
-   Combine consecutive lines from the same speaker into one array element.
-   Preserve ALL original text — do not omit, summarize, or translate.
-
-IMPORTANT LANGUAGE RULES:
-- "summary" field MUST be written in the same language as the conversation (e.g. Russian if the call is in Russian).
-- "customer_sentiment" MUST be one of these exact English values: "Positive", "Neutral", or "Negative" — do NOT translate it.
-- "diarized_text[].text" MUST preserve the original language and ALL text from the transcription.
-- "diarized_text[].speaker" MUST always be lowercase English: "operator" or "customer".
-- All numeric metric values (0-100) are language-neutral.
-Return ONLY valid JSON without markdown formatting.
-`;
-
-        const messages = [
-            { role: 'system' as const, content: 'You are a call center quality analysis system. Respond only in JSON format.' },
-            { role: 'user' as const, content: prompt },
+        const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+            { role: 'system', content: 'You are a call center quality analysis system. Respond only in JSON format.' },
+            { role: 'user', content: prompt },
         ];
 
-        const llmResult = await this.chatWithFallback(messages);
-        const sanitized = this.sanitizeJsonResponse(llmResult.content);
-        const parsed = JSON.parse(sanitized);
+        const requestValidated = async (
+            requestMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+        ) => {
+            const llmResult = await this.chatWithFallback(requestMessages, {
+                jsonSchema,
+                schemaName: 'operator_analysis',
+                temperature: 0,
+            });
+            const parsed = parseAndValidateAnalysisResponse(
+                llmResult.content,
+                ctx,
+                raw => this.sanitizeJsonResponse(raw),
+            );
+            return { ...parsed, usage: llmResult.usage, modelName: llmResult.model };
+        };
 
-        const customMetricsResult = parsed.custom_metrics || null;
-        const diarizedRaw = parsed.diarized_text || null;
-        delete parsed.custom_metrics;
-        delete parsed.diarized_text;
+        let parsedResult;
+        try {
+            parsedResult = await requestValidated(messages);
+        } catch (firstErr) {
+            if (!(firstErr instanceof AnalysisSchemaValidationError)) {
+                throw firstErr;
+            }
+            this.logger.warn(`[Analytics LLM] Invalid analysis JSON, retrying once: ${firstErr.message}`);
+            parsedResult = await requestValidated([
+                ...messages,
+                {
+                    role: 'assistant',
+                    content: this.sanitizeJsonResponse(firstErr.rawContent || '{}'),
+                },
+                {
+                    role: 'user',
+                    content: 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields and per-metric assessments (rationale + quote).',
+                },
+            ]);
+        }
 
-        // Convert diarized array to JSON string for storage, or keep as string fallback
         let diarizedText: string | null = null;
-        if (Array.isArray(diarizedRaw) && diarizedRaw.length > 0) {
-            diarizedText = JSON.stringify(diarizedRaw);
-        } else if (typeof diarizedRaw === 'string' && diarizedRaw.length > 0) {
-            diarizedText = diarizedRaw;
+        if (Array.isArray(parsedResult.diarizedRaw) && parsedResult.diarizedRaw.length > 0) {
+            diarizedText = JSON.stringify(parsedResult.diarizedRaw);
+        } else if (typeof parsedResult.diarizedRaw === 'string' && parsedResult.diarizedRaw.length > 0) {
+            diarizedText = parsedResult.diarizedRaw;
         }
 
         return {
-            metrics: parsed as OperatorMetrics,
-            customMetricsResult,
-            usage: llmResult.usage,
+            metrics: parsedResult.metrics as OperatorMetrics,
+            customMetricsResult: parsedResult.customMetricsResult,
+            usage: parsedResult.usage,
             diarizedText,
+            analysisConfidence: parsedResult.analysisConfidence,
+            insufficientContent: parsedResult.insufficientContent,
+            assessments: parsedResult.assessments,
+            customMeta: buildCustomMetricMeta(ctx),
+            customMetricsInvalid: parsedResult.customMetricsInvalid,
+            modelName: parsedResult.modelName,
+        };
+    }
+
+    /**
+     * Run the analysis LLM over a transcript WITHOUT persisting anything or
+     * creating billing records. Used by the offline eval runner (golden set).
+     * Note: it still calls the real LLM provider (provider-side tokens), but no
+     * internal balance deduction / BillingRecord is created — "dry-run, no charge"
+     * from the platform's accounting perspective.
+     */
+    async dryRunAnalyze(
+        transcription: string,
+        opts?: { project?: OperatorProject | null; customMetrics?: CustomMetricDef[] },
+    ): Promise<{
+        metrics: Record<string, any>;
+        customMetricsResult: any;
+        analysisConfidence?: number;
+        insufficientContent?: boolean;
+        modelName: string;
+        promptVersion: string;
+    }> {
+        const { metrics, customMetricsResult, analysisConfidence, insufficientContent, modelName } =
+            await this.analyzeTranscription(transcription, opts?.customMetrics, opts?.project ?? undefined);
+        return {
+            metrics,
+            customMetricsResult,
+            analysisConfidence,
+            insufficientContent,
+            modelName,
+            promptVersion: PROMPT_VERSION,
         };
     }
 
@@ -1918,6 +2947,79 @@ Return ONLY valid JSON without markdown formatting.
             active_listening: 0, objection_handling: 0, product_knowledge: 0,
             problem_resolution: 0, speech_clarity_pace: 0, closing_quality: 0,
         };
+    }
+
+    private static readonly KNOWN_METRIC_TOP_KEYS = new Set([
+        'greeting_quality', 'script_compliance', 'politeness_empathy',
+        'active_listening', 'objection_handling', 'product_knowledge',
+        'problem_resolution', 'speech_clarity_pace', 'closing_quality',
+        'customer_sentiment', 'summary', 'success', 'csat',
+    'custom_metrics', 'metrics', '_quality', '_evidence', '_assessments', '_custom_meta', '_model', '_schema_version', '_custom_invalid', '_topics',
+]);
+
+    private extractCustomMetrics(metrics: Record<string, any> | null | undefined): Record<string, any> {
+        if (!metrics || typeof metrics !== 'object') return {};
+        if (metrics.custom_metrics && typeof metrics.custom_metrics === 'object' && !Array.isArray(metrics.custom_metrics)) {
+            return metrics.custom_metrics;
+        }
+        if (metrics.metrics && typeof metrics.metrics === 'object' && !Array.isArray(metrics.metrics)) {
+            const nested = metrics.metrics as Record<string, any>;
+            if (typeof nested.greeting_quality !== 'number') {
+                return nested;
+            }
+        }
+        const legacy: Record<string, any> = {};
+        for (const [key, value] of Object.entries(metrics)) {
+            if (!OperatorAnalyticsService.KNOWN_METRIC_TOP_KEYS.has(key)) {
+                legacy[key] = value;
+            }
+        }
+        return legacy;
+    }
+
+    private aggregateCustomMetrics(
+        records: AiCdr[],
+        schema: MetricDefinition[],
+    ): Record<string, { type: MetricDefinition['type']; value?: number; distribution?: Record<string, number> }> {
+        const result: Record<string, {
+            type: MetricDefinition['type'];
+            value?: number;
+            distribution?: Record<string, number>;
+        }> = {};
+
+        for (const def of schema) {
+            const values: any[] = [];
+            for (const r of records) {
+                const custom = this.extractCustomMetrics(r.analytics?.metrics as Record<string, any>);
+                if (custom[def.id] !== undefined && custom[def.id] !== null) {
+                    values.push(custom[def.id]);
+                }
+            }
+            if (!values.length) continue;
+
+            if (def.type === 'boolean') {
+                const trueCount = values.filter(v => v === true).length;
+                result[def.id] = {
+                    type: 'boolean',
+                    value: parseFloat(((trueCount / values.length) * 100).toFixed(2)),
+                };
+            } else if (def.type === 'number') {
+                const sum = values.reduce((acc, v) => acc + Number(v), 0);
+                result[def.id] = {
+                    type: 'number',
+                    value: parseFloat((sum / values.length).toFixed(2)),
+                };
+            } else {
+                const distribution: Record<string, number> = {};
+                for (const v of values) {
+                    const key = String(v);
+                    distribution[key] = (distribution[key] || 0) + 1;
+                }
+                result[def.id] = { type: def.type, distribution };
+            }
+        }
+
+        return result;
     }
 
     private buildTimeSeries(records: AiCdr[], startDate?: string, endDate?: string) {

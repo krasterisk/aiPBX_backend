@@ -1,6 +1,6 @@
 {
   "name": "aiPbxBackend",
-  "version": "2.1.9",
+  "version": "2.2.2",
   "description": "aiPBX",
   "author": "Krasterisk LTD",
   "private": true,
@@ -19,7 +19,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "cross-env NODE_ENV=production jest --config ./test/jest-e2e.json --detectOpenHandles"
+    "test:e2e": "cross-env NODE_ENV=production jest --config ./test/jest-e2e.json --detectOpenHandles",
+    "eval:operator": "ts-node -r tsconfig-paths/register src/operator-analytics/eval/run-eval.ts"
   },
   "dependencies": {
     "@composio/core": "^0.6.3",
@@ -86,7 +87,8 @@
     "ws": "^8.18.0",
     "x-law": "^0.3.1",
     "xlsx": "^0.18.5",
-    "yauzl": "^3.2.0"
+    "yauzl": "^3.2.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@darraghor/eslint-plugin-nestjs-typed": "^6.2.4",

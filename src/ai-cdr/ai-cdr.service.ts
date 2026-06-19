@@ -15,6 +15,7 @@ import { BillingRecord } from "../billing/billing-record.model";
 import { AiAnalyticsService } from "../ai-analytics/ai-analytics.service";
 import { forwardRef } from "@nestjs/common";
 import { OperatorAnalytics } from "../operator-analytics/operator-analytics.model";
+import { isOperatorAnalyticsSource } from "../operator-analytics/lib/analytics-source";
 import { isRubTenant } from '../shared/tenant/tenant-currency';
 import { buildCsatWhereCondition, parseCsatFilter } from './parse-csat-filter';
 
@@ -507,7 +508,7 @@ export class AiCdrService {
             // Enrich rows with transcription from OperatorAnalytics
             // For records created via operator-analytics, channelId = OperatorAnalytics.id
             const analyticsIds = rows
-                .filter(r => r.source === 'external-front' || r.source === 'external-api')
+                .filter(r => isOperatorAnalyticsSource(r.source))
                 .map(r => Number(r.channelId))
                 .filter(id => !isNaN(id));
 
@@ -549,7 +550,7 @@ export class AiCdrService {
         }
 
         const channelId = cdr.channelId;
-        const isOperatorSource = cdr.source === 'external-api' || cdr.source === 'external-front';
+        const isOperatorSource = isOperatorAnalyticsSource(cdr.source);
         const operatorAnalyticsId = Number(channelId);
         let refundedUsd = 0;
 

@@ -9,6 +9,8 @@ interface CreateBillingRecord {
     description?: string;
     audioTokens?: number;
     textTokens?: number;
+    textTokensIn?: number | null;
+    textTokensOut?: number | null;
     totalTokens?: number;
     audioCost?: number;
     textCost?: number;
@@ -46,6 +48,14 @@ export class BillingRecord extends Model<BillingRecord, CreateBillingRecord> {
     @ApiProperty({ example: 6040, description: 'Text tokens (input + output)' })
     @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
     textTokens: number;
+
+    @ApiProperty({ example: 5200, description: 'LLM input/prompt tokens (nullable; null for legacy records)' })
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    textTokensIn: number | null;
+
+    @ApiProperty({ example: 840, description: 'LLM output/completion tokens (nullable; null for legacy records)' })
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    textTokensOut: number | null;
 
     @ApiProperty({ example: 6876, description: 'Total tokens for this record' })
     @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })

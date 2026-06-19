@@ -62,8 +62,10 @@ export class OperatorAnalyticsController {
     @ApiResponse({ status: 404, description: 'Batch not found' })
     async getBatchStatus(
         @Param('batchId') batchId: string,
+        @Req() req: RequestWithUser,
     ) {
-        const batch = this.service.getBatchStatus(batchId);
+        const userId = req.vpbxUserId || req.tokenUserId;
+        const batch = this.service.getBatchStatus(batchId, userId, req.isAdmin ?? false);
         if (!batch) {
             throw new HttpException('Batch not found', HttpStatus.NOT_FOUND);
         }
@@ -95,6 +97,8 @@ export class OperatorAnalyticsController {
             customMetrics?: string;
             provider?: string;
             projectId?: string;
+            consentObtained?: string;
+            consentSource?: string;
         },
     ) {
         const userId = req.vpbxUserId || req.tokenUserId;
@@ -119,32 +123,12 @@ export class OperatorAnalyticsController {
             customMetrics,
             provider: body.provider,
             projectId,
+            consentObtained: this.parseConsent(body.consentObtained),
+            consentSource: body.consentSource,
         };
 
-        // Hybrid logic: 1 file → sync, N files → async
-        if (files.length === 1) {
-            const file = files[0];
-            return this.service.analyzeFile(
-                file.buffer, file.originalname, userId, AnalyticsSource.FRONTEND, options,
-            );
-        }
-
-        // Multiple files → batch with sequential processing
-        const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const batchItems = [];
-        const responseItems = [];
-        for (const file of files) {
-            const record = await this.service.createProcessingRecord(
-                file.originalname, userId, AnalyticsSource.FRONTEND, options,
-            );
-            batchItems.push({ recordId: record.id, buffer: file.buffer, filename: file.originalname });
-            responseItems.push({ id: record.id, filename: file.originalname, status: 'pending' });
-        }
-
-        // Start sequential background processing
-        this.service.startBatch(batchId, userId, batchItems, body.provider);
-
-        return { batchId, total: files.length, items: responseItems };
+        // Always async (batch-of-1 for single file) to avoid HTTP timeouts on long audio
+        return this.startAsyncFileUpload(files, userId, AnalyticsSource.FRONTEND, options, body.provider);
     }
 
     @Post('regenerate/:channelId')
@@ -181,6 +165,9 @@ export class OperatorAnalyticsController {
             language?: string;
             customMetrics?: string;
             provider?: string;
+            sync?: string;
+            consentObtained?: string;
+            consentSource?: string;
         },
     ) {
         const userId = req.vpbxUserId || req.tokenUserId;
@@ -203,28 +190,17 @@ export class OperatorAnalyticsController {
             customMetrics,
             provider: body.provider,
             projectId,
+            consentObtained: this.parseConsent(body.consentObtained),
+            consentSource: body.consentSource,
         };
 
-        if (files.length === 1) {
+        if (files.length === 1 && body.sync === 'true') {
             return this.service.analyzeFile(
                 files[0].buffer, files[0].originalname, userId, AnalyticsSource.API, options,
             );
         }
 
-        const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const batchItems = [];
-        const responseItems = [];
-        for (const file of files) {
-            const record = await this.service.createProcessingRecord(
-                file.originalname, userId, AnalyticsSource.API, options,
-            );
-            batchItems.push({ recordId: record.id, buffer: file.buffer, filename: file.originalname });
-            responseItems.push({ id: record.id, filename: file.originalname, status: 'pending' });
-        }
-
-        this.service.startBatch(batchId, userId, batchItems, body.provider);
-
-        return { batchId, total: files.length, items: responseItems };
+        return this.startAsyncFileUpload(files, userId, AnalyticsSource.API, options, body.provider);
     }
 
     // ─── External API: Analyze by URL (API Token Auth) ───────────────
@@ -243,6 +219,8 @@ export class OperatorAnalyticsController {
             language?: string;
             customMetrics?: CustomMetricDef[];
             provider?: string;
+            consentObtained?: string | boolean;
+            consentSource?: string;
         },
     ) {
         const userId = req.vpbxUserId || req.tokenUserId;
@@ -259,6 +237,8 @@ export class OperatorAnalyticsController {
             customMetrics: body.customMetrics,
             provider: body.provider,
             projectId,
+            consentObtained: this.parseConsent(body.consentObtained),
+            consentSource: body.consentSource,
         };
 
         // Single URL → async (same as batch)
@@ -331,7 +311,8 @@ export class OperatorAnalyticsController {
     ) {
         const userId = req.vpbxUserId || req.tokenUserId;
         if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-        return this.service.getById(+id, userId);
+        const tokenProjectId = (req as any).apiToken?.projectId;
+        return this.service.getById(+id, userId, tokenProjectId ?? undefined);
     }
 
     // ─── API Token Management (JWT Auth) ─────────────────────────────
@@ -442,6 +423,8 @@ export class OperatorAnalyticsController {
             webhookUrl?: string;
             webhookEvents?: string[];
             webhookHeaders?: Record<string, string>;
+            monthlyBudgetUsd?: number | null;
+            budgetAlertEmails?: string[] | null;
         },
     ) {
         return this.service.updateProject(+id, req.vpbxUserId || req.tokenUserId, body);
@@ -464,6 +447,8 @@ export class OperatorAnalyticsController {
             webhookUrl?: string;
             webhookEvents?: string[];
             webhookHeaders?: Record<string, string>;
+            monthlyBudgetUsd?: number | null;
+            budgetAlertEmails?: string[] | null;
         },
     ) {
         return this.service.updateProject(+id, req.vpbxUserId || req.tokenUserId, body);
@@ -618,9 +603,64 @@ export class OperatorAnalyticsController {
         return this.service.getInsights(query, isAdmin, realUserId);
     }
 
+    // ─── Human-in-the-loop metric overrides (JWT Auth) ───────────────
+
+    @Get(':id/overrides')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'List supervisor metric overrides for a record' })
+    async getOverrides(@Param('id') id: string, @Req() req: RequestWithUser) {
+        const userId = req.vpbxUserId || req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        return this.service.getMetricOverrides(id, userId, req.isAdmin ?? false);
+    }
+
+    @Post(':id/overrides')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Create/update supervisor metric overrides (stored separately from LLM values)' })
+    async saveOverrides(
+        @Param('id') id: string,
+        @Req() req: RequestWithUser,
+        @Body() body: {
+            overrides: Array<{
+                metricId: string;
+                origin?: 'default' | 'custom' | 'summary';
+                numValue?: number | null;
+                boolValue?: boolean | null;
+                strValue?: string | null;
+                note?: string | null;
+            }>;
+        },
+    ) {
+        const userId = req.vpbxUserId || req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        return this.service.saveMetricOverrides(id, userId, req.isAdmin ?? false, body?.overrides);
+    }
+
+    @Delete(':id/overrides/:metricId')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Delete a supervisor metric override' })
+    async deleteOverride(
+        @Param('id') id: string,
+        @Param('metricId') metricId: string,
+        @Req() req: RequestWithUser,
+    ) {
+        const userId = req.vpbxUserId || req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        return this.service.deleteMetricOverride(id, metricId, userId, req.isAdmin ?? false);
+    }
+
     // ─── Get by ID (JWT or API Token) ────────────────────────────────
 
     @Get(':id')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Get analysis details by ID' })
     @ApiResponse({ status: 200, description: 'Full analysis result' })
     @ApiResponse({ status: 404, description: 'Not found' })
@@ -634,6 +674,36 @@ export class OperatorAnalyticsController {
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────
+
+    private async startAsyncFileUpload(
+        files: any[],
+        userId: string,
+        source: AnalyticsSource,
+        options: {
+            operatorName?: string;
+            clientPhone?: string;
+            language?: string;
+            customMetrics?: CustomMetricDef[];
+            provider?: string;
+            projectId?: number;
+            consentObtained?: boolean;
+            consentSource?: string;
+        },
+        provider?: string,
+    ) {
+        const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const batchItems = [];
+        const responseItems = [];
+        for (const file of files) {
+            const record = await this.service.createProcessingRecord(
+                file.originalname, userId, source, options,
+            );
+            batchItems.push({ recordId: record.id, buffer: file.buffer, filename: file.originalname });
+            responseItems.push({ id: record.id, filename: file.originalname, status: 'pending' });
+        }
+        this.service.startBatch(batchId, userId, batchItems, provider);
+        return { batchId, total: files.length, items: responseItems };
+    }
 
     private validateFiles(files: any[]) {
         for (const file of files) {
@@ -660,5 +730,15 @@ export class OperatorAnalyticsController {
         } catch {
             return undefined;
         }
+    }
+
+    /** Parse a consent flag from a multipart/string or JSON boolean body value. */
+    private parseConsent(value?: string | boolean): boolean | undefined {
+        if (value === undefined || value === null || value === '') return undefined;
+        if (typeof value === 'boolean') return value;
+        const v = String(value).toLowerCase();
+        if (v === 'true' || v === '1' || v === 'yes') return true;
+        if (v === 'false' || v === '0' || v === 'no') return false;
+        return undefined;
     }
 }

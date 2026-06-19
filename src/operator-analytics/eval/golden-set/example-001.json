@@ -1,0 +1,20 @@
+{
+    "id": "example-001",
+    "description": "Sample fixture — replace with real expert-labeled calls. Operator greets, identifies, resolves a billing question politely.",
+    "language": "ru",
+    "transcript": "Оператор: Компания Ромашка, оператор Анастасия, здравствуйте! Чем могу помочь?\nКлиент: Здравствуйте, у меня списали деньги дважды за апрель.\nОператор: Понимаю ваше беспокойство, давайте разберёмся. Назовите, пожалуйста, номер договора.\nКлиент: 4471.\nОператор: Спасибо. Вижу две транзакции, одна из них дублирующая. Я оформила возврат, деньги вернутся в течение трёх рабочих дней.\nКлиент: Отлично, спасибо большое!\nОператор: Всегда рады помочь. Хорошего дня!",
+    "reference": {
+        "greeting_quality": 100,
+        "script_compliance": 75,
+        "politeness_empathy": 100,
+        "active_listening": 75,
+        "objection_handling": 75,
+        "product_knowledge": 75,
+        "problem_resolution": 100,
+        "speech_clarity_pace": 75,
+        "closing_quality": 100,
+        "csat": 5,
+        "customer_sentiment": "Positive",
+        "success": true
+    }
+}

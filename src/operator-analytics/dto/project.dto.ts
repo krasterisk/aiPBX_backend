@@ -29,6 +29,27 @@ class MetricDefinitionDto {
     @IsArray()
     @IsString({ each: true })
     enumValues?: string[];
+
+    @ApiPropertyOptional({ example: 0, description: 'Number scale minimum (default 0)' })
+    @IsOptional()
+    @IsNumber()
+    min?: number;
+
+    @ApiPropertyOptional({ example: 10, description: 'Number scale maximum (default 100)' })
+    @IsOptional()
+    @IsNumber()
+    max?: number;
+
+    @ApiPropertyOptional({ example: '/10', description: 'Optional display suffix' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(20)
+    unit?: string;
+
+    @ApiPropertyOptional({ enum: ['positive', 'negative', 'neutral'], description: 'Coloring semantics' })
+    @IsOptional()
+    @IsEnum(['positive', 'negative', 'neutral'])
+    polarity?: 'positive' | 'negative' | 'neutral';
 }
 
 // ─── Update Schema DTO ───────────────────────────────────────────
@@ -179,4 +200,15 @@ export class CreateProjectDto {
     @IsOptional()
     @IsObject()
     webhookHeaders?: Record<string, string>;
+
+    @ApiPropertyOptional({ example: 50, description: 'Monthly spend budget in USD (null/0 = disabled)' })
+    @IsOptional()
+    @IsNumber()
+    monthlyBudgetUsd?: number | null;
+
+    @ApiPropertyOptional({ example: ['ops@example.com'], description: 'Emails notified on budget exceed' })
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    budgetAlertEmails?: string[] | null;
 }

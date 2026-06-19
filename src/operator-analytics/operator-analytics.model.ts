@@ -1,5 +1,6 @@
 import { Column, DataType, Model, Table } from 'sequelize-typescript';
 import { ApiProperty } from '@nestjs/swagger';
+import { decryptTranscript, encryptTranscript } from './lib/transcript-crypto';
 
 export enum AnalyticsSource {
     FRONTEND = 'frontend',
@@ -23,6 +24,11 @@ interface OperatorAnalyticsCreationAttrs {
     projectId?: number;
     recordUrl?: string;
     sttProvider?: string;
+    consentObtained?: boolean;
+    consentSource?: string;
+    schemaVersion?: number;
+    promptVersion?: string;
+    audioSha256?: string;
 }
 
 @Table({ tableName: 'operator_analytics' })
@@ -64,8 +70,26 @@ export class OperatorAnalytics extends Model<OperatorAnalytics, OperatorAnalytic
     @Column({ type: DataType.STRING, allowNull: true, defaultValue: 'auto' })
     language: string;
 
-    @ApiProperty({ description: 'Full transcription text' })
-    @Column({ type: DataType.TEXT, allowNull: true })
+    @ApiProperty({ example: 2, description: 'Project custom-metrics schema version applied at analysis time' })
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    schemaVersion: number;
+
+    @ApiProperty({ example: '2026-06-18.1', description: 'Analysis prompt/rubric artifact version used at analysis time' })
+    @Column({ type: DataType.STRING, allowNull: true })
+    promptVersion: string;
+
+    @ApiProperty({ description: 'Full transcription text (encrypted at rest when OPERATOR_ENCRYPT_TRANSCRIPTS=true)' })
+    @Column({
+        type: DataType.TEXT,
+        allowNull: true,
+        // Transparent at-rest encryption with dual-read of legacy plaintext.
+        set(this: OperatorAnalytics, value: string | null) {
+            this.setDataValue('transcription', encryptTranscript(value) as string);
+        },
+        get(this: OperatorAnalytics): string | null {
+            return decryptTranscript(this.getDataValue('transcription'));
+        },
+    })
     transcription: string;
 
     @ApiProperty({ example: 125.5, description: 'Audio duration in seconds' })
@@ -83,4 +107,32 @@ export class OperatorAnalytics extends Model<OperatorAnalytics, OperatorAnalytic
     @ApiProperty({ example: 'external', description: 'STT provider used (external / openai)' })
     @Column({ type: DataType.STRING, allowNull: true })
     sttProvider: string;
+
+    @ApiProperty({ example: 'ok', description: 'Transcription quality verdict: ok | low | unusable' })
+    @Column({ type: DataType.STRING, allowNull: true })
+    transcriptionQuality: string;
+
+    @ApiProperty({ example: 0.85, description: 'Transcription confidence 0..1' })
+    @Column({ type: DataType.FLOAT, allowNull: true })
+    transcriptionConfidence: number;
+
+    @ApiProperty({ example: 'ru', description: 'Detected transcription language' })
+    @Column({ type: DataType.STRING, allowNull: true })
+    detectedLanguage: string;
+
+    @ApiProperty({ description: 'Quality reason codes for i18n' })
+    @Column({ type: DataType.JSON, allowNull: true })
+    qualityReasons: string[];
+
+    @ApiProperty({ example: true, description: 'Whether call-recording consent was obtained (nullable = unknown)' })
+    @Column({ type: DataType.BOOLEAN, allowNull: true })
+    consentObtained: boolean;
+
+    @ApiProperty({ example: 'ivr', description: 'How consent was obtained (ivr / contract / verbal / ...)' })
+    @Column({ type: DataType.STRING, allowNull: true })
+    consentSource: string;
+
+    @ApiProperty({ example: 'a1b2c3…', description: 'SHA-256 of uploaded audio (nullable; used for dedup when enabled)' })
+    @Column({ type: DataType.STRING(64), allowNull: true })
+    audioSha256: string;
 }

@@ -14,6 +14,10 @@ export interface OperatorProjectCreationAttrs {
     webhookUrl?: string;
     webhookEvents?: WebhookEvent[];
     webhookHeaders?: WebhookHeaders;
+    monthlyBudgetUsd?: number | null;
+    budgetAlertEmails?: string[] | null;
+    budgetLastAlertAt?: Date | null;
+    anomalyLastAlertAt?: Date | null;
 }
 
 @Table({ tableName: 'operator_projects' })
@@ -73,4 +77,22 @@ export class OperatorProject extends Model<OperatorProject, OperatorProjectCreat
     @ApiProperty({ description: 'Custom headers for webhook requests (e.g. Authorization)' })
     @Column({ type: DataType.JSON, allowNull: false, defaultValue: {} })
     webhookHeaders: WebhookHeaders;
+
+    // ─── Budget / spend limits (nullable = disabled, BC-safe) ────────
+
+    @ApiProperty({ example: 50, description: 'Monthly spend budget in USD (null = no budget)' })
+    @Column({ type: DataType.FLOAT, allowNull: true })
+    monthlyBudgetUsd: number | null;
+
+    @ApiProperty({ description: 'Extra emails notified when the monthly budget is exceeded' })
+    @Column({ type: DataType.JSON, allowNull: true })
+    budgetAlertEmails: string[] | null;
+
+    @ApiProperty({ description: 'Last time a budget-exceeded alert fired (dedupes per month)' })
+    @Column({ type: DataType.DATE, allowNull: true })
+    budgetLastAlertAt: Date | null;
+
+    @ApiProperty({ description: 'Last time an anomaly alert fired (dedupes per window)' })
+    @Column({ type: DataType.DATE, allowNull: true })
+    anomalyLastAlertAt: Date | null;
 }

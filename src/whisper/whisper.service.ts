@@ -1,6 +1,7 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ITranscriptionProvider, TranscriptionResult } from '../operator-analytics/interfaces/operator-metrics.interface';
+import { countTranscriptionWords } from '../operator-analytics/lib/assess-transcription-quality';
 import axios from 'axios';
 import FormData = require('form-data');
 
@@ -124,7 +125,39 @@ export class WhisperService implements ITranscriptionProvider {
 
         this.logger.log(`[Whisper] Transcription complete: ${text.length} chars, duration: ${duration}s`);
 
-        return { text, duration };
+        const signals = typeof parsed === 'object' && parsed
+            ? this.extractSegmentSignals(parsed, text)
+            : { wordsCount: countTranscriptionWords(text) };
+
+        return { text, duration, ...signals };
+    }
+
+    private extractSegmentSignals(parsed: any, text: string): Partial<TranscriptionResult> {
+        const segments = Array.isArray(parsed.segments) ? parsed.segments : [];
+        let totalWeight = 0;
+        let avgLogprobSum = 0;
+        let noSpeechSum = 0;
+        let maxCompression = 0;
+
+        for (const seg of segments) {
+            const weight = Math.max((seg.end ?? 0) - (seg.start ?? 0), 0.001);
+            totalWeight += weight;
+            if (typeof seg.avg_logprob === 'number') avgLogprobSum += seg.avg_logprob * weight;
+            if (typeof seg.no_speech_prob === 'number') noSpeechSum += seg.no_speech_prob * weight;
+            if (typeof seg.compression_ratio === 'number') {
+                maxCompression = Math.max(maxCompression, seg.compression_ratio);
+            }
+        }
+
+        return {
+            language: parsed.language,
+            languageProbability: parsed.language_probability ?? parsed.languageProbability,
+            avgLogprob: totalWeight > 0 ? avgLogprobSum / totalWeight : undefined,
+            noSpeechProb: totalWeight > 0 ? noSpeechSum / totalWeight : undefined,
+            compressionRatio: maxCompression > 0 ? maxCompression : undefined,
+            segmentsCount: segments.length,
+            wordsCount: countTranscriptionWords(text),
+        };
     }
 
     /**

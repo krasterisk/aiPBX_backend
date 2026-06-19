@@ -27,6 +27,14 @@ export interface CustomMetricDef {
 
 // ─── Dynamic Analytics Types ─────────────────────────────────────
 
+/**
+ * Coloring/semantics of a metric value:
+ * - positive: higher number / `true` boolean is good (green)
+ * - negative: lower number / `false` boolean is good (true/high = red)
+ * - neutral:  informational, no good/bad coloring
+ */
+export type MetricPolarity = 'positive' | 'negative' | 'neutral';
+
 /** Project-level custom metric definition (with id and enum support) */
 export interface MetricDefinition {
     id: string;                     // snake_case identifier
@@ -34,6 +42,21 @@ export interface MetricDefinition {
     type: 'boolean' | 'number' | 'enum' | 'string';
     description: string;            // Instruction for LLM (max 500 chars)
     enumValues?: string[];          // Only when type === 'enum'
+    min?: number;                   // number scale minimum (default 0)
+    max?: number;                   // number scale maximum (default 100)
+    unit?: string;                  // optional display suffix, e.g. "/10", "%"
+    polarity?: MetricPolarity;      // coloring semantics (see MetricPolarity)
+}
+
+/** Snapshot of a custom metric definition stored alongside an analysis result */
+export interface StoredMetricMeta {
+    name?: string;
+    type: 'boolean' | 'number' | 'enum' | 'string';
+    min?: number;
+    max?: number;
+    unit?: string;
+    polarity?: MetricPolarity;
+    enumValues?: string[];
 }
 
 export type DefaultMetricKey =
@@ -65,7 +88,7 @@ export interface DashboardConfig {
     maxWidgets: number;             // limit = 20
 }
 
-export type WebhookEvent = 'analysis.completed' | 'analysis.error';
+export type WebhookEvent = 'analysis.completed' | 'analysis.error' | 'budget.exceeded' | 'anomaly.detected';
 
 // ─── Batch Processing Types ──────────────────────────────────────
 
@@ -97,9 +120,18 @@ export interface ProjectTemplate {
 
 // ─── STT Types ───────────────────────────────────────────────────
 
+export type TranscriptionQualityLevel = 'ok' | 'low' | 'unusable';
+
 export interface TranscriptionResult {
     text: string;
     duration: number; // seconds
+    language?: string;
+    languageProbability?: number;
+    avgLogprob?: number;
+    noSpeechProb?: number;
+    compressionRatio?: number;
+    wordsCount?: number;
+    segmentsCount?: number;
 }
 
 export interface ITranscriptionProvider {

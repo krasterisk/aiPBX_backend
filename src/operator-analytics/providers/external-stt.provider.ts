@@ -1,6 +1,7 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ITranscriptionProvider, TranscriptionResult } from '../interfaces/operator-metrics.interface';
+import { countTranscriptionWords } from '../lib/assess-transcription-quality';
 import axios from 'axios';
 import FormData = require('form-data');
 
@@ -96,7 +97,18 @@ export class ExternalSttProvider implements ITranscriptionProvider {
 
         this.logger.log(`[ExternalSTT] Transcription complete: ${text.length} chars, duration: ${duration}s`);
 
-        return { text, duration };
+        const extra = typeof data === 'object' && data ? data : {};
+        return {
+            text,
+            duration,
+            language: extra.language,
+            languageProbability: extra.language_probability ?? extra.languageProbability,
+            avgLogprob: extra.avg_logprob ?? extra.avgLogprob,
+            noSpeechProb: extra.no_speech_prob ?? extra.noSpeechProb,
+            compressionRatio: extra.compression_ratio ?? extra.compressionRatio,
+            segmentsCount: Array.isArray(extra.segments) ? extra.segments.length : undefined,
+            wordsCount: countTranscriptionWords(text),
+        };
     }
 
     private getMimeType(filename: string): string {

@@ -2875,7 +2875,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         });
 
         const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-            { role: 'system', content: 'Call center QA analyzer. JSON only; rationale and summary in the transcript language.' },
+            { role: 'system', content: 'Call center QA analyzer. JSON only. Summary, rationale, and all prose must match the transcript language (not English unless the call is in English).' },
             { role: 'user', content: prompt },
         ];
 

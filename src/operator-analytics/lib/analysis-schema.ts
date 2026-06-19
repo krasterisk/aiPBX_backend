@@ -17,7 +17,7 @@ export const FULL_SCORE_INSTRUCTION =
     'Give 100 when every checklist item is clearly present (synonyms OK, e.g. "Добрый день" = greeting). Below 100: name the missing item. Rationale: 1 short sentence in transcript language, paraphrase behavior; verbatim text only in quote. No boilerplate ("соответствует требованиям", "все элементы присутствуют", "уровень 75").';
 
 export const OUTPUT_LANGUAGE_INSTRUCTION =
-    'LANGUAGE: rationale, summary, and all free-text fields must match the transcript language (ru transcript → ru text). JSON keys/enums stay English; never default to English for prose.';
+    'LANGUAGE: ALL prose (summary, every rationale, quotes) MUST be in the transcript language — detect from TRANSCRIPTION above. ru/de/zh transcript → write ru/de/zh. Use English prose ONLY if the transcript is predominantly English. JSON keys and enums (Positive/Neutral/Negative) stay English.';
 
 const CHECKLIST_SCORE_MAP =
     'Checklist map: 100=all items (N/A items count as present), 75=3/4, 50=2/4, 25=1/4, 0=none.';
@@ -132,7 +132,7 @@ const CLOSING_QUALITY_RUBRIC = buildCompactRubric(
  * specific prompt revision. Stored on each record (DB column + metrics._model).
  * Format: YYYY-MM-DD.N (date of change + same-day revision counter).
  */
-export const PROMPT_VERSION = '2026-06-19.2';
+export const PROMPT_VERSION = '2026-06-19.3';
 
 export interface MetricAssessment {
     rationale: string;
@@ -538,7 +538,6 @@ export function buildAnalysisPrompt(
 
     const globalScoring = [
         'GLOBAL SCORING:',
-        OUTPUT_LANGUAGE_INSTRUCTION,
         SCORE_ANCHOR_INSTRUCTION,
         CHECKLIST_SCORE_MAP,
         NA_AS_PRESENT_NOTE,
@@ -551,9 +550,11 @@ ${businessContext}${qualityHintBlock}
 TRANSCRIPTION:
 ${transcription}
 
+${OUTPUT_LANGUAGE_INSTRUCTION}
+
 ${globalScoring}
 
-SCORING ORDER: (1) fill assessments for: ${assessmentKeys.join(', ')} — rationale first (transcript language), then scores; (2) assign numeric scores consistent with rationale.
+SCORING ORDER: (1) fill assessments for: ${assessmentKeys.join(', ')} — rationale + summary in transcript language first, then scores; (2) assign numeric scores consistent with rationale.
 
 JSON shape:
 {
@@ -561,7 +562,7 @@ JSON shape:
 ${metricJsonLines}${metricJsonLines ? ',' : ''}
   "customer_sentiment": "Positive|Neutral|Negative",
   "csat": <1-5>,
-  "summary": "<brief, conversation language>",
+  "summary": "<brief call summary, transcript language>",
   "success": <boolean>,
   "analysis_confidence": <0-1>,
   "insufficient_content": <boolean>,

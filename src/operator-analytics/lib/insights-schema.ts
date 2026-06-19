@@ -67,7 +67,7 @@ const insightTypeSchema = z.enum(['strength', 'gap', 'trend', 'outlier', 'qualit
 
 const evidenceSchema = z.object({
     metric: z.string().optional(),
-    value: z.number().optional(),
+    value: z.number().nullish(),
     operators: z.array(z.string()).optional(),
     periodLabel: z.string().optional(),
 });

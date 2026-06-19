@@ -44,6 +44,30 @@ describe('insights-schema', () => {
         expect(result[0].observation).toBe('Проверьте качество приветствия');
     });
 
+    it('accepts null evidence.value when metric is N/A (outlier/quality insights)', () => {
+        const result = parseAndValidateInsightsResponse({
+            insights: [{
+                priority: 'high',
+                type: 'outlier',
+                title: 'Операторы с низкими оценками',
+                observation: 'Оператор имеет среднюю оценку 38.89',
+                recommendation: 'Провести обратную связь',
+                evidence: { metric: '', value: null, operators: ['Оператор А'], periodLabel: '' },
+            }, {
+                priority: 'low',
+                type: 'quality',
+                title: 'Общее качество',
+                observation: 'Средний балл 70.73',
+                recommendation: 'Разработать план улучшения',
+                evidence: { metric: '', value: null, operators: [], periodLabel: '' },
+            }],
+        });
+        expect(result).toHaveLength(2);
+        expect(result[0].evidence.value).toBeUndefined();
+        expect(result[0].evidence.operators).toEqual(['Оператор А']);
+        expect(result[1].evidence.metric).toBeUndefined();
+    });
+
     it('INSIGHTS_PROMPT_VERSION equals 2026-06-18.2', () => {
         expect(INSIGHTS_PROMPT_VERSION).toBe('2026-06-18.2');
     });

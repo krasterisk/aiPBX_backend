@@ -10,7 +10,141 @@ import {
 import type { OperatorProject } from '../operator-project.model';
 
 export const SCORE_ANCHOR_INSTRUCTION =
-    'Use ONLY discrete scores 0, 25, 50, 75, or 100. 0=absent/unacceptable, 25=poor, 50=adequate, 75=good, 100=excellent.';
+    'Use ONLY discrete scores 0, 25, 50, 75, or 100. 0=absent/unacceptable, 25=poor, 50=adequate, 75=good, 100=all required rubric elements present.';
+
+/** When a metric rubric lists required elements, 100 means the checklist is complete — not "extra excellent". */
+export const FULL_SCORE_INSTRUCTION =
+    'Assign 100 when every required element in that metric\'s rubric is clearly present in the transcript. Do not withhold 100 for subjective preferences (tone, enthusiasm, brevity, or alternative wording). For scores below 100, name a concrete required element that is absent — never invent a gap or treat synonymous phrases as missing (e.g. "Добрый день" satisfies the greeting element). The rationale must not claim an element is missing if the quote contains it.';
+
+const NA_AS_PRESENT_NOTE =
+    'If a listed element is not applicable to this call (e.g. no objection occurred), count it as present.';
+
+function buildChecklistRubric(
+    title: string,
+    elements: string[],
+    options?: { scope?: string; notes?: string[] },
+): string {
+    const scope = options?.scope ?? 'Required elements (count how many are clearly present):';
+    const numbered = elements.map((el, i) => `(${i + 1}) ${el}`).join('; ');
+    return [
+        title,
+        SCORE_ANCHOR_INSTRUCTION,
+        scope,
+        numbered + '.',
+        '100 = all 4 elements present (or N/A elements counted as present per rubric notes). 75 = 3 of 4. 50 = 2 of 4. 25 = 1 of 4 or a very weak attempt. 0 = absent/unacceptable.',
+        NA_AS_PRESENT_NOTE,
+        ...(options?.notes ?? []),
+        FULL_SCORE_INSTRUCTION,
+    ].join(' ');
+}
+
+const GREETING_QUALITY_RUBRIC = buildChecklistRubric(
+    'Greeting and identification quality.',
+    [
+        'verbal greeting — any polite opener such as "Здравствуйте", "Добрый день", "Доброе утро/вечер", "Hello", etc.',
+        'organization/company/clinic name',
+        'operator name or role identification ("меня зовут …", "оператор …")',
+        'readiness to help — e.g. "слушаю вас", "чем могу помочь", "how can I help"',
+    ],
+    { scope: 'Required elements in the operator opening (count how many are clearly present):' },
+);
+
+const SCRIPT_COMPLIANCE_RUBRIC = buildChecklistRubric(
+    'Script and guideline adherence across the call.',
+    [
+        'opening follows standard protocol (greeting, identification, offer to help); if BUSINESS CONTEXT defines a mandatory opening, that counts too',
+        'clarifies the customer need before taking action (asks what happened / what they need)',
+        'performs required verification or mandatory disclosures when the situation calls for them (identity check, terms, consent); if not needed for this call, count as present',
+        'follows prescribed workflow to resolution/close (lookup → action → confirm), aligned with BUSINESS CONTEXT when provided',
+    ],
+    { notes: ['If BUSINESS CONTEXT lists mandatory script steps, treat them as required elements in addition to the above.'] },
+);
+
+const POLITENESS_EMPATHY_RUBRIC = buildChecklistRubric(
+    'Politeness and empathy throughout the call.',
+    [
+        'uses polite forms (please/thank you / пожалуйста / спасибо / будьте добры) at least once',
+        'acknowledges customer feelings or inconvenience when the customer expresses concern, frustration, or urgency',
+        'no rude, dismissive, sarcastic, or interrupting language from the operator',
+        'maintains a respectful, professional tone in operator turns (no hostility or condescension)',
+    ],
+    {
+        scope: 'Required elements across the call (count how many are clearly present):',
+        notes: ['Element (3) is present when no rude/dismissive language appears; absence of bad behavior satisfies it.'],
+    },
+);
+
+const ACTIVE_LISTENING_RUBRIC = buildChecklistRubric(
+    'Active listening and confirmation.',
+    [
+        'asks clarifying questions or restates the customer request in own words',
+        'confirms understanding before acting ("правильно ли я понял", "то есть вам нужно …", "let me make sure I understand")',
+        'operator responses address what the customer actually said (not a generic script ignoring input)',
+        'does not repeatedly ignore, talk over, or skip answering direct customer questions',
+    ],
+    { scope: 'Required elements across the call (count how many are clearly present):' },
+);
+
+const OBJECTION_HANDLING_RUBRIC = buildChecklistRubric(
+    'Objection and complaint handling.',
+    [
+        'acknowledges the objection, complaint, or pushback (does not ignore it)',
+        'responds with explanation, alternative, or next step (not silence or deflection only)',
+        'stays calm and professional while handling the objection',
+        'attempts to move toward resolution or agreement after the objection',
+    ],
+    {
+        scope: 'Required elements when a customer objection or complaint occurs (count how many are clearly present):',
+        notes: ['If the customer raised no objection or complaint in this call, assign 100 — all elements are N/A.'],
+    },
+);
+
+const PRODUCT_KNOWLEDGE_RUBRIC = buildChecklistRubric(
+    'Product, service, and process knowledge.',
+    [
+        'answers customer questions with specific, relevant information (not vague evasion)',
+        'information given appears consistent and plausible (no obvious contradictions or clear factual errors)',
+        'explains options, steps, pricing, or procedures when the customer asks or when required to proceed',
+        'when uncertain, admits limits and offers lookup/escalation instead of guessing — that satisfies this element',
+    ],
+    { scope: 'Required elements across the call (count how many are clearly present):' },
+);
+
+const PROBLEM_RESOLUTION_RUBRIC = buildChecklistRubric(
+    'Problem resolution / first-contact resolution.',
+    [
+        'identifies the customer\'s problem or request clearly',
+        'takes a concrete action (system lookup, fix, ticket, instructions, callback arrangement)',
+        'confirms the outcome or next step with the customer before closing',
+        'customer\'s issue is resolved in-call OR a clear, actionable next step is agreed (both satisfy this element)',
+    ],
+    { scope: 'Required elements across the call (count how many are clearly present):' },
+);
+
+const SPEECH_CLARITY_PACE_RUBRIC = buildChecklistRubric(
+    'Speech clarity and pace (as observable from the transcript).',
+    [
+        'operator turns are coherent and understandable (not fragmented beyond recognition noise)',
+        'no excessive filler or repetition that makes key points hard to follow',
+        'responses are appropriately sized — not consistently one-word dismissals nor unbroken monologues that block the customer',
+        'important details (numbers, dates, names, amounts) are stated clearly enough to be captured in the transcript',
+    ],
+    {
+        scope: 'Required elements in operator speech (count how many are clearly present):',
+        notes: ['Judge from transcript text only; do not penalize for accent or STT artifacts unless speech is truly incoherent.'],
+    },
+);
+
+const CLOSING_QUALITY_RUBRIC = buildChecklistRubric(
+    'Call closing and next steps.',
+    [
+        'summarizes what was done or the agreed next steps',
+        'asks if anything else is needed ("есть ли ещё вопросы", "могу ли я ещё чем-то помочь", "anything else I can help with")',
+        'thanks the customer',
+        'polite farewell ("до свидания", "хорошего дня", "have a nice day", etc.)',
+    ],
+    { scope: 'Required elements in the operator closing (count how many are clearly present):' },
+);
 
 /**
  * Versioned identifier of the analysis prompt + rubric artifact.
@@ -19,7 +153,7 @@ export const SCORE_ANCHOR_INSTRUCTION =
  * specific prompt revision. Stored on each record (DB column + metrics._model).
  * Format: YYYY-MM-DD.N (date of change + same-day revision counter).
  */
-export const PROMPT_VERSION = '2026-06-18.1';
+export const PROMPT_VERSION = '2026-06-18.3';
 
 export interface MetricAssessment {
     rationale: string;
@@ -30,15 +164,15 @@ export interface MetricAssessment {
 export const SUMMARY_ASSESSMENT_KEYS = ['csat', 'customer_sentiment', 'success'] as const;
 
 export const METRIC_RUBRIC_DESCRIPTIONS: Record<DefaultMetricKey, string> = {
-    greeting_quality: `Greeting and identification quality. ${SCORE_ANCHOR_INSTRUCTION}`,
-    script_compliance: `Script/guideline adherence. ${SCORE_ANCHOR_INSTRUCTION}`,
-    politeness_empathy: `Politeness and empathy. ${SCORE_ANCHOR_INSTRUCTION}`,
-    active_listening: `Active listening and confirmation. ${SCORE_ANCHOR_INSTRUCTION}`,
-    objection_handling: `Objection and complaint handling. ${SCORE_ANCHOR_INSTRUCTION}`,
-    product_knowledge: `Product/service knowledge. ${SCORE_ANCHOR_INSTRUCTION}`,
-    problem_resolution: `Problem resolution / FCR. ${SCORE_ANCHOR_INSTRUCTION}`,
-    speech_clarity_pace: `Speech clarity and pace. ${SCORE_ANCHOR_INSTRUCTION}`,
-    closing_quality: `Call closing and next steps. ${SCORE_ANCHOR_INSTRUCTION}`,
+    greeting_quality: GREETING_QUALITY_RUBRIC,
+    script_compliance: SCRIPT_COMPLIANCE_RUBRIC,
+    politeness_empathy: POLITENESS_EMPATHY_RUBRIC,
+    active_listening: ACTIVE_LISTENING_RUBRIC,
+    objection_handling: OBJECTION_HANDLING_RUBRIC,
+    product_knowledge: PRODUCT_KNOWLEDGE_RUBRIC,
+    problem_resolution: PROBLEM_RESOLUTION_RUBRIC,
+    speech_clarity_pace: SPEECH_CLARITY_PACE_RUBRIC,
+    closing_quality: CLOSING_QUALITY_RUBRIC,
 };
 
 export interface AnalysisCustomMetric {
@@ -437,8 +571,9 @@ TRANSCRIPTION:
 ${transcription}
 
 SCORING METHOD (follow this order strictly):
-1. FIRST fill "assessments": for each metric, write a short "rationale" BEFORE deciding the number. The rationale must (a) name the rubric level it matches, (b) describe the specific observable operator behavior that justifies it (paraphrase it, do NOT copy a verbatim quote into the rationale), and (c) for any score below 100, state concretely what was missing or how the operator could improve (coaching-oriented). Keep it to 1-2 sentences in the conversation language. Put the supporting verbatim snippet ONLY in the separate "quote" field (or "" if none applies); never repeat that snippet inside "rationale".
+1. FIRST fill "assessments": for each metric, write a short "rationale" BEFORE deciding the number. The rationale must (a) name the rubric level it matches, (b) describe the specific observable operator behavior that justifies it (paraphrase it, do NOT copy a verbatim quote into the rationale), and (c) for any score below 100, state which required rubric element is absent or how the operator could improve (coaching-oriented). Keep it to 1-2 sentences in the conversation language. Put the supporting verbatim snippet ONLY in the separate "quote" field (or "" if none applies); never repeat that snippet inside "rationale".
 2. THEN assign each numeric score so it is consistent with its rationale.
+${FULL_SCORE_INSTRUCTION}
 Do not reward verbosity. Judge observable behavior, not tone alone.
 
 Return a JSON object with EXACTLY this structure:

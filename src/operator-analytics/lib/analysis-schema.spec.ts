@@ -1,11 +1,14 @@
 import {
     AnalysisSchemaValidationError,
     buildAnalysisContext,
+    buildAnalysisPrompt,
     buildCustomMetricMeta,
     buildOpenAiJsonSchema,
     buildZodAnalysisSchema,
     inferNumberRange,
+    METRIC_RUBRIC_DESCRIPTIONS,
     parseAndValidateAnalysisResponse,
+    PROMPT_VERSION,
     resolveVisibleDefaultMetrics,
     sanitizeCustomMetricValues,
 } from './analysis-schema';
@@ -48,6 +51,31 @@ describe('analysis-schema', () => {
         expect(schema.properties.assessments.properties.csat).toBeDefined();
         expect(schema.properties.assessments.properties.customer_sentiment).toBeDefined();
         expect(schema.properties.assessments.properties.success).toBeDefined();
+    });
+
+    it('prompts full score when all greeting rubric elements are present', () => {
+        const greetingCtx = buildAnalysisContext({
+            visibleDefaultMetrics: ['greeting_quality'],
+        } as any);
+        const prompt = buildAnalysisPrompt('Оператор: Добрый день, клиника X, меня зовут Татьяна, слушаю вас.', greetingCtx);
+
+        expect(PROMPT_VERSION).toBe('2026-06-18.3');
+        expect(prompt).toContain('100 = all 4 elements present');
+        expect(prompt).toContain('Do not withhold 100');
+        expect(prompt).toContain('Добрый день');
+    });
+
+    it('includes checklist rubrics for every default metric', () => {
+        for (const key of ALL_DEFAULT_METRIC_KEYS) {
+            expect(METRIC_RUBRIC_DESCRIPTIONS[key]).toContain('100 = all 4 elements present');
+            expect(METRIC_RUBRIC_DESCRIPTIONS[key]).toContain('Do not withhold 100');
+        }
+
+        const fullCtx = buildAnalysisContext({ visibleDefaultMetrics: [...ALL_DEFAULT_METRIC_KEYS] } as any);
+        const prompt = buildAnalysisPrompt('sample transcript', fullCtx);
+        expect(prompt).toContain('objection_handling');
+        expect(prompt).toContain('If the customer raised no objection or complaint in this call, assign 100');
+        expect(prompt).toContain('Call closing and next steps');
     });
 
     it('validates a correct analysis payload', () => {

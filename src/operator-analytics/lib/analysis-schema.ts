@@ -14,7 +14,10 @@ export const SCORE_ANCHOR_INSTRUCTION =
 
 /** When a metric rubric lists required elements, 100 means the checklist is complete — not "extra excellent". */
 export const FULL_SCORE_INSTRUCTION =
-    'Give 100 when every checklist item is clearly present (synonyms OK, e.g. "Добрый день" = greeting). Below 100: name the missing item. Rationale: 1 short sentence, paraphrase behavior; verbatim text only in quote. No boilerplate ("соответствует требованиям", "все элементы присутствуют", "уровень 75").';
+    'Give 100 when every checklist item is clearly present (synonyms OK, e.g. "Добрый день" = greeting). Below 100: name the missing item. Rationale: 1 short sentence in transcript language, paraphrase behavior; verbatim text only in quote. No boilerplate ("соответствует требованиям", "все элементы присутствуют", "уровень 75").';
+
+export const OUTPUT_LANGUAGE_INSTRUCTION =
+    'LANGUAGE: rationale, summary, and all free-text fields must match the transcript language (ru transcript → ru text). JSON keys/enums stay English; never default to English for prose.';
 
 const CHECKLIST_SCORE_MAP =
     'Checklist map: 100=all items (N/A items count as present), 75=3/4, 50=2/4, 25=1/4, 0=none.';
@@ -129,7 +132,7 @@ const CLOSING_QUALITY_RUBRIC = buildCompactRubric(
  * specific prompt revision. Stored on each record (DB column + metrics._model).
  * Format: YYYY-MM-DD.N (date of change + same-day revision counter).
  */
-export const PROMPT_VERSION = '2026-06-19.1';
+export const PROMPT_VERSION = '2026-06-19.2';
 
 export interface MetricAssessment {
     rationale: string;
@@ -535,6 +538,7 @@ export function buildAnalysisPrompt(
 
     const globalScoring = [
         'GLOBAL SCORING:',
+        OUTPUT_LANGUAGE_INSTRUCTION,
         SCORE_ANCHOR_INSTRUCTION,
         CHECKLIST_SCORE_MAP,
         NA_AS_PRESENT_NOTE,
@@ -549,11 +553,11 @@ ${transcription}
 
 ${globalScoring}
 
-SCORING ORDER: (1) fill assessments for: ${assessmentKeys.join(', ')} — rationale first, then scores; (2) assign numeric scores consistent with rationale.
+SCORING ORDER: (1) fill assessments for: ${assessmentKeys.join(', ')} — rationale first (transcript language), then scores; (2) assign numeric scores consistent with rationale.
 
 JSON shape:
 {
-  "assessments": { "<key>": { "rationale": "<1 short sentence>", "quote": "<snippet or empty>" }, ... },
+  "assessments": { "<key>": { "rationale": "<1 short sentence, transcript language>", "quote": "<snippet or empty>" }, ... },
 ${metricJsonLines}${metricJsonLines ? ',' : ''}
   "customer_sentiment": "Positive|Neutral|Negative",
   "csat": <1-5>,

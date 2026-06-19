@@ -2875,7 +2875,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         });
 
         const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-            { role: 'system', content: 'You are a call center quality analysis system. Respond only in JSON format.' },
+            { role: 'system', content: 'Call center QA analyzer. JSON only; rationale and summary in the transcript language.' },
             { role: 'user', content: prompt },
         ];
 
@@ -2911,7 +2911,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
                 },
                 {
                     role: 'user',
-                    content: 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields and per-metric assessments (rationale + quote).',
+                    content: 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields and per-metric assessments (rationale + quote). Rationale and summary must be in the transcript language.',
                 },
             ]);
         }

@@ -59,8 +59,10 @@ describe('analysis-schema', () => {
         } as any);
         const prompt = buildAnalysisPrompt('Оператор: Добрый день, клиника X, меня зовут Татьяна, слушаю вас.', greetingCtx);
 
-        expect(PROMPT_VERSION).toBe('2026-06-19.1');
+        expect(PROMPT_VERSION).toBe('2026-06-19.2');
         expect(prompt).toContain('GLOBAL SCORING');
+        expect(prompt).toContain('transcript language');
+        expect(prompt).toContain('never default to English');
         expect(prompt).toContain('Checklist map');
         expect(prompt).toContain('No boilerplate');
         expect(prompt).toContain('Добрый день');

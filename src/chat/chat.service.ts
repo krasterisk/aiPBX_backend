@@ -184,7 +184,10 @@ export class ChatService {
             if (isGemma) {
                 // Для Gemma дополнительно добавляем список инструментов в системный промпт
                 // как подсказку — это помогает модели правильно называть инструменты.
-                const toolNames = mcpTools.map(t => `- ${t.function.name}: ${t.function.description}`).join('\n');
+                const toolNames = mcpTools
+                    .filter((t): t is Extract<typeof t, { type: 'function' }> => t.type === 'function')
+                    .map(t => `- ${t.function.name}: ${t.function.description}`)
+                    .join('\n');
                 systemPrompt += `\n\n## Доступные инструменты\nПри необходимости используй ТОЛЬКО эти инструменты (точные имена):\n${toolNames}\nНЕ придумывай имена инструментов — используй только из этого списка.`;
             }
         }

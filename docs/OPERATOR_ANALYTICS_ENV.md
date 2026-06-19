@@ -57,6 +57,16 @@
 
 Webhook: добавьте `anomaly.detected` в `webhookEvents` проекта.
 
+## AI Insights (dashboard)
+
+| Переменная | Дефолт | Назначение |
+|---|---|---|
+| `OPERATOR_INSIGHTS_MIN_CALLS` | `10` | Минимум проанализированных звонков для генерации инсайтов (и флаг `insightsAvailable` на дашборде). |
+| `OPERATOR_INSIGHTS_TTL_SEC` | `3600` | TTL in-memory кэша инсайтов (секунды). |
+| `OPERATOR_INSIGHTS_MAX_COUNT` | `6` | Максимум инсайтов в ответе API. |
+
+Ключ кэша включает `userId` (tenant), фильтры, `INSIGHTS_PROMPT_VERSION` и digest фактов. Query `refresh=1` обходит кэш.
+
 ## Пайплайн (§13)
 
 | Переменная | Дефолт | Назначение |

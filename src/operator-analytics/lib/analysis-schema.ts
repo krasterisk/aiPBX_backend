@@ -10,140 +10,116 @@ import {
 import type { OperatorProject } from '../operator-project.model';
 
 export const SCORE_ANCHOR_INSTRUCTION =
-    'Use ONLY discrete scores 0, 25, 50, 75, or 100. 0=absent/unacceptable, 25=poor, 50=adequate, 75=good, 100=all required rubric elements present.';
+    'Scores: 0|25|50|75|100 only (0=absent, 25=poor, 50=adequate, 75=good, 100=all checklist items present).';
 
 /** When a metric rubric lists required elements, 100 means the checklist is complete — not "extra excellent". */
 export const FULL_SCORE_INSTRUCTION =
-    'Assign 100 when every required element in that metric\'s rubric is clearly present in the transcript. Do not withhold 100 for subjective preferences (tone, enthusiasm, brevity, or alternative wording). For scores below 100, name a concrete required element that is absent — never invent a gap or treat synonymous phrases as missing (e.g. "Добрый день" satisfies the greeting element). The rationale must not claim an element is missing if the quote contains it.';
+    'Give 100 when every checklist item is clearly present (synonyms OK, e.g. "Добрый день" = greeting). Below 100: name the missing item. Rationale: 1 short sentence, paraphrase behavior; verbatim text only in quote. No boilerplate ("соответствует требованиям", "все элементы присутствуют", "уровень 75").';
+
+const CHECKLIST_SCORE_MAP =
+    'Checklist map: 100=all items (N/A items count as present), 75=3/4, 50=2/4, 25=1/4, 0=none.';
 
 const NA_AS_PRESENT_NOTE =
-    'If a listed element is not applicable to this call (e.g. no objection occurred), count it as present.';
+    'N/A items (e.g. no objection raised) count as present.';
 
-function buildChecklistRubric(
-    title: string,
-    elements: string[],
-    options?: { scope?: string; notes?: string[] },
-): string {
-    const scope = options?.scope ?? 'Required elements (count how many are clearly present):';
-    const numbered = elements.map((el, i) => `(${i + 1}) ${el}`).join('; ');
-    return [
-        title,
-        SCORE_ANCHOR_INSTRUCTION,
-        scope,
-        numbered + '.',
-        '100 = all 4 elements present (or N/A elements counted as present per rubric notes). 75 = 3 of 4. 50 = 2 of 4. 25 = 1 of 4 or a very weak attempt. 0 = absent/unacceptable.',
-        NA_AS_PRESENT_NOTE,
-        ...(options?.notes ?? []),
-        FULL_SCORE_INSTRUCTION,
-    ].join(' ');
+/** Compact checklist — scoring rules live once in buildAnalysisPrompt (GLOBAL SCORING). */
+function buildCompactRubric(title: string, elements: string[], note?: string): string {
+    const items = elements.map((el, i) => `${i + 1})${el}`).join('; ');
+    return note ? `${title} {${note}} ${items}` : `${title} ${items}`;
 }
 
-const GREETING_QUALITY_RUBRIC = buildChecklistRubric(
-    'Greeting and identification quality.',
+const GREETING_QUALITY_RUBRIC = buildCompactRubric(
+    'Greeting/ID:',
     [
-        'verbal greeting — any polite opener such as "Здравствуйте", "Добрый день", "Доброе утро/вечер", "Hello", etc.',
-        'organization/company/clinic name',
-        'operator name or role identification ("меня зовут …", "оператор …")',
-        'readiness to help — e.g. "слушаю вас", "чем могу помочь", "how can I help"',
+        'polite opener (Здравствуйте/Добрый день/Hello)',
+        'org/company name',
+        'operator name or role',
+        'offer to help',
     ],
-    { scope: 'Required elements in the operator opening (count how many are clearly present):' },
 );
 
-const SCRIPT_COMPLIANCE_RUBRIC = buildChecklistRubric(
-    'Script and guideline adherence across the call.',
+const SCRIPT_COMPLIANCE_RUBRIC = buildCompactRubric(
+    'Script:',
     [
-        'opening follows standard protocol (greeting, identification, offer to help); if BUSINESS CONTEXT defines a mandatory opening, that counts too',
-        'clarifies the customer need before taking action (asks what happened / what they need)',
-        'performs required verification or mandatory disclosures when the situation calls for them (identity check, terms, consent); if not needed for this call, count as present',
-        'follows prescribed workflow to resolution/close (lookup → action → confirm), aligned with BUSINESS CONTEXT when provided',
+        'standard opening (+ BUSINESS CONTEXT if set)',
+        'clarify customer need before acting',
+        'required verification/disclosures when applicable',
+        'workflow to resolution/close',
     ],
-    { notes: ['If BUSINESS CONTEXT lists mandatory script steps, treat them as required elements in addition to the above.'] },
+    'BUSINESS CONTEXT steps are extra required items',
 );
 
-const POLITENESS_EMPATHY_RUBRIC = buildChecklistRubric(
-    'Politeness and empathy throughout the call.',
+const POLITENESS_EMPATHY_RUBRIC = buildCompactRubric(
+    'Politeness:',
     [
-        'uses polite forms (please/thank you / пожалуйста / спасибо / будьте добры) at least once',
-        'acknowledges customer feelings or inconvenience when the customer expresses concern, frustration, or urgency',
-        'no rude, dismissive, sarcastic, or interrupting language from the operator',
-        'maintains a respectful, professional tone in operator turns (no hostility or condescension)',
+        'please/thank-you forms used',
+        'acknowledge concern when customer upset',
+        'no rude/dismissive/interrupting language',
+        'respectful professional tone',
     ],
-    {
-        scope: 'Required elements across the call (count how many are clearly present):',
-        notes: ['Element (3) is present when no rude/dismissive language appears; absence of bad behavior satisfies it.'],
-    },
+    'item 3 satisfied if no bad language',
 );
 
-const ACTIVE_LISTENING_RUBRIC = buildChecklistRubric(
-    'Active listening and confirmation.',
+const ACTIVE_LISTENING_RUBRIC = buildCompactRubric(
+    'Listening:',
     [
-        'asks clarifying questions or restates the customer request in own words',
-        'confirms understanding before acting ("правильно ли я понял", "то есть вам нужно …", "let me make sure I understand")',
-        'operator responses address what the customer actually said (not a generic script ignoring input)',
-        'does not repeatedly ignore, talk over, or skip answering direct customer questions',
+        'clarifying Q or restate request',
+        'confirm understanding before acting',
+        'responses match customer input',
+        'answers direct questions, no ignoring',
     ],
-    { scope: 'Required elements across the call (count how many are clearly present):' },
 );
 
-const OBJECTION_HANDLING_RUBRIC = buildChecklistRubric(
-    'Objection and complaint handling.',
+const OBJECTION_HANDLING_RUBRIC = buildCompactRubric(
+    'Objections:',
     [
-        'acknowledges the objection, complaint, or pushback (does not ignore it)',
-        'responds with explanation, alternative, or next step (not silence or deflection only)',
-        'stays calm and professional while handling the objection',
-        'attempts to move toward resolution or agreement after the objection',
+        'acknowledge objection',
+        'explain/alternative/next step',
+        'stay calm/professional',
+        'move toward resolution',
     ],
-    {
-        scope: 'Required elements when a customer objection or complaint occurs (count how many are clearly present):',
-        notes: ['If the customer raised no objection or complaint in this call, assign 100 — all elements are N/A.'],
-    },
+    'no objection → score 100',
 );
 
-const PRODUCT_KNOWLEDGE_RUBRIC = buildChecklistRubric(
-    'Product, service, and process knowledge.',
+const PRODUCT_KNOWLEDGE_RUBRIC = buildCompactRubric(
+    'Knowledge:',
     [
-        'answers customer questions with specific, relevant information (not vague evasion)',
-        'information given appears consistent and plausible (no obvious contradictions or clear factual errors)',
-        'explains options, steps, pricing, or procedures when the customer asks or when required to proceed',
-        'when uncertain, admits limits and offers lookup/escalation instead of guessing — that satisfies this element',
+        'specific answers, not vague evasion',
+        'consistent/plausible info',
+        'explain options/steps/pricing when needed',
+        'if unsure: admit + lookup/escalate',
     ],
-    { scope: 'Required elements across the call (count how many are clearly present):' },
 );
 
-const PROBLEM_RESOLUTION_RUBRIC = buildChecklistRubric(
-    'Problem resolution / first-contact resolution.',
+const PROBLEM_RESOLUTION_RUBRIC = buildCompactRubric(
+    'Resolution:',
     [
-        'identifies the customer\'s problem or request clearly',
-        'takes a concrete action (system lookup, fix, ticket, instructions, callback arrangement)',
-        'confirms the outcome or next step with the customer before closing',
-        'customer\'s issue is resolved in-call OR a clear, actionable next step is agreed (both satisfy this element)',
+        'identify problem/request',
+        'concrete action taken',
+        'confirm outcome/next step',
+        'resolved in-call OR clear next step agreed',
     ],
-    { scope: 'Required elements across the call (count how many are clearly present):' },
 );
 
-const SPEECH_CLARITY_PACE_RUBRIC = buildChecklistRubric(
-    'Speech clarity and pace (as observable from the transcript).',
+const SPEECH_CLARITY_PACE_RUBRIC = buildCompactRubric(
+    'Speech:',
     [
-        'operator turns are coherent and understandable (not fragmented beyond recognition noise)',
-        'no excessive filler or repetition that makes key points hard to follow',
-        'responses are appropriately sized — not consistently one-word dismissals nor unbroken monologues that block the customer',
-        'important details (numbers, dates, names, amounts) are stated clearly enough to be captured in the transcript',
+        'coherent understandable turns',
+        'no excessive filler blocking meaning',
+        'appropriately sized responses',
+        'key numbers/dates/names clear in transcript',
     ],
-    {
-        scope: 'Required elements in operator speech (count how many are clearly present):',
-        notes: ['Judge from transcript text only; do not penalize for accent or STT artifacts unless speech is truly incoherent.'],
-    },
+    'judge transcript only, not accent/STT noise',
 );
 
-const CLOSING_QUALITY_RUBRIC = buildChecklistRubric(
-    'Call closing and next steps.',
+const CLOSING_QUALITY_RUBRIC = buildCompactRubric(
+    'Closing:',
     [
-        'summarizes what was done or the agreed next steps',
-        'asks if anything else is needed ("есть ли ещё вопросы", "могу ли я ещё чем-то помочь", "anything else I can help with")',
-        'thanks the customer',
-        'polite farewell ("до свидания", "хорошего дня", "have a nice day", etc.)',
+        'summarize done/next steps',
+        'ask if anything else needed',
+        'thank customer',
+        'polite farewell',
     ],
-    { scope: 'Required elements in the operator closing (count how many are clearly present):' },
 );
 
 /**
@@ -153,7 +129,7 @@ const CLOSING_QUALITY_RUBRIC = buildChecklistRubric(
  * specific prompt revision. Stored on each record (DB column + metrics._model).
  * Format: YYYY-MM-DD.N (date of change + same-day revision counter).
  */
-export const PROMPT_VERSION = '2026-06-18.3';
+export const PROMPT_VERSION = '2026-06-19.1';
 
 export interface MetricAssessment {
     rationale: string;
@@ -524,93 +500,76 @@ export function buildAnalysisPrompt(
         return `${index + 1}. ${key}: ${METRIC_RUBRIC_DESCRIPTIONS[key]}`;
     }).join('\n');
 
+    const assessmentKeys = [
+        ...ctx.visibleDefaultMetrics,
+        ...ctx.customMetrics.map(m => m.id),
+        ...SUMMARY_ASSESSMENT_KEYS,
+    ];
+
     let customMetricsPromptBlock = '';
     if (ctx.customMetrics.length) {
         const customDefs = ctx.customMetrics.map(m => {
-            let typeDef = `<${m.type}>`;
+            let typeDef = m.type;
             if (m.type === 'enum' && m.enumValues?.length) {
-                typeDef = `one of: ${m.enumValues.join(', ')}`;
+                typeDef = `enum:${m.enumValues.join('|')}`;
             } else if (m.type === 'number') {
                 const { min, max } = resolveMetricRange(m);
-                typeDef = `<number ${min}..${max}>`;
+                typeDef = `number ${min}..${max}`;
             }
-            return `  "${m.id}": ${typeDef} — ${m.description}`;
-        }).join('\n');
-        customMetricsPromptBlock = `
-
-Additionally, analyze these CUSTOM metrics in "custom_metrics" and provide an assessment for each in "assessments":
-{
-${customDefs}
-}`;
+            return `${m.id} (${typeDef}): ${m.description}`;
+        }).join('; ');
+        customMetricsPromptBlock = `\nCustom metrics (also in assessments + custom_metrics): ${customDefs}`;
     }
 
     const businessContext = options?.systemPrompt
-        ? `\nBUSINESS CONTEXT: ${options.systemPrompt}\n`
+        ? `\nBUSINESS CONTEXT: ${options.systemPrompt}`
         : '';
 
     const qualityHintBlock = options?.qualityHintConfidence != null
-        ? `\nQUALITY NOTE: Speech recognition confidence is low (${options.qualityHintConfidence}). If the dialogue is too short or incoherent to score reliably, set insufficient_content=true and analysis_confidence below 0.4. Do not invent numeric scores from noise.\n`
+        ? `\nLOW STT CONFIDENCE (${options.qualityHintConfidence}): if unreliable, set insufficient_content=true, analysis_confidence<0.4; do not invent scores.`
         : '';
 
     const metricJsonLines = ctx.visibleDefaultMetrics
         .map(key => `  "${key}": <0|25|50|75|100>`)
         .join(',\n');
 
-    const assessmentJsonLines = [
-        ...ctx.visibleDefaultMetrics.map(key => `    "${key}": { "rationale": "<why this score, in the conversation language>", "quote": "<short supporting quote or empty>" }`),
-        ...ctx.customMetrics.map(m => `    "${m.id}": { "rationale": "<why this value, in the conversation language>", "quote": "<short supporting quote or empty>" }`),
-        `    "csat": { "rationale": "<why this CSAT 1-5, in the conversation language>", "quote": "<short supporting quote or empty>" }`,
-        `    "customer_sentiment": { "rationale": "<why this sentiment, in the conversation language>", "quote": "<short supporting quote or empty>" }`,
-        `    "success": { "rationale": "<why the issue was/was not resolved, in the conversation language>", "quote": "<short supporting quote or empty>" }`,
-    ].join(',\n');
+    const globalScoring = [
+        'GLOBAL SCORING:',
+        SCORE_ANCHOR_INSTRUCTION,
+        CHECKLIST_SCORE_MAP,
+        NA_AS_PRESENT_NOTE,
+        FULL_SCORE_INSTRUCTION,
+    ].join(' ');
 
     return `
-You are a senior call center quality assurance analyst. Analyze the following transcription of a call between a LIVE HUMAN OPERATOR and a customer. Generate a JSON report with metrics.
+QA analyst. Score operator call from transcript. JSON only.
 ${businessContext}${qualityHintBlock}
 TRANSCRIPTION:
 ${transcription}
 
-SCORING METHOD (follow this order strictly):
-1. FIRST fill "assessments": for each metric, write a short "rationale" BEFORE deciding the number. The rationale must (a) name the rubric level it matches, (b) describe the specific observable operator behavior that justifies it (paraphrase it, do NOT copy a verbatim quote into the rationale), and (c) for any score below 100, state which required rubric element is absent or how the operator could improve (coaching-oriented). Keep it to 1-2 sentences in the conversation language. Put the supporting verbatim snippet ONLY in the separate "quote" field (or "" if none applies); never repeat that snippet inside "rationale".
-2. THEN assign each numeric score so it is consistent with its rationale.
-${FULL_SCORE_INSTRUCTION}
-Do not reward verbosity. Judge observable behavior, not tone alone.
+${globalScoring}
 
-Return a JSON object with EXACTLY this structure:
+SCORING ORDER: (1) fill assessments for: ${assessmentKeys.join(', ')} — rationale first, then scores; (2) assign numeric scores consistent with rationale.
 
+JSON shape:
 {
-  "assessments": {
-${assessmentJsonLines}
-  },
+  "assessments": { "<key>": { "rationale": "<1 short sentence>", "quote": "<snippet or empty>" }, ... },
 ${metricJsonLines}${metricJsonLines ? ',' : ''}
-  "customer_sentiment": "<Positive|Neutral|Negative>",
-  "csat": <1-5 integer>,
-  "summary": "<string>",
+  "customer_sentiment": "Positive|Neutral|Negative",
+  "csat": <1-5>,
+  "summary": "<brief, conversation language>",
   "success": <boolean>,
-  "analysis_confidence": <0-1 number>,
+  "analysis_confidence": <0-1>,
   "insufficient_content": <boolean>,
-  "diarized_text": [
-    { "speaker": "operator", "text": "..." },
-    { "speaker": "customer", "text": "..." }
-  ]${ctx.customMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}
+  "diarized_text": [{ "speaker": "operator|customer", "text": "..." }]${ctx.customMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}
 }
 
-Metric descriptions:
+Metric checklists (4 items each unless noted):
 ${metricLines}
-- customer_sentiment: Overall customer sentiment at the end of the call (English enum only).
-- csat: Customer Satisfaction Score from 1 to 5.
-- summary: Brief summary in the conversation language.
-- success: Was the customer's question or problem resolved?
-- analysis_confidence: Confidence (0..1) that the transcript supports reliable scoring.
-- insufficient_content: true if transcript is too short or incoherent for reliable scores.
-- assessments: For EACH scored metric above AND for csat, customer_sentiment and success, provide { rationale, quote } as described in the SCORING METHOD.
 ${customMetricsPromptBlock}
 
-diarized_text rules:
-- "speaker" must be "operator" or "customer" (lowercase English).
-- Preserve ALL original text; do not omit, summarize, or translate.
-
-Return ONLY valid JSON without markdown formatting.
+diarized_text: preserve full original text; speakers lowercase English operator|customer.
+Return ONLY JSON.
 `.trim();
 }
 

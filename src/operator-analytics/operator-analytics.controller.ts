@@ -506,11 +506,11 @@ export class OperatorAnalyticsController {
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
-    @ApiOperation({ summary: 'Get AI-generated insights for project' })
-    async getInsights(
+    @ApiOperation({ summary: 'Get AI-generated insights for project (deprecated — use GET /insights?projectId=)', deprecated: true })
+    async getProjectInsights(
         @Req() req: RequestWithUser,
         @Param('id') id: string,
-        @Query() query: { startDate?: string; endDate?: string },
+        @Query() query: { startDate?: string; endDate?: string; userId?: string; refresh?: string },
     ) {
         return this.service.getProjectInsights(
             +id, req.vpbxUserId || req.tokenUserId, req.isAdmin ?? false, query,
@@ -586,8 +586,8 @@ export class OperatorAnalyticsController {
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
-    @ApiOperation({ summary: 'Get AI-generated insights (project optional)' })
-    @ApiResponse({ status: 200, description: 'AI insights array with generation timestamp' })
+    @ApiOperation({ summary: 'Get AI-generated structured insights (project optional)' })
+    @ApiResponse({ status: 200, description: 'Structured AI insights with priority, evidence, and metadata' })
     async getDashboardInsights(
         @Req() req: RequestWithUser,
         @Query() query: {
@@ -596,11 +596,13 @@ export class OperatorAnalyticsController {
             endDate?: string;
             operatorName?: string;
             projectId?: number;
+            refresh?: string;
         },
     ) {
         const isAdmin = req.isAdmin ?? false;
-        const realUserId = isAdmin ? null : (req.vpbxUserId || req.tokenUserId);
-        return this.service.getInsights(query, isAdmin, realUserId);
+        const authUserId = req.vpbxUserId || req.tokenUserId;
+        const realUserId = isAdmin ? null : authUserId;
+        return this.service.getInsights(query, isAdmin, realUserId, authUserId);
     }
 
     // ─── Human-in-the-loop metric overrides (JWT Auth) ───────────────

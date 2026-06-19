@@ -46,6 +46,17 @@ import {
     MetricAssessment,
     PROMPT_VERSION,
 } from './lib/analysis-schema';
+import {
+    buildInsightsJsonSchema,
+    buildOperatorInsightsResponse,
+    computeFactsDigest,
+    INSIGHTS_PROMPT_VERSION,
+    InsightsSchemaValidationError,
+    OperatorInsightsResponse,
+    parseAndValidateInsightsResponse,
+} from './lib/insights-schema';
+import { buildInsightsFacts, resolveInsightsMinCalls } from './lib/insights-facts';
+import { buildInsightsPrompt } from './lib/insights-prompt';
 import { PROJECT_TEMPLATES } from './project-templates';
 import { OPERATOR_CDR_SOURCE } from './lib/analytics-source';
 import { Op, Sequelize } from 'sequelize';
@@ -1447,7 +1458,7 @@ export class OperatorAnalyticsService {
             customMetricsAggregated,
             sentimentDistribution,
             timeSeries,
-            insightsAvailable: aggregationCount >= 5,
+            insightsAvailable: aggregationCount >= resolveInsightsMinCalls(),
             excludedLowQualityCount,
             agentScorecards,
         };
@@ -1919,69 +1930,155 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
 
     // ─── AI Insights ─────────────────────────────────────────────────
 
-    private insightsCache: Map<string, { data: any; expiry: number }> = new Map();
-    private readonly INSIGHTS_TTL = 60 * 60 * 1000; // 1 hour
+    private insightsCache: Map<string, { data: OperatorInsightsResponse; expiry: number }> = new Map();
 
+    private resolveInsightsTtlMs(): number {
+        const raw = process.env.OPERATOR_INSIGHTS_TTL_SEC;
+        const sec = raw ? Number(raw) : 3600;
+        return (Number.isFinite(sec) && sec > 0 ? sec : 3600) * 1000;
+    }
+
+    private resolveInsightsMaxCount(): number {
+        const raw = process.env.OPERATOR_INSIGHTS_MAX_COUNT;
+        const n = raw ? Number(raw) : 6;
+        return Number.isFinite(n) && n > 0 ? n : 6;
+    }
+
+    private buildInsightsCacheKey(
+        tenantUserId: string,
+        query: {
+            projectId?: number;
+            startDate?: string;
+            endDate?: string;
+            operatorName?: string;
+        },
+        factsDigest: string,
+    ): string {
+        return [
+            'insights:v1',
+            tenantUserId,
+            query.projectId ?? 'all',
+            query.startDate || '',
+            query.endDate || '',
+            query.operatorName || '',
+            INSIGHTS_PROMPT_VERSION,
+            factsDigest,
+        ].join(':');
+    }
+
+    private async generateInsights(ctx: {
+        query: {
+            userId?: string;
+            startDate?: string;
+            endDate?: string;
+            operatorName?: string;
+            projectId?: number;
+            refresh?: string | boolean;
+        };
+        isAdmin: boolean;
+        realUserId: string | null;
+        billingUserId: string;
+        project?: OperatorProject | null;
+        chargeDescription: string;
+    }): Promise<OperatorInsightsResponse> {
+        const { query, isAdmin, realUserId, billingUserId, chargeDescription } = ctx;
+        const minCalls = resolveInsightsMinCalls();
+        const skipCache = query.refresh === true || query.refresh === '1' || query.refresh === 'true';
+
+        const dashboard = await this.getDashboard(query, isAdmin, realUserId);
+        const project = ctx.project ?? (query.projectId
+            ? await this.projectRepository.findByPk(query.projectId)
+            : null);
+
+        const facts = buildInsightsFacts(dashboard, project, query, minCalls);
+        const factsDigest = computeFactsDigest(facts);
+        const tenantUserId = query.userId || realUserId || 'admin-all';
+        const cacheKey = this.buildInsightsCacheKey(tenantUserId, query, factsDigest);
+
+        if (!skipCache) {
+            const cached = this.insightsCache.get(cacheKey);
+            if (cached && Date.now() < cached.expiry) {
+                return cached.data;
+            }
+        }
+
+        if (dashboard.totalAnalyzed < minCalls) {
+            return buildOperatorInsightsResponse([], dashboard.totalAnalyzed, true, factsDigest);
+        }
+
+        const periodLabel = `${query.startDate || 'all time'} — ${query.endDate || 'now'}`;
+        const promptMessages = buildInsightsPrompt(
+            facts,
+            project ? { name: project.name, systemPrompt: project.systemPrompt } : undefined,
+            { periodLabel, operatorFocus: query.operatorName },
+        );
+
+        const requestInsights = async () => {
+            const llmResult = await this.chatWithFallback([
+                { role: 'system', content: promptMessages.system },
+                { role: 'user', content: promptMessages.user },
+            ], {
+                jsonSchema: buildInsightsJsonSchema(),
+                schemaName: 'operator_insights',
+                temperature: 0,
+            });
+            const sanitized = this.sanitizeJsonResponse(llmResult.content);
+            const parsed = JSON.parse(sanitized);
+            const insights = parseAndValidateInsightsResponse(parsed);
+            return { insights, usage: llmResult.usage };
+        };
+
+        let insightsResult;
+        try {
+            insightsResult = await requestInsights();
+        } catch (firstErr) {
+            if (!(firstErr instanceof InsightsSchemaValidationError)) {
+                throw firstErr;
+            }
+            this.logger.warn(`[Insights LLM] Invalid JSON, retrying once: ${firstErr.message}`);
+            insightsResult = await requestInsights();
+        }
+
+        const maxCount = this.resolveInsightsMaxCount();
+        const insights = insightsResult.insights.slice(0, maxCount);
+        const totalTokens = insightsResult.usage?.total_tokens || 0;
+        await this.chargeInsightCost(billingUserId, totalTokens, chargeDescription);
+
+        const result = buildOperatorInsightsResponse(
+            insights,
+            dashboard.totalAnalyzed,
+            facts.lowConfidence,
+            factsDigest,
+        );
+
+        this.insightsCache.set(cacheKey, {
+            data: result,
+            expiry: Date.now() + this.resolveInsightsTtlMs(),
+        });
+
+        return result;
+    }
+
+    /** @deprecated Use GET /operator-analytics/insights with projectId */
     async getProjectInsights(
         projectId: number,
         userId: string,
         isAdmin: boolean,
-        query: { startDate?: string; endDate?: string },
-    ): Promise<{ insights: string[]; generatedAt: string }> {
-        const cacheKey = `${projectId}:${query.startDate || ''}:${query.endDate || ''}`;
-        const cached = this.insightsCache.get(cacheKey);
-        if (cached && Date.now() < cached.expiry) {
-            return cached.data;
-        }
-
+        query: { startDate?: string; endDate?: string; userId?: string; refresh?: string | boolean },
+    ): Promise<OperatorInsightsResponse> {
         const project = await this.projectRepository.findOne({
             where: isAdmin ? { id: projectId } : { id: projectId, userId },
         });
         if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
 
-        const dashboard = await this.getDashboard(
-            { ...query, projectId },
+        return this.generateInsights({
+            query: { ...query, projectId, userId: query.userId || (isAdmin ? undefined : userId) },
             isAdmin,
-            userId,
-        );
-
-        if (dashboard.totalAnalyzed === 0) {
-            return { insights: [], generatedAt: new Date().toISOString() };
-        }
-
-        const prompt = `You are a call center analytics expert. Based on the following aggregated data, generate 3-5 actionable insights.
-
-Project: ${project.name}
-${project.systemPrompt ? `Business context: ${project.systemPrompt}` : ''}
-Period: ${query.startDate || 'all time'} — ${query.endDate || 'now'}
-
-Data:
-- Total calls analyzed: ${dashboard.totalAnalyzed}
-- Average score: ${dashboard.averageScore}
-- Success rate: ${dashboard.successRate}%
-- Sentiment: ${JSON.stringify(dashboard.sentimentDistribution)}
-- Metrics breakdown: ${JSON.stringify(dashboard.aggregatedMetrics)}
-
-Return JSON: { "insights": ["insight1", "insight2", ...] }
-Write insights in Russian. Be specific and actionable.`;
-
-        const llmResult = await this.chatWithFallback([
-            { role: 'system', content: 'You are a call center analytics AI. Respond only in JSON.' },
-            { role: 'user', content: prompt },
-        ]);
-        const parsed = JSON.parse(this.sanitizeJsonResponse(llmResult.content));
-
-        // Charge for insight generation
-        const totalTokens = llmResult.usage?.total_tokens || 0;
-        await this.chargeInsightCost(userId, totalTokens, `Project insight: ${project.name}`);
-
-        const result = {
-            insights: parsed.insights || [],
-            generatedAt: new Date().toISOString(),
-        };
-
-        this.insightsCache.set(cacheKey, { data: result, expiry: Date.now() + this.INSIGHTS_TTL });
-        return result;
+            realUserId: isAdmin ? null : userId,
+            billingUserId: userId,
+            project,
+            chargeDescription: `Project insight: ${project.name}`,
+        });
     }
 
     /**
@@ -1996,72 +2093,23 @@ Write insights in Russian. Be specific and actionable.`;
             endDate?: string;
             operatorName?: string;
             projectId?: number;
+            refresh?: string | boolean;
         },
         isAdmin: boolean,
-        userId: string,
-    ): Promise<{ insights: string[]; generatedAt: string }> {
-        const cacheKey = `insights:${userId}:${query.projectId || 'all'}:${query.startDate || ''}:${query.endDate || ''}:${query.operatorName || ''}`;
-        const cached = this.insightsCache.get(cacheKey);
-        if (cached && Date.now() < cached.expiry) {
-            return cached.data;
+        realUserId: string | null,
+        authUserId: string,
+    ): Promise<OperatorInsightsResponse> {
+        if (!authUserId) {
+            throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
         }
 
-        const dashboard = await this.getDashboard(query, isAdmin, userId);
-
-        if (dashboard.totalAnalyzed < 5) {
-            return { insights: [], generatedAt: new Date().toISOString() };
-        }
-
-        // Optionally load project context
-        let projectContext = '';
-        if (query.projectId) {
-            const project = await this.projectRepository.findByPk(query.projectId);
-            if (project) {
-                projectContext = `\nProject: ${project.name}`;
-                if (project.systemPrompt) {
-                    projectContext += `\nBusiness context: ${project.systemPrompt}`;
-                }
-            }
-        }
-
-        const prompt = `You are a call center analytics expert. Based on the following aggregated data, generate 3-5 actionable insights.
-${projectContext}
-Period: ${query.startDate || 'all time'} — ${query.endDate || 'now'}
-
-Data:
-- Total calls analyzed: ${dashboard.totalAnalyzed}
-- Average score: ${dashboard.averageScore}
-- Success rate: ${dashboard.successRate}%
-- Average call duration: ${dashboard.averageDuration}s
-- Sentiment: ${JSON.stringify(dashboard.sentimentDistribution)}
-- Metrics breakdown: ${JSON.stringify(dashboard.aggregatedMetrics)}
-
-Return JSON: { "insights": ["insight1", "insight2", ...] }
-Write insights in Russian. Be specific and actionable.`;
-
-        const completion = await this.openAiClient.chat.completions.create({
-            messages: [
-                { role: 'system', content: 'You are a call center analytics AI. Respond only in JSON.' },
-                { role: 'user', content: prompt },
-            ],
-            model: 'gpt-4o-mini',
-            response_format: { type: 'json_object' },
+        return this.generateInsights({
+            query,
+            isAdmin,
+            realUserId,
+            billingUserId: authUserId,
+            chargeDescription: query.projectId ? 'Project dashboard insight' : 'Dashboard insight',
         });
-
-        const content = completion.choices[0]?.message?.content || '{}';
-        const parsed = JSON.parse(this.sanitizeJsonResponse(content));
-
-        // Charge for insight generation
-        const totalTokens = completion.usage?.total_tokens || 0;
-        await this.chargeInsightCost(userId, totalTokens, 'Dashboard insight');
-
-        const result = {
-            insights: parsed.insights || [],
-            generatedAt: new Date().toISOString(),
-        };
-
-        this.insightsCache.set(cacheKey, { data: result, expiry: Date.now() + this.INSIGHTS_TTL });
-        return result;
     }
 
     private async cdrCostFields(totalCostUsd: number) {

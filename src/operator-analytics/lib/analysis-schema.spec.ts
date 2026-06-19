@@ -59,23 +59,35 @@ describe('analysis-schema', () => {
         } as any);
         const prompt = buildAnalysisPrompt('Оператор: Добрый день, клиника X, меня зовут Татьяна, слушаю вас.', greetingCtx);
 
-        expect(PROMPT_VERSION).toBe('2026-06-18.3');
-        expect(prompt).toContain('100 = all 4 elements present');
-        expect(prompt).toContain('Do not withhold 100');
+        expect(PROMPT_VERSION).toBe('2026-06-19.1');
+        expect(prompt).toContain('GLOBAL SCORING');
+        expect(prompt).toContain('Checklist map');
+        expect(prompt).toContain('No boilerplate');
         expect(prompt).toContain('Добрый день');
     });
 
-    it('includes checklist rubrics for every default metric', () => {
+    it('includes compact checklist rubrics for every default metric', () => {
         for (const key of ALL_DEFAULT_METRIC_KEYS) {
-            expect(METRIC_RUBRIC_DESCRIPTIONS[key]).toContain('100 = all 4 elements present');
-            expect(METRIC_RUBRIC_DESCRIPTIONS[key]).toContain('Do not withhold 100');
+            expect(METRIC_RUBRIC_DESCRIPTIONS[key]).toMatch(/1\)/);
+            expect(METRIC_RUBRIC_DESCRIPTIONS[key].length).toBeLessThan(350);
+            // scoring rules are global, not repeated per rubric
+            expect(METRIC_RUBRIC_DESCRIPTIONS[key]).not.toContain('Do not withhold 100');
         }
 
         const fullCtx = buildAnalysisContext({ visibleDefaultMetrics: [...ALL_DEFAULT_METRIC_KEYS] } as any);
         const prompt = buildAnalysisPrompt('sample transcript', fullCtx);
         expect(prompt).toContain('objection_handling');
-        expect(prompt).toContain('If the customer raised no objection or complaint in this call, assign 100');
-        expect(prompt).toContain('Call closing and next steps');
+        expect(prompt).toContain('no objection → score 100');
+        expect(prompt).toContain('Closing:');
+    });
+
+    it('compact prompt is smaller than verbose checklist would be', () => {
+        const fullCtx = buildAnalysisContext({ visibleDefaultMetrics: [...ALL_DEFAULT_METRIC_KEYS] } as any);
+        const transcript = 'Оператор: Добрый день.\nКлиент: Здравствуйте.\n'.repeat(20);
+        const prompt = buildAnalysisPrompt(transcript, fullCtx);
+        const rubricsOnly = ALL_DEFAULT_METRIC_KEYS.map(k => METRIC_RUBRIC_DESCRIPTIONS[k]).join('\n');
+        expect(prompt.length).toBeLessThan(transcript.length + rubricsOnly.length + 2500);
+        expect(rubricsOnly.length).toBeLessThan(2800);
     });
 
     it('validates a correct analysis payload', () => {

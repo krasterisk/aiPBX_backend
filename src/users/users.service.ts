@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } 
 import { InjectModel } from "@nestjs/sequelize";
 import { InjectConnection } from "@nestjs/sequelize";
 import { Sequelize, Transaction } from "sequelize";
-import { User } from "../users/users.model";
+import { User } from "./users.model";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { OurOrganizationsService } from "../our-organizations/our-organizations.service";
 import { CreateSubUserDto } from "./dto/create-sub-user.dto";

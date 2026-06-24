@@ -67,6 +67,22 @@ Webhook: добавьте `anomaly.detected` в `webhookEvents` проекта.
 
 Ключ кэша включает `userId` (tenant), фильтры, `INSIGHTS_PROMPT_VERSION` и digest фактов. Query `refresh=1` обходит кэш.
 
+### Troubleshooting: insight billing FK error
+
+Инсайты и генерация промптов пишут `billingRecords` с синтетическим `channelId` (`insight-*`, `prompt-*`), без строки в `aiCdr`. На старых БД остаётся FK `billingRecords.channelId → aiCdr.channelId` и INSERT падает с `ER_NO_REFERENCED_ROW_2`.
+
+**Исправление (MySQL):** применить миграцию  
+`migrations/mysql/2026-03-15-billing-records-add-userId-description.sql`  
+(она снимает FK на `channelId` и добавляет `userId` / `description`).
+
+Быстрая проверка:
+
+```sql
+ALTER TABLE `billingRecords` DROP FOREIGN KEY `billingRecords_ibfk_1`;
+```
+
+(имя ограничения может отличаться — миграция ищет его по `information_schema`.)
+
 ## Пайплайн (§13)
 
 | Переменная | Дефолт | Назначение |

@@ -1,5 +1,6 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
+import { ForeignKeyConstraintError } from 'sequelize';
 import { OperatorAnalytics, AnalyticsSource, AnalyticsStatus } from './operator-analytics.model';
 import { OperatorApiToken } from './operator-api-token.model';
 import { OperatorProject } from './operator-project.model';
@@ -2138,17 +2139,32 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
 
         if (cost > 0) {
             const billingFx = await this.billingFx.fieldsForUsdAmount(cost);
-            const rec = await this.billingRecordRepository.create({
-                channelId: `insight-${Date.now()}`,
-                type: 'insight',
-                userId: String(userId),
-                description,
-                textTokens: totalTokens,
-                totalTokens,
-                textCost: cost,
-                totalCost: cost,
-                ...billingFx,
-            });
+            let rec: BillingRecord;
+            try {
+                rec = await this.billingRecordRepository.create({
+                    channelId: `insight-${Date.now()}`,
+                    type: 'insight',
+                    userId: String(userId),
+                    description,
+                    textTokens: totalTokens,
+                    totalTokens,
+                    textCost: cost,
+                    totalCost: cost,
+                    ...billingFx,
+                });
+            } catch (e) {
+                if (e instanceof ForeignKeyConstraintError) {
+                    this.logger.error(
+                        'billingRecords.channelId FK blocks synthetic insight charges. '
+                        + 'Apply migrations/mysql/2026-03-15-billing-records-add-userId-description.sql',
+                    );
+                    throw new HttpException(
+                        'Billing DB schema outdated: run migration 2026-03-15-billing-records-add-userId-description.sql',
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                    );
+                }
+                throw e;
+            }
 
             await this.usersService.decrementUserBalance(userId, cost, {
                 source: 'usage_analytics',

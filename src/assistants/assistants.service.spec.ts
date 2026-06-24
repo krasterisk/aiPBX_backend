@@ -224,6 +224,44 @@ describe('AssistantsService', () => {
             );
         });
 
+        it('should persist instruction without relationship fields in Sequelize update', async () => {
+            const instruction = 'Updated system prompt with `create_water_order`';
+
+            await service.update({
+                id: 1,
+                name: 'Updated Bot',
+                instruction,
+                user: { id: 1, username: 'admin' },
+                tools: [{ id: 5 }],
+                sipAccount: null,
+                createdAt: '2026-01-01T00:00:00.000Z',
+                updatedAt: '2026-01-01T00:00:00.000Z',
+            } as any);
+
+            expect(mockAssistant.update).toHaveBeenCalledWith(
+                expect.objectContaining({ instruction, name: 'Updated Bot' }),
+            );
+            expect(mockAssistant.update).toHaveBeenCalledWith(
+                expect.not.objectContaining({
+                    user: expect.anything(),
+                    tools: expect.anything(),
+                    sipAccount: expect.anything(),
+                    createdAt: expect.anything(),
+                    updatedAt: expect.anything(),
+                }),
+            );
+        });
+
+        it('should return assistant reloaded from database with relations', async () => {
+            const findOneSpy = jest.spyOn(service, 'getById').mockResolvedValue(mockAssistant as any);
+
+            const result = await service.update({ id: 1, name: 'Updated Bot' } as any);
+
+            expect(findOneSpy).toHaveBeenCalledWith(1);
+            expect(result).toBe(mockAssistant);
+            findOneSpy.mockRestore();
+        });
+
         it('should clear tools when empty array passed', async () => {
             await service.update({ id: 1, tools: [] } as any);
 

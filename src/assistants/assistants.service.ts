@@ -73,42 +73,63 @@ export class AssistantsService {
 
     async update(updates: Partial<Assistant> | AssistantDto) {
         try {
-            if (updates.userId) {
-                // @ts-ignore
-                updates.userId = Number(updates.userId)
+            const payload = { ...(updates as any) };
+            const assistantId = Number(payload.id);
+            if (!assistantId) {
+                throw new HttpException('Assistant id is required', HttpStatus.BAD_REQUEST);
             }
-            if ((updates as any).projectId !== undefined) {
-                (updates as any).projectId = (updates as any).projectId !== null && (updates as any).projectId !== ''
-                    ? Number((updates as any).projectId)
+
+            if (payload.userId) {
+                payload.userId = Number(payload.userId);
+            }
+            if (payload.projectId !== undefined) {
+                payload.projectId = payload.projectId !== null && payload.projectId !== ''
+                    ? Number(payload.projectId)
                     : null;
             }
-            const assistant = await this.assistantsRepository.findByPk((updates as any).id)
+
+            const tools = payload.tools;
+            const mcpServers = payload.mcpServers;
+
+            // Strip frontend-only / relationship fields before Sequelize update (same as create)
+            const {
+                id: _id,
+                user: _user,
+                tools: _tools,
+                mcpServers: _mcpServers,
+                sipAccount: _sipAccount,
+                createdAt: _createdAt,
+                updatedAt: _updatedAt,
+                ...scalarUpdates
+            } = payload;
+
+            const assistant = await this.assistantsRepository.findByPk(assistantId);
             if (!assistant) {
-                throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND)
+                throw new HttpException('Assistant not found', HttpStatus.NOT_FOUND);
             }
-            await assistant.update(updates as any)
 
-            if (updates.tools && updates.tools.length) {
-                const toolIds = updates.tools.map(tool => tool.id);
+            await assistant.update(scalarUpdates);
+
+            if (tools && tools.length) {
+                const toolIds = tools.map((tool: any) => tool.id);
                 await assistant.$set('tools', toolIds);
-                assistant.tools = updates.tools;
-            } else if (updates.tools?.length === 0) {
+            } else if (tools?.length === 0) {
                 await assistant.$set('tools', []);
-                assistant.tools = [];
             }
 
-            if ((updates as any).mcpServers && (updates as any).mcpServers.length) {
-                const mcpServerIds = (updates as any).mcpServers.map((s: any) => s.id);
+            if (mcpServers && mcpServers.length) {
+                const mcpServerIds = mcpServers.map((s: any) => s.id);
                 await assistant.$set('mcpServers', mcpServerIds);
-                assistant.mcpServers = (updates as any).mcpServers;
-            } else if ((updates as any).mcpServers?.length === 0) {
+            } else if (mcpServers?.length === 0) {
                 await assistant.$set('mcpServers', []);
-                assistant.mcpServers = [];
             }
-            return assistant
-        } catch (e) {
-            throw new HttpException('[Assistant]:  Request error' + e, HttpStatus.BAD_REQUEST)
 
+            return this.getById(assistantId);
+        } catch (e) {
+            if (e instanceof HttpException) {
+                throw e;
+            }
+            throw new HttpException('[Assistant]:  Request error' + e, HttpStatus.BAD_REQUEST);
         }
     }
 

@@ -97,6 +97,6 @@ export class BillingRecord extends Model<BillingRecord, CreateBillingRecord> {
     @Column({ type: DataType.DATE, allowNull: true })
     fxCapturedAt: Date | null;
 
-    @BelongsTo(() => AiCdr, { foreignKey: 'channelId', targetKey: 'channelId' })
+    @BelongsTo(() => AiCdr, { foreignKey: 'channelId', targetKey: 'channelId', constraints: false })
     aiCdr: AiCdr;
 }

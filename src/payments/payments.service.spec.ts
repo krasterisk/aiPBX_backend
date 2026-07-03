@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { HttpException, HttpStatus } from '@nestjs/common';
-import { getModelToken } from '@nestjs/sequelize';
+import { getModelToken, getConnectionToken } from '@nestjs/sequelize';
 import { ConfigService } from '@nestjs/config';
 import { PaymentsService } from './payments.service';
 import { Payments } from './payments.model';
@@ -8,6 +8,9 @@ import { UsersService } from '../users/users.service';
 import { TelegramService } from '../telegram/telegram.service';
 import { CurrencyService } from '../currency/currency.service';
 import { LoggerService } from '../logger/logger.service';
+import { InvoiceService } from '../accounting/invoice.service';
+import { CurrencyHistory } from '../accounting/currency-history.model';
+import { BalanceLedger } from '../accounting/balance-ledger.model';
 
 // Mock Stripe at module level
 jest.mock('stripe', () => {
@@ -37,6 +40,10 @@ describe('PaymentsService', () => {
     let mockTelegramService: any;
     let mockCurrencyService: any;
     let mockLogService: any;
+    let mockBalanceLedgerRepo: any;
+    let mockCurrencyHistoryRepo: any;
+    let mockSequelize: any;
+    let mockInvoiceService: any;
 
     const mockPayment = {
         id: 1,
@@ -80,20 +87,41 @@ describe('PaymentsService', () => {
         };
         mockCurrencyService = {
             convertToUsd: jest.fn().mockResolvedValue(0.5), // 1 RUB = 0.01 USD → 50 RUB = 0.5 USD
+            convertFromUsd: jest.fn().mockResolvedValue({ amount: 90, rate: 90 }),
         };
         mockLogService = {
             logAction: jest.fn().mockResolvedValue(undefined),
+        };
+        mockBalanceLedgerRepo = {
+            findOne: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({}),
+        };
+        mockCurrencyHistoryRepo = {
+            findOne: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({}),
+        };
+        mockSequelize = {
+            transaction: jest.fn(async (cb: (t: { LOCK: { UPDATE: string } }) => Promise<unknown>) =>
+                cb({ LOCK: { UPDATE: 'UPDATE' } }),
+            ),
+        };
+        mockInvoiceService = {
+            createInvoiceForPayment: jest.fn(),
         };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 PaymentsService,
                 { provide: getModelToken(Payments), useValue: mockPaymentsRepo },
+                { provide: getModelToken(CurrencyHistory), useValue: mockCurrencyHistoryRepo },
+                { provide: getModelToken(BalanceLedger), useValue: mockBalanceLedgerRepo },
+                { provide: getConnectionToken(), useValue: mockSequelize },
                 { provide: UsersService, useValue: mockUsersService },
                 { provide: ConfigService, useValue: mockConfigService },
                 { provide: TelegramService, useValue: mockTelegramService },
                 { provide: CurrencyService, useValue: mockCurrencyService },
                 { provide: LoggerService, useValue: mockLogService },
+                { provide: InvoiceService, useValue: mockInvoiceService },
             ],
         }).compile();
 
@@ -116,7 +144,11 @@ describe('PaymentsService', () => {
                 { userId: '1', amount: 100, currency: 'USD' } as any,
             ]);
 
-            expect(mockUsersService.updateUserBalance).toHaveBeenCalledWith('1', 100);
+            expect(mockUsersService.updateUserBalance).toHaveBeenCalledWith(
+                '1',
+                100,
+                expect.objectContaining({ source: 'admin', paymentId: '1' }),
+            );
             expect(mockPaymentsRepo.create).toHaveBeenCalledWith(
                 expect.objectContaining({ userId: '1', amount: 100 }),
             );
@@ -130,7 +162,7 @@ describe('PaymentsService', () => {
                 { userId: '1', amount: 100, currency: 'USD' } as any,
             ]);
 
-            expect(mockPaymentsRepo.create).not.toHaveBeenCalled();
+            expect(mockPaymentsRepo.create).toHaveBeenCalled();
             expect(result).toHaveLength(0);
         });
 
@@ -204,7 +236,21 @@ describe('PaymentsService', () => {
         it('should resolve ownerId and paginate results', async () => {
             mockUsersService.resolveOwnerId.mockResolvedValue('5');
             mockPaymentsRepo.findAndCountAll.mockResolvedValue({
-                rows: [mockPayment],
+                rows: [{
+                    ...mockPayment,
+                    get: jest.fn(() => ({
+                        id: mockPayment.id,
+                        amount: mockPayment.amount,
+                        currency: mockPayment.currency,
+                        status: mockPayment.status,
+                        createdAt: new Date(),
+                        paymentMethod: mockPayment.paymentMethod,
+                        description: null,
+                        receiptUrl: null,
+                        fxRateRubUsd: null,
+                        amountRub: null,
+                    })),
+                }],
                 count: 1,
             });
 
@@ -384,7 +430,11 @@ describe('PaymentsService', () => {
             await service.handleRobokassaResult(outSum, invId, validSig, shpUserId);
 
             expect(mockCurrencyService.convertToUsd).toHaveBeenCalledWith(1000, 'RUB');
-            expect(mockUsersService.updateUserBalance).toHaveBeenCalledWith('5', 11.0);
+            expect(mockUsersService.updateUserBalance).toHaveBeenCalledWith(
+                '5',
+                11.0,
+                expect.objectContaining({ source: 'robokassa' }),
+            );
         });
 
         it('should return OK immediately for already succeeded payments', async () => {

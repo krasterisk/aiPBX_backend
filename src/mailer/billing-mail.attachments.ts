@@ -16,6 +16,5 @@ export function buildBillingMailAttachments(
             path: invoiceAttachment.path,
         });
     }
-    
     return attachments.length ? attachments : undefined;
 }

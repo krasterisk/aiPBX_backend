@@ -54,6 +54,7 @@ describe('AiCdrService', () => {
         analytic: true,
         sipAccount: {
             sipUri: 'sip:1006@pbx.example.com',
+            records: true,
         },
     };
 
@@ -72,13 +73,27 @@ describe('AiCdrService', () => {
             assistantName: 'TestBot',
             duration: null,
             recordUrl: null,
-            createdAt: '2026-02-13T10:00:00.000Z',
+            createdAt: new Date().toISOString(),
             update: jest.fn().mockResolvedValue(undefined),
             destroy: jest.fn().mockResolvedValue(undefined),
+            toJSON: jest.fn().mockReturnValue({
+                id: 1,
+                channelId: 'channel-001',
+                callerId: '1006',
+                userId: '1',
+                tokens: 500,
+                cost: 0,
+                assistantId: '5',
+                assistantName: 'TestBot',
+                duration: null,
+                recordUrl: null,
+                createdAt: new Date().toISOString(),
+            }),
         };
 
         mockAiCdrRepository = {
             create: jest.fn(),
+            findOrCreate: jest.fn(),
             findOne: jest.fn(),
             findByPk: jest.fn(),
             findAndCountAll: jest.fn(),
@@ -131,26 +146,27 @@ describe('AiCdrService', () => {
 
     describe('cdrCreate', () => {
         it('should create and return a new CDR record', async () => {
-            mockAiCdrRepository.create.mockResolvedValue(mockCdrRecord);
+            mockAiCdrRepository.findOrCreate.mockResolvedValue([mockCdrRecord, true]);
 
             const result = await service.cdrCreate(mockCdrDto);
 
-            expect(mockAiCdrRepository.create).toHaveBeenCalledWith(mockCdrDto);
+            expect(mockAiCdrRepository.findOrCreate).toHaveBeenCalledWith({
+                where: { channelId: mockCdrDto.channelId },
+                defaults: mockCdrDto,
+            });
             expect(result).toEqual(mockCdrRecord);
         });
 
-        it('should throw HttpException when channelId already exists (unique constraint)', async () => {
-            const uniqueError = new Error('Unique constraint violated');
-            uniqueError.name = 'SequelizeUniqueConstraintError';
-            mockAiCdrRepository.create.mockRejectedValue(uniqueError);
+        it('should return existing record when channelId already exists', async () => {
+            mockAiCdrRepository.findOrCreate.mockResolvedValue([mockCdrRecord, false]);
 
-            await expect(service.cdrCreate(mockCdrDto))
-                .rejects
-                .toThrow(new HttpException('AiCdr already exists', HttpStatus.BAD_REQUEST));
+            const result = await service.cdrCreate(mockCdrDto);
+
+            expect(result).toEqual(mockCdrRecord);
         });
 
         it('should throw HttpException on generic database error', async () => {
-            mockAiCdrRepository.create.mockRejectedValue(new Error('DB connection lost'));
+            mockAiCdrRepository.findOrCreate.mockRejectedValue(new Error('DB connection lost'));
 
             await expect(service.cdrCreate(mockCdrDto))
                 .rejects
@@ -515,7 +531,11 @@ describe('AiCdrService', () => {
 
             expect(result.count).toBe(1);
             expect(result.totalCost).toBe(0.05);
-            expect(result.rows).toEqual(rows);
+            expect(result.rows).toHaveLength(1);
+            expect(result.rows[0]).toEqual(expect.objectContaining({
+                channelId: 'channel-001',
+                transcription: null,
+            }));
         });
 
         it('should apply search filter by callerId and assistantName', async () => {
@@ -628,7 +648,7 @@ describe('AiCdrService', () => {
             await service.get(query as any, false, '1');
 
             const callArgs = mockAiCdrRepository.findAndCountAll.mock.calls[0][0];
-            expect(callArgs.order).toEqual([['cost', 'DESC']]);
+            expect(callArgs.order).toEqual([['cost', 'DESC'], ['id', 'DESC']]);
             expect(callArgs.distinct).toBeUndefined();
         });
 
@@ -640,7 +660,7 @@ describe('AiCdrService', () => {
             await service.get(query as any, false, '1');
 
             const callArgs = mockAiCdrRepository.findAndCountAll.mock.calls[0][0];
-            expect(callArgs.order).toEqual([['createdAt', 'ASC']]);
+            expect(callArgs.order).toEqual([['createdAt', 'ASC'], ['id', 'ASC']]);
         });
     });
 
@@ -703,8 +723,8 @@ describe('AiCdrService', () => {
             await service.getDashboardData(baseDashboardQuery as any, false);
 
             const periodQuery = mockAiCdrRepository.sequelize.query.mock.calls[0][0];
-            expect(periodQuery).toContain('DAY(createdAt)');
-            expect(periodQuery).toContain("DATE(createdAt) as label");
+            expect(periodQuery).toContain('"createdAt"::date');
+            expect(periodQuery).toContain('GROUP BY "createdAt"::date');
         });
 
         it('should use GROUP BY MONTH for ranges > 31 days', async () => {
@@ -716,7 +736,7 @@ describe('AiCdrService', () => {
             await service.getDashboardData(query as any, false);
 
             const periodQuery = mockAiCdrRepository.sequelize.query.mock.calls[0][0];
-            expect(periodQuery).toContain('MONTH(createdAt)');
+            expect(periodQuery).toContain("TO_CHAR(\"createdAt\", 'YYYY-MM')");
         });
 
         it('should use GROUP BY YEAR for ranges > 366 days', async () => {
@@ -728,7 +748,7 @@ describe('AiCdrService', () => {
             await service.getDashboardData(query as any, false);
 
             const periodQuery = mockAiCdrRepository.sequelize.query.mock.calls[0][0];
-            expect(periodQuery).toContain('YEAR(createdAt)');
+            expect(periodQuery).toContain("TO_CHAR(\"createdAt\", 'YYYY')");
         });
 
         it('should include userId filter in query for non-admin', async () => {
@@ -739,7 +759,7 @@ describe('AiCdrService', () => {
             await service.getDashboardData(baseDashboardQuery as any, false);
 
             const periodQuery = mockAiCdrRepository.sequelize.query.mock.calls[0][0];
-            expect(periodQuery).toContain('userId = 1');
+            expect(periodQuery).toContain('"userId" = \'1\'');
         });
 
         it('admin without userId should not include userId filter', async () => {
@@ -763,7 +783,7 @@ describe('AiCdrService', () => {
             await service.getDashboardData(query as any, false);
 
             const periodQuery = mockAiCdrRepository.sequelize.query.mock.calls[0][0];
-            expect(periodQuery).toContain('assistantId IN (5)');
+            expect(periodQuery).toContain('"assistantId" IN (5)');
         });
 
         it('should handle nullish totals gracefully', async () => {

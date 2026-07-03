@@ -4,8 +4,17 @@ import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { ValidationPipe } from "@nestjs/common";
 import helmet from 'helmet';
 import * as express from 'express';
+import * as Sentry from '@sentry/nestjs';
 
 async function start() {
+    if (process.env.SENTRY_DSN) {
+        Sentry.init({
+            dsn: process.env.SENTRY_DSN,
+            environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development',
+            tracesSampleRate: 0.1,
+        });
+    }
+
     console.log(`${process.env.NODE_ENV}`)
     const PORT = process.env.PORT
     const app = await NestFactory.create(AppModule, { rawBody: true })

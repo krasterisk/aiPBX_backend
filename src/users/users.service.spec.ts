@@ -30,6 +30,8 @@ describe('UsersService', () => {
         listForOwner: jest.Mock;
         processBalanceCrossing: jest.Mock;
     };
+    let mockBalanceLedgerRepo: { findOne: jest.Mock; create: jest.Mock };
+    let mockOurOrganizationsService: { getPrimaryId: jest.Mock };
     const originalTenantCurrency = process.env.TENANT_CURRENCY;
 
     const ledgerUser = (balance: number, email = 'user@test.com') => ({
@@ -104,6 +106,13 @@ describe('UsersService', () => {
             listForOwner: jest.fn().mockResolvedValue([]),
             processBalanceCrossing: jest.fn().mockResolvedValue(undefined),
         };
+        mockBalanceLedgerRepo = {
+            findOne: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({}),
+        };
+        mockOurOrganizationsService = {
+            getPrimaryId: jest.fn().mockResolvedValue(1),
+        };
         process.env.TENANT_CURRENCY = 'USD';
 
         const module: TestingModule = await Test.createTestingModule({
@@ -122,8 +131,8 @@ describe('UsersService', () => {
                     provide: BalanceThresholdAlertsService,
                     useValue: mockBalanceThresholdAlertsService,
                 },
-                { provide: OurOrganizationsService, useValue: {} },
-                { provide: getModelToken(BalanceLedger), useValue: { findOne: jest.fn(), create: jest.fn() } },
+                { provide: OurOrganizationsService, useValue: mockOurOrganizationsService },
+                { provide: getModelToken(BalanceLedger), useValue: mockBalanceLedgerRepo },
                 {
                     provide: getConnectionToken(),
                     useValue: {
@@ -184,20 +193,21 @@ describe('UsersService', () => {
         });
 
         it('should resolve ownerId and increment balance', async () => {
-            mockUsersRepo.findByPk.mockResolvedValue({ id: 5, vpbx_user_id: null });
+            const user = ledgerUser(100);
+            mockUsersRepo.findByPk
+                .mockResolvedValueOnce({ id: 5, vpbx_user_id: null })
+                .mockResolvedValueOnce(user);
 
             const result = await service.updateUserBalance('5', 50);
 
-            expect(mockUsersRepo.increment).toHaveBeenCalledWith('balance', {
-                by: 50,
-                where: { id: 5 },
-            });
+            expect(user.update).toHaveBeenCalledWith({ balance: 150 }, expect.any(Object));
             expect(result).toBe(true);
         });
 
         it('should return false when no rows affected', async () => {
-            mockUsersRepo.findByPk.mockResolvedValue({ id: 1, vpbx_user_id: null });
-            mockUsersRepo.increment.mockResolvedValue([{ length: 0 }]);
+            mockUsersRepo.findByPk
+                .mockResolvedValueOnce({ id: 1, vpbx_user_id: null })
+                .mockResolvedValueOnce(null);
 
             const result = await service.updateUserBalance('1', 50);
 
@@ -406,6 +416,7 @@ describe('UsersService', () => {
                 balanceUsd: 100,
                 currency: 'USD',
                 rate: 1,
+                personalAccountNumber: null,
             });
             expect(mockCurrencyService.convertFromUsd).toHaveBeenCalledWith(100, 'USD');
         });
@@ -422,6 +433,7 @@ describe('UsersService', () => {
                 balanceUsd: 10,
                 currency: 'RUB',
                 rate: 90,
+                personalAccountNumber: null,
             });
             expect(mockCurrencyService.convertFromUsd).toHaveBeenCalledWith(10, 'RUB');
         });
@@ -460,10 +472,12 @@ describe('UsersService', () => {
         });
 
         it('should update balance and create payment record', async () => {
+            const user = ledgerUser(100);
             mockUsersRepo.findByPk
-                .mockResolvedValueOnce(mockUser) // initial check
-                .mockResolvedValueOnce({ id: 1, vpbx_user_id: null }) // resolveOwnerId
-                .mockResolvedValueOnce({ balance: 200 }); // final balance
+                .mockResolvedValueOnce(mockUser)
+                .mockResolvedValueOnce({ id: 1, vpbx_user_id: null })
+                .mockResolvedValueOnce(user)
+                .mockResolvedValueOnce({ balance: 200 });
 
             const result = await service.adminTopUpBalance({
                 userId: '1',
@@ -486,9 +500,11 @@ describe('UsersService', () => {
         });
 
         it('should default currency to USD', async () => {
+            const user = ledgerUser(100);
             mockUsersRepo.findByPk
                 .mockResolvedValueOnce(mockUser)
                 .mockResolvedValueOnce({ id: 1, vpbx_user_id: null })
+                .mockResolvedValueOnce(user)
                 .mockResolvedValueOnce({ balance: 150 });
 
             await service.adminTopUpBalance({

@@ -21,7 +21,7 @@ export class HelpdeskTicketMessage extends Model<HelpdeskTicketMessage> {
     content: string;
 
     @ApiPropertyOptional()
-    @Column({ type: DataType.JSONB, allowNull: true })
+    @Column({ type: DataType.JSON, allowNull: true })
     metadata: Record<string, unknown> | null;
 
     @BelongsTo(() => HelpdeskTicket, { onDelete: 'CASCADE' })

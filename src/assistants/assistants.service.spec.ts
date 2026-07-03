@@ -13,6 +13,7 @@ import { BillingRecord } from '../billing/billing-record.model';
 import { OpenAiService } from '../open-ai/open-ai.service';
 import { UsersService } from '../users/users.service';
 import { BillingFxService } from '../billing/billing-fx.service';
+import { FilesService } from '../files/files.service';
 
 describe('AssistantsService', () => {
     let service: AssistantsService;
@@ -77,6 +78,12 @@ describe('AssistantsService', () => {
                             fxRateSource: 'identity',
                             fxCapturedAt: new Date(),
                         })),
+                    },
+                },
+                {
+                    provide: FilesService,
+                    useValue: {
+                        createFile: jest.fn(),
                     },
                 },
             ],
@@ -395,7 +402,11 @@ describe('AssistantsService', () => {
             await service.generatePrompt('Make a bot', '1');
 
             // cost = 1000 tokens * (5 / 1_000_000) = 0.005
-            expect(mockUsersService.decrementUserBalance).toHaveBeenCalledWith('1', 0.005);
+            expect(mockUsersService.decrementUserBalance).toHaveBeenCalledWith(
+                '1',
+                0.005,
+                expect.objectContaining({ source: 'usage_analytics' }),
+            );
         });
 
         it('should create billing record with token details', async () => {

@@ -12,6 +12,7 @@ import { ApiTokenGuard } from './guards/api-token.guard';
 import { AnalyticsSource } from './operator-analytics.model';
 import { CustomMetricDef, MetricDefinition } from './interfaces/operator-metrics.interface';
 import { GenerateSchemaDto, BulkMoveDto, CreateProjectDto } from './dto/project.dto';
+import { OperatorInsightsResponseDto } from './dto/operator-insights-response.dto';
 
 
 
@@ -507,6 +508,7 @@ export class OperatorAnalyticsController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Get AI-generated insights for project (deprecated — use GET /insights?projectId=)', deprecated: true })
+    @ApiResponse({ status: 200, type: OperatorInsightsResponseDto })
     async getProjectInsights(
         @Req() req: RequestWithUser,
         @Param('id') id: string,
@@ -587,7 +589,7 @@ export class OperatorAnalyticsController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Get AI-generated structured insights (project optional)' })
-    @ApiResponse({ status: 200, description: 'Structured AI insights with priority, evidence, and metadata' })
+    @ApiResponse({ status: 200, type: OperatorInsightsResponseDto, description: 'Structured AI insights with priority, evidence, and metadata' })
     async getDashboardInsights(
         @Req() req: RequestWithUser,
         @Query() query: {

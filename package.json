@@ -1,12 +1,12 @@
 {
   "name": "aiPbxBackend",
-  "version": "2.3.3",
+  "version": "2.3.4",
   "description": "aiPBX",
   "author": "Krasterisk LTD",
   "private": true,
   "license": "MIT",
   "scripts": {
-    "prebuild": "rimraf dist",
+    "prebuild": "rimraf dist tsconfig.build.tsbuildinfo",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "cross-env NODE_ENV=production nest start --watch",
@@ -20,6 +20,9 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "cross-env NODE_ENV=production jest --config ./test/jest-e2e.json --detectOpenHandles",
+    "swagger:export": "ts-node -r tsconfig-paths/register scripts/export-openapi.ts",
+    "openapi:export": "npm run swagger:export",
+    "openapi:check": "npm run openapi:export && git diff --exit-code openapi.json",
     "eval:operator": "ts-node -r tsconfig-paths/register src/operator-analytics/eval/run-eval.ts"
   },
   "dependencies": {
@@ -39,6 +42,7 @@
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^11.0.10",
     "@ricky0123/vad-node": "^0.0.3",
+    "@sentry/nestjs": "^10.60.0",
     "alawmulaw": "^6.0.0",
     "ari-client": "^2.2.0",
     "asterisk-manager": "^0.2.0",
@@ -148,6 +152,12 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^socks-proxy-agent$": "<rootDir>/../test/mocks/socks-proxy-agent.ts"
+    },
+    "transformIgnorePatterns": [
+      "node_modules/(?!(socks-proxy-agent)/)"
+    ]
   }
 }

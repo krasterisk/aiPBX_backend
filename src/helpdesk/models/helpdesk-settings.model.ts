@@ -8,11 +8,11 @@ export class HelpdeskSettings extends Model<HelpdeskSettings> {
     id: number;
 
     @ApiProperty({ type: [String], description: 'Email для уведомлений о новых заявках' })
-    @Column({ type: DataType.JSONB, allowNull: false, defaultValue: '[]' })
+    @Column({ type: DataType.JSON, allowNull: false, defaultValue: [] })
     notificationEmails: string[];
 
     @ApiProperty({ type: [String], description: 'Telegram chat ID' })
-    @Column({ type: DataType.JSONB, allowNull: false, defaultValue: '[]' })
+    @Column({ type: DataType.JSON, allowNull: false, defaultValue: [] })
     notificationTelegramChatIds: string[];
 
     @Column({ type: DataType.DATE, allowNull: false, defaultValue: DataType.NOW })

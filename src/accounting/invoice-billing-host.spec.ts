@@ -9,6 +9,7 @@ import { DocumentCounterService } from './document-counter.service';
 import { AlfawebhookClient } from './alfawebhook-client.service';
 import { SbisService } from './sbis.service';
 import { OurOrganizationsService } from '../our-organizations/our-organizations.service';
+import { OrganizationEdoService } from '../organizations/organization-edo.service';
 
 describe('InvoiceService.isHostAllowedForRuBilling', () => {
     let service: InvoiceService;
@@ -29,6 +30,7 @@ describe('InvoiceService.isHostAllowedForRuBilling', () => {
                 { provide: AlfawebhookClient, useValue: {} },
                 { provide: SbisService, useValue: {} },
                 { provide: OurOrganizationsService, useValue: {} },
+                { provide: OrganizationEdoService, useValue: {} },
             ],
         }).compile();
         service = moduleRef.get(InvoiceService);

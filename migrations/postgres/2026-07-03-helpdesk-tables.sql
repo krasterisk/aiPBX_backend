@@ -1,5 +1,5 @@
 -- Helpdesk module: заявки клиентов Krasterisk (Phase 7)
--- PostgreSQL
+-- Dialect: PostgreSQL (production)
 
 CREATE TABLE IF NOT EXISTS "helpdesk_tickets" (
     id SERIAL PRIMARY KEY,

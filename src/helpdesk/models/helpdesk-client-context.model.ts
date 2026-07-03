@@ -20,7 +20,7 @@ export class HelpdeskClientContext extends Model<HelpdeskClientContext> {
     inn: string | null;
 
     @ApiProperty()
-    @Column({ type: DataType.JSONB, allowNull: false, defaultValue: '{}' })
+    @Column({ type: DataType.JSON, allowNull: false, defaultValue: {} })
     contextJson: Record<string, unknown>;
 
     @ApiProperty()

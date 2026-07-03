@@ -31,15 +31,17 @@
 
 ### Что переносится
 
-| Компонент | Назначение |
-|-----------|------------|
-| `postgres` (pgvector:pg16) | База данных |
-| `backend`, `frontend` | API и UI |
-| `nginx` + SSL | Reverse proxy, сертификаты из `/app/ssl/` (на origin, без CDN) |
-| **GPU:** `whisper`, `ollama`, `omnivoice-tts` | STT / LLM / TTS (только на aipbx.net) |
-| `prometheus`, `grafana`, `watchtower`, exporters | Мониторинг и автообновление образов |
-| Volume `static/org-documents` | PDF счетов (не должны теряться при recreate) |
-| `backups/postgres/` | Дампы БД |
+
+| Компонент                                        | Назначение                                                     |
+| ------------------------------------------------ | -------------------------------------------------------------- |
+| `postgres` (pgvector:pg16)                       | База данных                                                    |
+| `backend`, `frontend`                            | API и UI                                                       |
+| `nginx` + SSL                                    | Reverse proxy, сертификаты из `/app/ssl/` (на origin, без CDN) |
+| **GPU:** `whisper`, `ollama`, `omnivoice-tts`    | STT / LLM / TTS (только на aipbx.net)                          |
+| `prometheus`, `grafana`, `watchtower`, exporters | Мониторинг и автообновление образов                            |
+| Volume `static/org-documents`                    | PDF счетов (не должны теряться при recreate)                   |
+| `backups/postgres/`                              | Дампы БД                                                       |
+
 
 ### Структура на сервере
 
@@ -62,10 +64,12 @@
 
 **CDN Cloudflare для aipbx.net выключен** — трафик идёт **напрямую на IP сервера** (DNS only / grey cloud, либо DNS у другого регистратора).
 
-| Запись | Назначение | При cutover |
-|--------|------------|-------------|
-| `aipbx.net` | Основной сайт (frontend + API через nginx) | A → **новый IP** |
-| `gpu.aipbx.net` | Прямой доступ к GPU-сервисам на origin | A → **новый IP** (обязательно!) |
+
+| Запись          | Назначение                                 | При cutover                     |
+| --------------- | ------------------------------------------ | ------------------------------- |
+| `aipbx.net`     | Основной сайт (frontend + API через nginx) | A → **новый IP**                |
+| `gpu.aipbx.net` | Прямой доступ к GPU-сервисам на origin     | A → **новый IP** (обязательно!) |
+
 
 `gpu.aipbx.net` используется для **внешних** обращений к GPU (например, с aipbx.ru или других серверов), когда в `.env` заданы `WHISPER_API_URL` / `OLLAMA_URL` с этим хостом. Оба A-record должны указывать на один и тот же IP VPS.
 
@@ -77,6 +81,8 @@ flowchart TD
     NG --> FE[frontend]
     BE --> WH[whisper / ollama / omnivoice]
 ```
+
+
 
 > SSL терминируется **на nginx сервера**, не на Cloudflare. Файлы в `/app/ssl/` — те же, что на старом origin (скопировать as-is). Purge Cache Cloudflare для aipbx.net **не нужен**.
 
@@ -91,17 +97,21 @@ flowchart LR
     C --> D[Фазы 8–9: верификация и пост-миграция]
 ```
 
+
+
 ### Пример целевого сервера (aipbx.net, NL, 2026)
 
-| Параметр | Значение |
-|----------|----------|
-| Hostname | `aipbxnet` |
-| ОС | Ubuntu 24.04 Server |
-| CPU / RAM / Disk | 8 vCore / 32 GB / 240 GB SSD |
-| GPU | NVIDIA RTX A4000 16 GB |
-| Main IP | `5.39.217.168/25` |
-| Gateway | `5.39.217.129` |
-| DNS | Прямо на IP (CDN Cloudflare **выключен**); `gpu.aipbx.net` → тот же IP |
+
+| Параметр         | Значение                                                               |
+| ---------------- | ---------------------------------------------------------------------- |
+| Hostname         | `aipbxnet`                                                             |
+| ОС               | Ubuntu 24.04 Server                                                    |
+| CPU / RAM / Disk | 8 vCore / 32 GB / 240 GB SSD                                           |
+| GPU              | NVIDIA RTX A4000 16 GB                                                 |
+| Main IP          | `5.39.217.168/25`                                                      |
+| Gateway          | `5.39.217.129`                                                         |
+| DNS              | Прямо на IP (CDN Cloudflare **выключен**); `gpu.aipbx.net` → тот же IP |
+
 
 ---
 
@@ -141,27 +151,31 @@ sudo crontab -l
 
 ### 0.2. Чеклист внешних интеграций
 
-| Интеграция | Действие при смене IP |
-|------------|----------------------|
-| **DNS `aipbx.net`** | A-record → новый IP (без CDN/proxy) |
-| **DNS `gpu.aipbx.net`** | A-record → **новый IP** (критично для cross-server GPU) |
-| **GitHub Environment** `aipbxnet_production` | `SERVER_HOST`, `SERVER_USER`, `SSH_PRIVATE_KEY` |
-| **EXTERNAL_HOST** | Новый IP в `.env.production` (см. фазу 5) |
+
+| Интеграция                                              | Действие при смене IP                                                                                    |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **DNS `aipbx.net`**                                     | A-record → новый IP (без CDN/proxy)                                                                      |
+| **DNS `gpu.aipbx.net`**                                 | A-record → **новый IP** (критично для cross-server GPU)                                                  |
+| **GitHub Environment** `aipbxnet_production`            | `SERVER_HOST`, `SERVER_USER`, `SSH_PRIVATE_KEY`                                                          |
+| **EXTERNAL_HOST**                                       | Новый IP в `.env.production` (см. фазу 5)                                                                |
 | **WHISPER_API_URL / OLLAMA_URL** на **других** серверах | Если указывают на `gpu.aipbx.net` — после DNS cutover заработают автоматически; проверить после миграции |
-| **Stripe webhooks** | URL по домену не меняется; проверить доставку после cutover |
-| **Telegram Bot** | `setWebhook` на `https://aipbx.net/...` после cutover |
-| **OAuth providers** | Redirect URI по домену — обычно без изменений |
-| **Asterisk / PBX** | RTP UDP `:3032` → новый IP |
+| **Stripe webhooks**                                     | URL по домену не меняется; проверить доставку после cutover                                              |
+| **Telegram Bot**                                        | `setWebhook` на `https://aipbx.net/...` после cutover                                                    |
+| **OAuth providers**                                     | Redirect URI по домену — обычно без изменений                                                            |
+| **Asterisk / PBX**                                      | RTP UDP `:3032` → новый IP                                                                               |
+
 
 ### 0.3. Оценка времени
 
-| Этап | Время |
-|------|-------|
-| Фазы 0–3 (подготовка сервера) | 2–4 ч |
-| Фазы 4–6 (копирование, тест без DNS) | 2–3 ч |
-| Фаза 7 (cutover) | 15–45 мин |
-| Фазы 8–9 (верификация) | 1–2 ч |
-| **Итого** | ~1 рабочий день |
+
+| Этап                                 | Время           |
+| ------------------------------------ | --------------- |
+| Фазы 0–3 (подготовка сервера)        | 2–4 ч           |
+| Фазы 4–6 (копирование, тест без DNS) | 2–3 ч           |
+| Фаза 7 (cutover)                     | 15–45 мин       |
+| Фазы 8–9 (верификация)               | 1–2 ч           |
+| **Итого**                            | ~1 рабочий день |
+
 
 ---
 
@@ -195,12 +209,14 @@ apt install -y git curl wget htop ufw fail2ban unzip jq iptables-persistent
 
 Публичные порты для aipbx.net:
 
-| Порт | Назначение |
-|------|------------|
-| `22/tcp` | SSH |
-| `80/tcp` | HTTP (redirect → HTTPS) |
-| `443/tcp` | HTTPS |
-| `3032/udp` | RTP / Asterisk |
+
+| Порт       | Назначение              |
+| ---------- | ----------------------- |
+| `22/tcp`   | SSH                     |
+| `80/tcp`   | HTTP (redirect → HTTPS) |
+| `443/tcp`  | HTTPS                   |
+| `3032/udp` | RTP / Asterisk          |
+
 
 Ограниченные (только доверенные IP): `11434/tcp` (Ollama), `9090/tcp` (Prometheus), `3000/tcp` (Grafana).
 
@@ -308,7 +324,7 @@ netfilter-persistent save
 
 ## Фаза 3 — Пользователь деплоя и SSH
 
-GitHub Actions подключается по секрету **`SERVER_USER`** (не hardcoded в репозитории). Для aipbx.net рекомендуется пользователь **`aipbxnet`**.
+GitHub Actions подключается по секрету `**SERVER_USER`** (не hardcoded в репозитории). Для aipbx.net рекомендуется пользователь `**aipbxnet**`.
 
 ### 3.1. Создание пользователя
 
@@ -350,11 +366,13 @@ visudo -c
 
 ### 3.4. GitHub Environment `aipbxnet_production`
 
-| Secret | Значение |
-|--------|----------|
-| `SERVER_HOST` | IP нового сервера (напр. `5.39.217.168`) |
-| `SERVER_USER` | `aipbxnet` |
+
+| Secret            | Значение                                 |
+| ----------------- | ---------------------------------------- |
+| `SERVER_HOST`     | IP нового сервера (напр. `5.39.217.168`) |
+| `SERVER_USER`     | `aipbxnet`                               |
 | `SSH_PRIVATE_KEY` | приватный ключ, пара к `authorized_keys` |
+
 
 Проверка:
 
@@ -429,18 +447,22 @@ chown -R aipbxnet:aipbxnet /app
 
 ### Обязательно изменить при смене IP
 
-| Переменная | Пример для нового сервера | Назначение |
-|------------|---------------------------|------------|
-| `EXTERNAL_HOST` | `5.39.217.168:3032` | RTP/UDP для Asterisk ([ari-connection.ts](../src/ari/ari-connection.ts)) |
+
+| Переменная      | Пример для нового сервера | Назначение                                                               |
+| --------------- | ------------------------- | ------------------------------------------------------------------------ |
+| `EXTERNAL_HOST` | `5.39.217.168:3032`       | RTP/UDP для Asterisk ([ari-connection.ts](../src/ari/ari-connection.ts)) |
+
 
 ### На самом aipbx.net (локальный Docker)
 
-| Переменная | Значение |
-|------------|----------|
-| `API_URL` / `CLIENT_URL` | `https://aipbx.net` |
-| `WHISPER_API_URL` | обычно внутренний Docker (`http://whisper:9000/...`) |
-| `OLLAMA_URL` | `http://ollama:11434` |
-| `OMNIVOICE_TTS_URL` | внутренний URL контейнера |
+
+| Переменная               | Значение                                             |
+| ------------------------ | ---------------------------------------------------- |
+| `API_URL` / `CLIENT_URL` | `https://aipbx.net`                                  |
+| `WHISPER_API_URL`        | обычно внутренний Docker (`http://whisper:9000/...`) |
+| `OLLAMA_URL`             | `http://ollama:11434`                                |
+| `OMNIVOICE_TTS_URL`      | внутренний URL контейнера                            |
+
 
 ### На других серверах (aipbx.ru и т.д.)
 
@@ -499,13 +521,15 @@ sudo docker compose -f docker-compose.production.yml --env-file .env.production 
 
 VRAM budget (RTX A4000, 16 GB):
 
-| Сервис | VRAM | Примечание |
-|--------|------|------------|
-| Whisper large-v3 INT8 | ~4.5 GB | analytics STT, постоянно |
-| OmniVoice TTS INT8 | ~3.5 GB | Pipeline B TTS, постоянно |
-| Gemma 4 E4B (Ollama) | ~3.0 GB | выгружается после idle |
-| **Peak** | ~11 GB | кратковременно при звонках |
-| **Typical** | ~8 GB | без активных звонков |
+
+| Сервис                | VRAM    | Примечание                 |
+| --------------------- | ------- | -------------------------- |
+| Whisper large-v3 INT8 | ~4.5 GB | analytics STT, постоянно   |
+| OmniVoice TTS INT8    | ~3.5 GB | Pipeline B TTS, постоянно  |
+| Gemma 4 E4B (Ollama)  | ~3.0 GB | выгружается после idle     |
+| **Peak**              | ~11 GB  | кратковременно при звонках |
+| **Typical**           | ~8 GB   | без активных звонков       |
+
 
 ```bash
 IFACE=$(ip route | awk '/default/ {print $5}')
@@ -566,44 +590,46 @@ rsync -avz backups/postgres/pre_migration_*.sql.gz aipbxnet@NEW_IP:/app/backups/
 
 1. **Maintenance** (опционально): custom 503 в nginx.
 2. **Остановить запись на старом:**
-   ```bash
+  ```bash
    sudo docker compose -f /app/docker-compose.production.yml stop backend
-   ```
+  ```
 3. **Финальный дамп** → rsync → **restore на новом** (фаза 6.1).
 4. **Синхронизировать** `static/org-documents` (rsync).
 5. **Перезапустить backend** на новом:
-   ```bash
+  ```bash
    sudo docker compose -f /app/docker-compose.production.yml --env-file /app/.env.production up -d \
      --build --force-recreate backend
-   ```
+  ```
 6. **Обновить GitHub Secrets** (`aipbxnet_production`): `SERVER_HOST`, при необходимости `SSH_PRIVATE_KEY`.
 7. **DNS cutover** (оба record на **новый IP**, proxy/CDN **выключен**):
-   - `aipbx.net` → A
-   - `gpu.aipbx.net` → A
+  - `aipbx.net` → A
+  - `gpu.aipbx.net` → A
 8. **Telegram webhook** (если используется):
-   ```bash
+  ```bash
    curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://aipbx.net/api/telegram/webhook"
-   ```
+  ```
 9. **Asterisk:** убедиться, что RTP идёт на новый IP (`EXTERNAL_HOST`).
 
 ---
 
 ## Фаза 8 — Верификация
 
-| # | Проверка | Команда / действие |
-|---|----------|-------------------|
-| 1 | API health | `curl https://aipbx.net/api` |
-| 2 | Frontend | Открыть `https://aipbx.net` |
-| 3 | Backend container | `docker inspect --format='{{.State.Health.Status}}' app-backend-1` → `healthy` |
-| 4 | Login / OAuth | Вход через провайдер |
-| 5 | GPU STT | Тест operator analytics / whisper logs |
-| 5b | gpu.aipbx.net | `dig +short gpu.aipbx.net` → новый IP; curl с aipbx.ru если GPU вызывается оттуда |
-| 6 | Ollama | `docker logs app-ollama-1 --tail 50` |
-| 7 | Stripe | Test webhook из Dashboard |
-| 8 | Звонки | Тестовый звонок, RTP UDP 3032 |
-| 9 | CI/CD | GitHub Actions → Run workflow → `aipbxnet_production` |
-| 10 | Мониторинг | Grafana `:3000`, Prometheus `:9090` |
-| 11 | Диск | `docker system df`, `df -h` |
+
+| #   | Проверка          | Команда / действие                                                                |
+| --- | ----------------- | --------------------------------------------------------------------------------- |
+| 1   | API health        | `curl https://aipbx.net/api`                                                      |
+| 2   | Frontend          | Открыть `https://aipbx.net`                                                       |
+| 3   | Backend container | `docker inspect --format='{{.State.Health.Status}}' app-backend-1` → `healthy`    |
+| 4   | Login / OAuth     | Вход через провайдер                                                              |
+| 5   | GPU STT           | Тест operator analytics / whisper logs                                            |
+| 5b  | gpu.aipbx.net     | `dig +short gpu.aipbx.net` → новый IP; curl с aipbx.ru если GPU вызывается оттуда |
+| 6   | Ollama            | `docker logs app-ollama-1 --tail 50`                                              |
+| 7   | Stripe            | Test webhook из Dashboard                                                         |
+| 8   | Звонки            | Тестовый звонок, RTP UDP 3032                                                     |
+| 9   | CI/CD             | GitHub Actions → Run workflow → `aipbxnet_production`                             |
+| 10  | Мониторинг        | Grafana `:3000`, Prometheus `:9090`                                               |
+| 11  | Диск              | `docker system df`, `df -h`                                                       |
+
 
 ```bash
 sudo docker compose -f /app/docker-compose.production.yml --env-file /app/.env.production ps
@@ -625,11 +651,13 @@ dig +short gpu.aipbx.net
 
 ### Ручной деплой (справочник)
 
-| Действие | Команда |
-|----------|---------|
-| Деплой aipbx.net | Коммит с `[deploy:1]` в `aiPBX_backend` или `aiPBX` |
-| Ручной деплой | GitHub Actions → Run workflow → `aipbxnet_production` |
+
+| Действие           | Команда                                                                                                                    |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Деплой aipbx.net   | Коммит с `[deploy:1]` в `aiPBX_backend` или `aiPBX`                                                                        |
+| Ручной деплой      | GitHub Actions → Run workflow → `aipbxnet_production`                                                                      |
 | Rebuild на сервере | `sudo docker compose -f docker-compose.production.yml --env-file .env.production up -d --build --force-recreate <service>` |
+
 
 ---
 
@@ -637,7 +665,7 @@ dig +short gpu.aipbx.net
 
 Если после cutover критические проблемы:
 
-1. В DNS вернуть A-record **`aipbx.net`** и **`gpu.aipbx.net`** на **старый IP**.
+1. В DNS вернуть A-record `**aipbx.net`** и `**gpu.aipbx.net**` на **старый IP**.
 2. На старом сервере: `docker compose ... up -d backend` (БД на старом — последний pre-cutover дамп).
 3. Дождаться propagation DNS (`dig +short aipbx.net`).
 4. Новый сервер оставить для диагностики, не удалять сразу.
@@ -646,29 +674,33 @@ dig +short gpu.aipbx.net
 
 ## Риски и troubleshooting
 
-| Проблема | Решение |
-|----------|---------|
-| `invalid user: aipbxnet` | Сначала `adduser aipbxnet`, потом `chown` |
-| `nvidia/cuda:12.0-base: not found` | Использовать `nvidia/cuda:12.6.3-base-ubuntu24.04` |
-| `could not select device driver ""` | Установить nvidia-container-toolkit, `systemctl restart docker` |
-| Контейнеры без интернета (UFW) | `iptables: false` + MASQUERADE на правильный `$IFACE` |
-| `git pull` Permission denied | `sudo chown -R $(whoami):$(whoami) /app/aiPBX_backend` (CI делает автоматически) |
-| Потеря PDF счетов | Volume на `static/org-documents` в compose + rsync |
-| Долгий `ollama pull` | Выполнять на фазе 6, до cutover |
-| DNS не обновился | `dig +short aipbx.net gpu.aipbx.net`; TTL; кэш resolver |
-| aipbx.ru не видит GPU | Проверить `gpu.aipbx.net` → новый IP и nginx vhost для GPU |
+
+| Проблема                            | Решение                                                                          |
+| ----------------------------------- | -------------------------------------------------------------------------------- |
+| `invalid user: aipbxnet`            | Сначала `adduser aipbxnet`, потом `chown`                                        |
+| `nvidia/cuda:12.0-base: not found`  | Использовать `nvidia/cuda:12.6.3-base-ubuntu24.04`                               |
+| `could not select device driver ""` | Установить nvidia-container-toolkit, `systemctl restart docker`                  |
+| Контейнеры без интернета (UFW)      | `iptables: false` + MASQUERADE на правильный `$IFACE`                            |
+| `git pull` Permission denied        | `sudo chown -R $(whoami):$(whoami) /app/aiPBX_backend` (CI делает автоматически) |
+| Потеря PDF счетов                   | Volume на `static/org-documents` в compose + rsync                               |
+| Долгий `ollama pull`                | Выполнять на фазе 6, до cutover                                                  |
+| DNS не обновился                    | `dig +short aipbx.net gpu.aipbx.net`; TTL; кэш resolver                          |
+| aipbx.ru не видит GPU               | Проверить `gpu.aipbx.net` → новый IP и nginx vhost для GPU                       |
+
 
 ---
 
 ## Миграция других серверов
 
-| Параметр | aipbx.net | aipbx.com (org) | aipbx.ru |
-|----------|-----------|-----------------|----------|
-| GitHub Environment | `aipbxnet_production` | `aipbxorg_production` | `aipbxru_production` |
-| Deploy tag | `[deploy:1]` | `[deploy:2]` | `[deploy:3]` |
-| DNS | Прямо на IP; `gpu.aipbx.net` → тот же VPS; CDN **выключен** | Cloudflare | Яндекс.Облако |
-| GPU-сервисы | **Да** (deploy.yml) | Нет | Уточнять по актуальному deploy.yml |
-| Deploy user (рекомендация) | `aipbxnet` | `aipbxorg` | `aipbxru` |
+
+| Параметр                   | aipbx.net                                                   | aipbx.com (org)       | aipbx.ru                           |
+| -------------------------- | ----------------------------------------------------------- | --------------------- | ---------------------------------- |
+| GitHub Environment         | `aipbxnet_production`                                       | `aipbxorg_production` | `aipbxru_production`               |
+| Deploy tag                 | `[deploy:1]`                                                | `[deploy:2]`          | `[deploy:3]`                       |
+| DNS                        | Прямо на IP; `gpu.aipbx.net` → тот же VPS; CDN **выключен** | Cloudflare            | Яндекс.Облако                      |
+| GPU-сервисы                | **Да** (deploy.yml)                                         | Нет                   | Уточнять по актуальному deploy.yml |
+| Deploy user (рекомендация) | `aipbxnet`                                                  | `aipbxorg`            | `aipbxru`                          |
+
 
 Общие фазы 0–9 применимы ко всем серверам; **фазы 2.1, 2.3, 6.3** — только для GPU-хостов.
 

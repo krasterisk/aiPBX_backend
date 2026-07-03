@@ -39,6 +39,7 @@ import { ApiKeyModule } from './api-keys/api-key.module';
 import { AccountingModule } from "./accounting/accounting.module";
 import { LegalModule } from "./legal/legal.module";
 import { OurOrganizationsModule } from "./our-organizations/our-organizations.module";
+import { HelpdeskModule } from "./helpdesk/helpdesk.module";
 
 @Module({
     imports: [
@@ -91,6 +92,7 @@ import { OurOrganizationsModule } from "./our-organizations/our-organizations.mo
         AccountingModule,
         LegalModule,
         OurOrganizationsModule,
+        HelpdeskModule,
         ThrottlerModule.forRoot([{
             ttl: 60000,
             limit: 100,

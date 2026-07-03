@@ -57,6 +57,8 @@ import {
     parseAndValidateInsightsResponse,
 } from './lib/insights-schema';
 import { buildInsightsFacts, resolveInsightsMinCalls } from './lib/insights-facts';
+import { enrichInsightsWithChannelIds } from './lib/insights-drilldown';
+import { InsightsCacheService } from './insights-cache.service';
 import { buildInsightsPrompt } from './lib/insights-prompt';
 import { PROJECT_TEMPLATES } from './project-templates';
 import { OPERATOR_CDR_SOURCE } from './lib/analytics-source';
@@ -101,6 +103,7 @@ export class OperatorAnalyticsService {
         private readonly externalSttProvider: ExternalSttProvider,
         private readonly whisperService: WhisperService,
         private readonly billingFx: BillingFxService,
+        private readonly insightsCache: InsightsCacheService,
     ) {
         const apiKey = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
         this.openAiClient = new OpenAI({
@@ -1931,8 +1934,6 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
 
     // ─── AI Insights ─────────────────────────────────────────────────
 
-    private insightsCache: Map<string, { data: OperatorInsightsResponse; expiry: number }> = new Map();
-
     private resolveInsightsTtlMs(): number {
         const raw = process.env.OPERATOR_INSIGHTS_TTL_SEC;
         const sec = raw ? Number(raw) : 3600;
@@ -1997,9 +1998,9 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         const cacheKey = this.buildInsightsCacheKey(tenantUserId, query, factsDigest);
 
         if (!skipCache) {
-            const cached = this.insightsCache.get(cacheKey);
-            if (cached && Date.now() < cached.expiry) {
-                return cached.data;
+            const cached = await this.insightsCache.get(cacheKey);
+            if (cached) {
+                return cached;
             }
         }
 
@@ -2042,20 +2043,30 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
 
         const maxCount = this.resolveInsightsMaxCount();
         const insights = insightsResult.insights.slice(0, maxCount);
+        const enrichedInsights = await enrichInsightsWithChannelIds(insights, {
+            aiCdrRepository: this.aiCdrRepository,
+            query: {
+                userId: query.userId,
+                startDate: query.startDate,
+                endDate: query.endDate,
+                operatorName: query.operatorName,
+                projectId: query.projectId,
+            },
+            isAdmin,
+            realUserId,
+            likeOp: (v) => this.likeOp(v),
+        });
         const totalTokens = insightsResult.usage?.total_tokens || 0;
         await this.chargeInsightCost(billingUserId, totalTokens, chargeDescription);
 
         const result = buildOperatorInsightsResponse(
-            insights,
+            enrichedInsights,
             dashboard.totalAnalyzed,
             facts.lowConfidence,
             factsDigest,
         );
 
-        this.insightsCache.set(cacheKey, {
-            data: result,
-            expiry: Date.now() + this.resolveInsightsTtlMs(),
-        });
+        await this.insightsCache.set(cacheKey, result, this.resolveInsightsTtlMs());
 
         return result;
     }

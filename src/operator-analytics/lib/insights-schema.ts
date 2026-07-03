@@ -11,6 +11,7 @@ export interface OperatorInsightEvidence {
     value?: number;
     operators?: string[];
     periodLabel?: string;
+    channelIds?: string[];
 }
 
 export interface OperatorInsight {
@@ -70,6 +71,7 @@ const evidenceSchema = z.object({
     value: z.number().nullish(),
     operators: z.array(z.string()).optional(),
     periodLabel: z.string().optional(),
+    channelIds: z.array(z.string()).max(5).optional(),
 });
 
 const operatorInsightSchema = z.object({
@@ -167,6 +169,12 @@ function sanitizeEvidence(raw: unknown): OperatorInsightEvidence {
     }
     if (typeof e.periodLabel === 'string' && e.periodLabel.trim()) {
         evidence.periodLabel = e.periodLabel.trim();
+    }
+    if (Array.isArray(e.channelIds)) {
+        const ids = e.channelIds
+            .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+            .slice(0, 5);
+        if (ids.length) evidence.channelIds = ids;
     }
 
     return evidence;

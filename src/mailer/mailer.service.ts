@@ -65,6 +65,22 @@ export class MailerService {
         }
     }
 
+    async sendHelpdeskNotification(to: string, subject: string, html: string, text: string) {
+        if (!to) return;
+        try {
+            await this.transporter.sendMail(this.withSenderMailboxCopy({
+                from: `"AI PBX Helpdesk" <${process.env.MAIL_USER}>`,
+                to,
+                subject,
+                text,
+                html,
+            }));
+        } catch (e) {
+            this.logger.error('Error send helpdesk mail' + e);
+            throw new HttpException('Error sending email', HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
     async sendResetPasswordMail(to: string, link: string) {
         const resetPasswordLink = `${process.env.API_URL}/api/users/resetPassword/${link}`;
         const isRu = usesRussianMailLocale();

@@ -23,6 +23,7 @@ import { AiCdr } from '../ai-cdr/ai-cdr.model';
 import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
 import { BillingRecord } from '../billing/billing-record.model';
 import { BillingModule } from '../billing/billing.module';
+import { InsightsCacheService } from './insights-cache.service';
 
 @Module({
     imports: [
@@ -36,6 +37,7 @@ import { BillingModule } from '../billing/billing.module';
     controllers: [OperatorAnalyticsController],
     providers: [
         OperatorAnalyticsService,
+        InsightsCacheService,
         OperatorRetentionTask,
         OperatorAnomalyTask,
         OperatorStuckReaperTask,

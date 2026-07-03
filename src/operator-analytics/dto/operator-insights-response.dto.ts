@@ -12,6 +12,9 @@ export class OperatorInsightEvidenceDto {
 
     @ApiPropertyOptional({ example: '2026-02-01 — 2026-02-13' })
     periodLabel?: string;
+
+    @ApiPropertyOptional({ type: [String], description: 'Exemplar CDR channel IDs for drill-down (max 5)' })
+    channelIds?: string[];
 }
 
 export class OperatorInsightDto {

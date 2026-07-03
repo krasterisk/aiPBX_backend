@@ -7,6 +7,7 @@ export interface AlfawebhookClientSearchParams {
     phone?: string;
     inn?: string;
     name?: string;
+    id?: string;
 }
 
 export interface AlfawebhookClientRecord {
@@ -92,6 +93,7 @@ export class AlfawebhookClient {
         if (params.phone?.trim()) query.set('phone', params.phone.trim());
         if (params.inn?.trim()) query.set('inn', params.inn.trim().replace(/\D/g, ''));
         if (params.name?.trim()) query.set('name', params.name.trim());
+        if (params.id?.trim()) query.set('id', params.id.trim());
 
         if ([...query.keys()].length === 0) {
             return [];

@@ -1,10 +1,11 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Assistant } from "../assistants/assistants.model";
 import { AiToolsService } from "../ai-tools/ai-tools.service";
 import { HttpService } from "@nestjs/axios";
 import { firstValueFrom } from "rxjs";
 import { AxiosError } from "axios";
 import { KnowledgeService } from "../knowledge/knowledge.service";
+import { HelpdeskToolsService } from "../helpdesk/helpdesk-tools.service";
 
 @Injectable()
 export class AiToolsHandlersService {
@@ -15,6 +16,7 @@ export class AiToolsHandlersService {
         @Inject(AiToolsService) private readonly aiToolsService: AiToolsService,
         private readonly httpService: HttpService,
         private readonly knowledgeService: KnowledgeService,
+        @Optional() private readonly helpdeskToolsService?: HelpdeskToolsService,
     ) { }
 
     async functionHandler(name: string, rawArguments: string, assistant: Assistant) {
@@ -36,6 +38,11 @@ export class AiToolsHandlersService {
         const toolData = typeof tool.toolData === 'string' ? JSON.parse(tool.toolData) : tool.toolData;
         if (toolData?.handler === 'knowledge_base') {
             return this.handleKnowledgeBaseSearch(toolData, parsedArgs);
+        }
+
+        // ── Helpdesk built-in handlers ──
+        if (typeof toolData?.handler === 'string' && toolData.handler.startsWith('helpdesk_')) {
+            return this.handleHelpdeskTool(toolData.handler, parsedArgs);
         }
 
         // ── Webhook Handler (existing) ──
@@ -110,6 +117,19 @@ export class AiToolsHandlersService {
         } catch (err) {
             this.logger.error(`Knowledge base search failed: ${err.message}`);
             return `Knowledge base search error: ${err.message}`;
+        }
+    }
+
+    private async handleHelpdeskTool(handler: string, args: Record<string, unknown>): Promise<string> {
+        if (!this.helpdeskToolsService) {
+            return 'Helpdesk tools unavailable';
+        }
+        try {
+            const result = await this.helpdeskToolsService.handleBuiltinTool(handler, args);
+            return typeof result === 'string' ? result : JSON.stringify(result);
+        } catch (err) {
+            this.logger.error(`Helpdesk tool ${handler} failed: ${err.message}`);
+            return `Helpdesk tool error: ${err.message}`;
         }
     }
 }

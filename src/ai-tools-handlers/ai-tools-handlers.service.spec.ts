@@ -3,6 +3,7 @@ import { AiToolsHandlersService } from './ai-tools-handlers.service';
 import { AiToolsService } from '../ai-tools/ai-tools.service';
 import { HttpService } from '@nestjs/axios';
 import { KnowledgeService } from '../knowledge/knowledge.service';
+import { HelpdeskToolsService } from '../helpdesk/helpdesk-tools.service';
 import { of, throwError } from 'rxjs';
 
 describe('AiToolsHandlersService', () => {
@@ -10,6 +11,7 @@ describe('AiToolsHandlersService', () => {
     let mockAiToolsService: any;
     let mockHttpService: any;
     let mockKnowledgeService: any;
+    let mockHelpdeskToolsService: any;
 
     const mockAssistant = { id: 1, userId: '1', name: 'Test Assistant' } as any;
 
@@ -24,6 +26,9 @@ describe('AiToolsHandlersService', () => {
         mockKnowledgeService = {
             searchMultiple: jest.fn(),
         };
+        mockHelpdeskToolsService = {
+            handleBuiltinTool: jest.fn(),
+        };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -31,6 +36,7 @@ describe('AiToolsHandlersService', () => {
                 { provide: AiToolsService, useValue: mockAiToolsService },
                 { provide: HttpService, useValue: mockHttpService },
                 { provide: KnowledgeService, useValue: mockKnowledgeService },
+                { provide: HelpdeskToolsService, useValue: mockHelpdeskToolsService },
             ],
         }).compile();
 
@@ -179,6 +185,33 @@ describe('AiToolsHandlersService', () => {
 
             expect(result).toContain('Knowledge base search error');
             expect(result).toContain('DB connection lost');
+        });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════
+    // functionHandler — Helpdesk built-in handler
+    // ═══════════════════════════════════════════════════════════════════
+
+    describe('functionHandler — helpdesk', () => {
+        it('should route to helpdesk handler when toolData.handler starts with helpdesk_', async () => {
+            mockAiToolsService.getToolByName.mockResolvedValue({
+                name: 'helpdesk_create',
+                toolData: { handler: 'helpdesk_create_ticket' },
+                webhook: null,
+            });
+            mockHelpdeskToolsService.handleBuiltinTool.mockResolvedValue({ id: 99 });
+
+            const result = await service.functionHandler(
+                'helpdesk_create',
+                JSON.stringify({ subject: 'Test' }),
+                mockAssistant,
+            );
+
+            expect(mockHelpdeskToolsService.handleBuiltinTool).toHaveBeenCalledWith(
+                'helpdesk_create_ticket',
+                { subject: 'Test' },
+            );
+            expect(result).toContain('"id":99');
         });
     });
 

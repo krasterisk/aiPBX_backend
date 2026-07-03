@@ -8,6 +8,7 @@ import { CreateApiKeyDto } from './dto/create-api-key.dto';
 export const API_KEY_SCOPES = {
     CHAT_MESSAGE: 'chat:message',
     MODELS_READ: 'models:read',
+    HELPDESK_TOOLS: 'helpdesk:tools',
 } as const;
 
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[keyof typeof API_KEY_SCOPES];

@@ -346,6 +346,11 @@ export class AiCdrService {
                         [sequelize.Op.like]: `%${search}%`
                     }
                 },
+                {
+                    channelId: {
+                        [sequelize.Op.like]: `%${search}%`
+                    }
+                },
             ];
 
             // Only search in associated analytics.summary when there's actual search text,

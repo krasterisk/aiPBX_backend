@@ -18,6 +18,7 @@ import { UsersService } from '../users/users.service';
 import { OpenAiTranscriptionProvider } from './providers/openai-transcription.provider';
 import { ExternalSttProvider } from './providers/external-stt.provider';
 import { WhisperService } from '../whisper/whisper.service';
+import { InsightsCacheService } from './insights-cache.service';
 
 describe('OperatorAnalyticsService', () => {
     let service: OperatorAnalyticsService;
@@ -204,6 +205,13 @@ describe('OperatorAnalyticsService', () => {
                             fxRateSource: 'identity',
                             fxCapturedAt: new Date(),
                         })),
+                    },
+                },
+                {
+                    provide: InsightsCacheService,
+                    useValue: {
+                        get: jest.fn().mockResolvedValue(null),
+                        set: jest.fn().mockResolvedValue(undefined),
                     },
                 },
             ],

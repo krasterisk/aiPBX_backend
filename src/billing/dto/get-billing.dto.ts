@@ -11,6 +11,8 @@ export class GetBillingDto {
     endDate?: string;
     @ApiProperty({ required: false })
     userId?: string;
+    @ApiProperty({ required: false, description: 'Comma-separated billing types (e.g. analytic,insight)' })
+    types?: string;
     @ApiProperty({ required: false })
     type?: string;
     @ApiProperty({ required: false })

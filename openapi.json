@@ -2772,6 +2772,699 @@
         ]
       }
     },
+    "/api/helpdesk/tickets": {
+      "get": {
+        "operationId": "HelpdeskController_listTickets",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "category",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "priority",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assigneeId",
+            "required": false,
+            "in": "query",
+            "description": "null = только неназначенные",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "Поиск по имени клиента, ИНН, телефону",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HelpdeskTicket"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Список заявок (admin)",
+        "tags": [
+          "Helpdesk"
+        ]
+      },
+      "post": {
+        "operationId": "HelpdeskController_createTicket",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateHelpdeskTicketDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Создать заявку вручную (admin)",
+        "tags": [
+          "Helpdesk"
+        ]
+      }
+    },
+    "/api/helpdesk/tickets/{id}": {
+      "get": {
+        "operationId": "HelpdeskController_getTicket",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Детали заявки (admin)",
+        "tags": [
+          "Helpdesk"
+        ]
+      },
+      "patch": {
+        "operationId": "HelpdeskController_updateTicket",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateHelpdeskTicketDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Обновить заявку (admin)",
+        "tags": [
+          "Helpdesk"
+        ]
+      }
+    },
+    "/api/helpdesk/tickets/{id}/claim": {
+      "post": {
+        "operationId": "HelpdeskController_claimTicket",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Взять заявку из пула (admin, D-19)",
+        "tags": [
+          "Helpdesk"
+        ]
+      }
+    },
+    "/api/helpdesk/tickets/{id}/messages": {
+      "post": {
+        "operationId": "HelpdeskController_addMessage",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateHelpdeskMessageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelpdeskTicketMessage"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Добавить сообщение к заявке (admin)",
+        "tags": [
+          "Helpdesk"
+        ]
+      }
+    },
+    "/api/helpdesk/clients/identify": {
+      "post": {
+        "operationId": "HelpdeskController_identifyClient",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelpdeskIdentifyBodyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelpdeskIdentifyResultDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Идентификация клиента через alfawebhook (admin preview)",
+        "tags": [
+          "Helpdesk"
+        ]
+      }
+    },
+    "/api/helpdesk/settings": {
+      "get": {
+        "operationId": "HelpdeskController_getSettings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelpdeskSettings"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Настройки helpdesk (admin)",
+        "tags": [
+          "Helpdesk"
+        ]
+      },
+      "patch": {
+        "operationId": "HelpdeskController_updateSettings",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateHelpdeskSettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Обновить настройки helpdesk (admin)",
+        "tags": [
+          "Helpdesk"
+        ]
+      }
+    },
+    "/api/helpdesk/clients/{clientKey}/llm-context": {
+      "get": {
+        "operationId": "HelpdeskController_getLlmContext",
+        "parameters": [
+          {
+            "name": "clientKey",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "LLM-контекст клиента (admin)",
+        "tags": [
+          "Helpdesk"
+        ]
+      },
+      "patch": {
+        "operationId": "HelpdeskController_updateLlmContextOverride",
+        "parameters": [
+          {
+            "name": "clientKey",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelpdeskLlmContextOverrideDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Переопределение LLM-контекста оператором (admin)",
+        "tags": [
+          "Helpdesk"
+        ]
+      }
+    },
+    "/api/helpdesk/tools/identify-client": {
+      "post": {
+        "operationId": "HelpdeskToolsController_identifyClient",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelpdeskToolsIdentifyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Идентификация клиента (AI)",
+        "tags": [
+          "Helpdesk Tools"
+        ]
+      }
+    },
+    "/api/helpdesk/tools/get-client-info": {
+      "post": {
+        "operationId": "HelpdeskToolsController_getClientInfo",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelpdeskToolsClientRefDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Информация о клиенте (AI)",
+        "tags": [
+          "Helpdesk Tools"
+        ]
+      }
+    },
+    "/api/helpdesk/tools/get-llm-context": {
+      "post": {
+        "operationId": "HelpdeskToolsController_getLlmContext",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelpdeskToolsClientRefDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "LLM-контекст клиента (AI)",
+        "tags": [
+          "Helpdesk Tools"
+        ]
+      }
+    },
+    "/api/helpdesk/tools/create-ticket": {
+      "post": {
+        "operationId": "HelpdeskToolsController_createTicket",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelpdeskToolsCreateTicketDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Создать заявку (AI)",
+        "tags": [
+          "Helpdesk Tools"
+        ]
+      }
+    },
+    "/api/helpdesk/tools/add-message": {
+      "post": {
+        "operationId": "HelpdeskToolsController_addMessage",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelpdeskToolsAddMessageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Добавить сообщение к заявке (AI)",
+        "tags": [
+          "Helpdesk Tools"
+        ]
+      }
+    },
+    "/api/helpdesk/tools/pbx-get-vpbx-user": {
+      "post": {
+        "operationId": "HelpdeskToolsController_pbxGetVpbxUser",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelpdeskToolsPbxClientDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "PBX: данные vpbx_user (AI)",
+        "tags": [
+          "Helpdesk Tools"
+        ]
+      }
+    },
+    "/api/helpdesk/tools/pbx-list-sip-registrations": {
+      "post": {
+        "operationId": "HelpdeskToolsController_pbxListSipRegistrations",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelpdeskToolsPbxClientDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "PBX: SIP-регистрации (AI)",
+        "tags": [
+          "Helpdesk Tools"
+        ]
+      }
+    },
+    "/api/helpdesk/tools/pbx-promised-payment": {
+      "post": {
+        "operationId": "HelpdeskToolsController_pbxPromisedPayment",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelpdeskToolsPromisedPaymentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "PBX: обещанный платёж (AI)",
+        "tags": [
+          "Helpdesk Tools"
+        ]
+      }
+    },
+    "/api/helpdesk/tools/pbx-hangup-channel": {
+      "post": {
+        "operationId": "HelpdeskToolsController_pbxHangupChannel",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelpdeskToolsHangupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "PBX: завершить канал (AI)",
+        "tags": [
+          "Helpdesk Tools"
+        ]
+      }
+    },
+    "/api/telegram/webhook": {
+      "post": {
+        "operationId": "TelegramController_handleWebhook",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Telegram webhook endpoint",
+        "tags": [
+          "Telegram Webhook"
+        ]
+      }
+    },
+    "/api/api-keys": {
+      "post": {
+        "description": "Returns the raw token once. Store it securely — it cannot be retrieved later.",
+        "operationId": "ApiKeyController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKeyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ apiKey, rawToken }"
+          }
+        },
+        "summary": "Create an API key",
+        "tags": [
+          "API Keys"
+        ]
+      },
+      "get": {
+        "operationId": "ApiKeyController_getAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List API keys for the current user (no token hashes)",
+        "tags": [
+          "API Keys"
+        ]
+      }
+    },
+    "/api/api-keys/{id}": {
+      "delete": {
+        "operationId": "ApiKeyController_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Revoke an API key",
+        "tags": [
+          "API Keys"
+        ]
+      }
+    },
     "/api/mcp/servers": {
       "post": {
         "operationId": "McpClientController_createServer",
@@ -3394,21 +4087,6 @@
         "summary": "Execute a Composio action (manual test)",
         "tags": [
           "MCP Client"
-        ]
-      }
-    },
-    "/api/telegram/webhook": {
-      "post": {
-        "operationId": "TelegramController_handleWebhook",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Telegram webhook endpoint",
-        "tags": [
-          "Telegram Webhook"
         ]
       }
     },
@@ -4402,69 +5080,6 @@
         "summary": "Get aiModel by id",
         "tags": [
           "AI Models"
-        ]
-      }
-    },
-    "/api/api-keys": {
-      "post": {
-        "description": "Returns the raw token once. Store it securely — it cannot be retrieved later.",
-        "operationId": "ApiKeyController_create",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateApiKeyDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "{ apiKey, rawToken }"
-          }
-        },
-        "summary": "Create an API key",
-        "tags": [
-          "API Keys"
-        ]
-      },
-      "get": {
-        "operationId": "ApiKeyController_getAll",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "List API keys for the current user (no token hashes)",
-        "tags": [
-          "API Keys"
-        ]
-      }
-    },
-    "/api/api-keys/{id}": {
-      "delete": {
-        "operationId": "ApiKeyController_revoke",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "number"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Revoke an API key",
-        "tags": [
-          "API Keys"
         ]
       }
     },
@@ -7502,6 +8117,525 @@
           "url"
         ]
       },
+      "HelpdeskTicket": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "example": "new"
+          },
+          "category": {
+            "type": "string",
+            "example": "technical"
+          },
+          "priority": {
+            "type": "string",
+            "example": "normal"
+          },
+          "source": {
+            "type": "string",
+            "example": "voice"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "callerPhone": {
+            "type": "string",
+            "description": "Caller ID"
+          },
+          "contactPhone": {
+            "type": "string"
+          },
+          "alfawebhookClientId": {
+            "type": "string"
+          },
+          "inn": {
+            "type": "string"
+          },
+          "clientName": {
+            "type": "string"
+          },
+          "assigneeId": {
+            "type": "number",
+            "description": "ID оператора-исполнителя"
+          },
+          "createdByApiKeyId": {
+            "type": "number"
+          },
+          "transcript": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "category",
+          "priority",
+          "source",
+          "subject"
+        ]
+      },
+      "CreateHelpdeskTicketDto": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "example": "Проблема с регистрацией SIP"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "technical",
+              "billing",
+              "sales",
+              "spam",
+              "other"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "urgent",
+              "high",
+              "normal",
+              "low"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "voice",
+              "chat",
+              "manual",
+              "email"
+            ],
+            "default": "manual"
+          },
+          "callerPhone": {
+            "type": "string",
+            "description": "Caller ID (оригинальный номер звонка)"
+          },
+          "contactPhone": {
+            "type": "string",
+            "description": "Контактный номер, если отличается от Caller ID"
+          },
+          "alfawebhookClientId": {
+            "type": "string"
+          },
+          "inn": {
+            "type": "string"
+          },
+          "clientName": {
+            "type": "string"
+          },
+          "transcript": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "in_progress",
+              "waiting_client",
+              "resolved",
+              "closed"
+            ]
+          }
+        }
+      },
+      "UpdateHelpdeskTicketDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "in_progress",
+              "waiting_client",
+              "resolved",
+              "closed"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "technical",
+              "billing",
+              "sales",
+              "spam",
+              "other"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "urgent",
+              "high",
+              "normal",
+              "low"
+            ]
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "assigneeId": {
+            "type": "number"
+          },
+          "transcript": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateHelpdeskMessageDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "example": "Оператор уточнил детали"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant",
+              "operator",
+              "system"
+            ],
+            "default": "operator"
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      "HelpdeskTicketMessage": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "role": {
+            "type": "string",
+            "example": "operator"
+          },
+          "content": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "content"
+        ]
+      },
+      "HelpdeskIdentifyBodyDto": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string"
+          },
+          "inn": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "AlfawebhookClientDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "inn": {
+            "type": "string",
+            "description": "ИНН"
+          },
+          "kpp": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pbxUrl": {
+            "type": "string",
+            "description": "URL облачной АТС"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "licNum": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          }
+        }
+      },
+      "HelpdeskIdentifyResultDto": {
+        "type": "object",
+        "properties": {
+          "found": {
+            "type": "boolean",
+            "description": "Найден ли клиент"
+          },
+          "client": {
+            "$ref": "#/components/schemas/AlfawebhookClientDto"
+          },
+          "candidates": {
+            "description": "До 3 вариантов при неоднозначном поиске по названию",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isCloud": {
+            "type": "boolean",
+            "description": "Облачный клиент (есть pbxUrl)"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "found"
+        ]
+      },
+      "HelpdeskSettings": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "notificationEmails": {
+            "description": "Email для уведомлений о новых заявках",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notificationTelegramChatIds": {
+            "description": "Telegram chat ID",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "notificationEmails",
+          "notificationTelegramChatIds"
+        ]
+      },
+      "UpdateHelpdeskSettingsDto": {
+        "type": "object",
+        "properties": {
+          "notificationEmails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notificationTelegramChatIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "HelpdeskLlmContextOverrideDto": {
+        "type": "object",
+        "properties": {
+          "markdownOverride": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "HelpdeskToolsIdentifyDto": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string"
+          },
+          "inn": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "HelpdeskToolsClientRefDto": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "inn": {
+            "type": "string"
+          }
+        }
+      },
+      "HelpdeskToolsCreateTicketDto": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "callerPhone": {
+            "type": "string",
+            "description": "Original Caller ID (D-04)"
+          },
+          "contactPhone": {
+            "type": "string",
+            "description": "Alternate contact phone if different (D-04)"
+          },
+          "clientName": {
+            "type": "string"
+          },
+          "alfawebhookClientId": {
+            "type": "string"
+          },
+          "inn": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "transcript": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject"
+        ]
+      },
+      "HelpdeskToolsAddMessageDto": {
+        "type": "object",
+        "properties": {
+          "ticketId": {
+            "type": "number"
+          },
+          "role": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticketId",
+          "content"
+        ]
+      },
+      "HelpdeskToolsPbxClientDto": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "clientId"
+        ]
+      },
+      "HelpdeskToolsPromisedPaymentDto": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "days": {
+            "type": "number",
+            "default": 2
+          }
+        },
+        "required": [
+          "clientId"
+        ]
+      },
+      "HelpdeskToolsHangupDto": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "confirm": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "clientId",
+          "channelId",
+          "confirm"
+        ]
+      },
+      "CreateApiKeyDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "KrAsterisk production",
+            "description": "Human-readable label"
+          },
+          "scopes": {
+            "example": [
+              "chat:message",
+              "models:read"
+            ],
+            "description": "Scopes. Null/omit = all scopes.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expiresAt": {
+            "type": "string",
+            "example": "2027-01-01T00:00:00Z",
+            "description": "ISO 8601 expiry. Omit for no expiry."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
       "CreateMcpServerDto": {
         "type": "object",
         "properties": {
@@ -8220,35 +9354,6 @@
       "UpdateAiModelDto": {
         "type": "object",
         "properties": {}
-      },
-      "CreateApiKeyDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "example": "KrAsterisk production",
-            "description": "Human-readable label"
-          },
-          "scopes": {
-            "example": [
-              "chat:message",
-              "models:read"
-            ],
-            "description": "Scopes. Null/omit = all scopes.",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "expiresAt": {
-            "type": "string",
-            "example": "2027-01-01T00:00:00Z",
-            "description": "ISO 8601 expiry. Omit for no expiry."
-          }
-        },
-        "required": [
-          "name"
-        ]
       },
       "CreateRobokassaPaymentDto": {
         "type": "object",

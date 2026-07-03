@@ -789,7 +789,17 @@ export class BillingService {
 
 
 
-        if (query.type) {
+        if (query.types) {
+
+            const types = query.types.split(',').map((value) => value.trim()).filter(Boolean);
+
+            if (types.length) {
+
+                where.type = { [Op.in]: types };
+
+            }
+
+        } else if (query.type) {
 
             where.type = query.type;
 

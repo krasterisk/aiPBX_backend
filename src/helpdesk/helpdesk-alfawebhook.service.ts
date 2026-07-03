@@ -119,4 +119,9 @@ export class HelpdeskAlfawebhookService {
         const rows = await this.alfawebhookClient.searchClients({ inn });
         return rows[0] ? this.mapClient(rows[0]) : null;
     }
+
+    async getClientById(clientId: string): Promise<AlfawebhookClientDto | null> {
+        const rows = await this.alfawebhookClient.searchClients({ id: clientId });
+        return rows[0] ? this.mapClient(rows[0]) : null;
+    }
 }

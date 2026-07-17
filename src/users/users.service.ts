@@ -73,14 +73,36 @@ export class UsersService {
             // создаём пользователя
             const { currency: _dtoCurrency, ...createPayload } = dto as CreateUserDto & { currency?: string };
             let ourOrganizationId = dto.ourOrganizationId ?? null;
+            let currency = getTenantCurrency();
+
+            // Sub-user: inherit issuer org (and currency if owner has one) from tenant owner
+            const parentId = createPayload.vpbx_user_id != null
+                ? Number(createPayload.vpbx_user_id)
+                : null;
+            if (parentId != null && Number.isFinite(parentId) && parentId > 0) {
+                const owner = await this.usersRepository.findByPk(parentId, {
+                    attributes: ['id', 'vpbx_user_id', 'currency', 'ourOrganizationId'],
+                });
+                if (owner && (owner.vpbx_user_id === null || owner.vpbx_user_id === undefined)) {
+                    if (ourOrganizationId == null) {
+                        ourOrganizationId = owner.ourOrganizationId ?? null;
+                    }
+                    if (owner.currency) {
+                        currency = owner.currency as ReturnType<typeof getTenantCurrency>;
+                    }
+                }
+            }
+
             if (ourOrganizationId == null) {
                 ourOrganizationId = await this.ourOrganizationsService.getPrimaryId();
             }
             const user = await this.usersRepository.create({
                 ...createPayload,
                 email: createPayload.email ? normalizeAuthEmail(createPayload.email) : createPayload.email,
-                currency: getTenantCurrency(),
+                currency,
                 ourOrganizationId,
+                vpbx_user_id: parentId,
+                canManageUsers: parentId != null ? !!createPayload.canManageUsers : false,
             } as any);
 
             if (!user) {
@@ -192,6 +214,7 @@ export class UsersService {
                 balance: 0,
                 currency: owner.currency || getTenantCurrency(),
                 ourOrganizationId: owner.ourOrganizationId ?? await this.ourOrganizationsService.getPrimaryId(),
+                canManageUsers: !!dto.canManageUsers,
             } as any);
 
             if (!user) {
@@ -267,6 +290,55 @@ export class UsersService {
         });
     }
 
+    /**
+     * Returns tenant owner id if requester may manage users of that tenant.
+     * Admins pass through with optional ownerUserId from elsewhere.
+     */
+    async assertCanManageTenantUsers(
+        requesterId: number | string,
+        isAdmin = false,
+    ): Promise<number> {
+        if (isAdmin) {
+            const tokenId = parseUserId(requesterId, 'requester id');
+            return this.resolveOwnerId(tokenId);
+        }
+
+        const parsedId = parseUserId(requesterId, 'requester id');
+        const user = await this.usersRepository.findByPk(parsedId, {
+            attributes: ['id', 'vpbx_user_id', 'canManageUsers'],
+        });
+        if (!user) {
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
+
+        const isOwner = user.vpbx_user_id === null || user.vpbx_user_id === undefined;
+        if (isOwner) {
+            return user.id;
+        }
+        if (user.canManageUsers) {
+            return user.vpbx_user_id;
+        }
+
+        throw new HttpException(
+            'Forbidden: no permission to manage tenant users',
+            HttpStatus.FORBIDDEN,
+        );
+    }
+
+    /** Emails of sub-users with canManageUsers for a tenant owner. */
+    async getTenantManagerEmails(ownerUserId: number): Promise<string[]> {
+        const managers = await this.usersRepository.findAll({
+            where: {
+                vpbx_user_id: ownerUserId,
+                canManageUsers: true,
+            },
+            attributes: ['email'],
+        });
+        return managers
+            .map((u) => (u.email || '').trim().toLowerCase())
+            .filter(Boolean);
+    }
+
     async resolveOwnerId(userId: string | number): Promise<number> {
         const parsedId = parseUserId(userId);
         const user = await this.usersRepository.findByPk(parsedId, {
@@ -276,6 +348,64 @@ export class UsersService {
             throw new HttpException('User not found', HttpStatus.NOT_FOUND);
         }
         return user.vpbx_user_id ?? user.id;
+    }
+
+    /**
+     * Admin tenant assignment: empty → new owner (null);
+     * otherwise must resolve to an existing root tenant owner id.
+     */
+    async resolveTenantParentId(raw: unknown): Promise<number | null> {
+        if (raw === null || raw === undefined || raw === '') {
+            return null;
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n <= 0) {
+            throw new HttpException('Invalid vpbx_user_id', HttpStatus.BAD_REQUEST);
+        }
+        const owner = await this.usersRepository.findByPk(n, {
+            attributes: ['id', 'vpbx_user_id'],
+        });
+        if (!owner) {
+            throw new HttpException('Tenant owner not found', HttpStatus.NOT_FOUND);
+        }
+        if (owner.vpbx_user_id !== null && owner.vpbx_user_id !== undefined) {
+            throw new HttpException(
+                'Selected user is not a tenant owner',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+        return owner.id;
+    }
+
+    /**
+     * Admin-only: validate and normalize vpbx_user_id when reassigning tenant.
+     * Demoting an owner who still has sub-users is forbidden.
+     */
+    async assertAdminTenantReassignment(
+        user: User,
+        nextParentId: number | null,
+    ): Promise<number | null> {
+        if (nextParentId === user.id) {
+            throw new HttpException(
+                'User cannot be a sub-user of themselves',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        const wasOwner = user.vpbx_user_id === null || user.vpbx_user_id === undefined;
+        if (wasOwner && nextParentId != null) {
+            const subUsersCount = await this.usersRepository.count({
+                where: { vpbx_user_id: user.id },
+            });
+            if (subUsersCount > 0) {
+                throw new HttpException(
+                    `Cannot demote owner: ${subUsersCount} sub-user(s) still linked`,
+                    HttpStatus.BAD_REQUEST,
+                );
+            }
+        }
+
+        return nextParentId;
     }
 
 
@@ -324,6 +454,19 @@ export class UsersService {
                 ]
             }
 
+            let tenantClause: Record<string, unknown> | undefined;
+            if (isAdmin && query.ownerUserId) {
+                const ownerId = await this.resolveTenantParentId(query.ownerUserId);
+                if (ownerId != null) {
+                    tenantClause = {
+                        [sequelize.Op.or]: [
+                            { id: ownerId },
+                            { vpbx_user_id: ownerId },
+                        ],
+                    };
+                }
+            }
+
             const users = await this.usersRepository.findAndCountAll({
                 offset,
                 limit,
@@ -348,8 +491,9 @@ export class UsersService {
                                 }
                             ]
                         },
-                        userIdClause
-                    ]
+                        userIdClause,
+                        tenantClause,
+                    ].filter(Boolean)
                 },
                 include: { all: true },
                 attributes: {
@@ -585,6 +729,7 @@ export class UsersService {
                 ...new Set(tenantAlerts.flatMap((a) => a.emails || [])),
             ].filter(Boolean);
 
+            const managerEmails = await this.getTenantManagerEmails(ownerId);
             const wasDepleted = isBalanceDepleted(oldBalanceApprox);
             const isDepleted = isBalanceDepleted(newBalance);
 
@@ -597,12 +742,12 @@ export class UsersService {
             }
 
             if (!wasDepleted && !isDepleted && oldBalanceApprox > 3 && newBalance <= 3) {
-                const recipients = [...new Set([...allNotifyEmails, user.email])].filter(Boolean);
+                const recipients = [...new Set([...allNotifyEmails, ...managerEmails, user.email])].filter(Boolean);
                 this.mailerService.sendCriticalBalanceNotification(recipients, newBalance);
             }
 
             if (!wasDepleted && oldBalanceApprox > 0 && isDepleted) {
-                const recipients = [...new Set([...allNotifyEmails, user.email])].filter(Boolean);
+                const recipients = [...new Set([...allNotifyEmails, ...managerEmails, user.email])].filter(Boolean);
                 this.mailerService.sendZeroBalanceNotification(recipients, newBalance);
             }
 
@@ -829,7 +974,13 @@ export class UsersService {
         throw new HttpException("User or Role not found", HttpStatus.NOT_FOUND);
     }
 
-    async updateUser(updates: any, isAdmin = true) {
+    async updateUser(
+        updates: any,
+        opts: { isAdmin?: boolean; requesterId?: number | string } | boolean = true,
+    ) {
+        const isAdmin = typeof opts === 'boolean' ? opts : !!opts.isAdmin;
+        const requesterId = typeof opts === 'boolean' ? undefined : opts.requesterId;
+
         const user = await this.usersRepository.findByPk(updates.id, {
             include: { all: true }
         });
@@ -843,10 +994,76 @@ export class UsersService {
         if (!isAdmin) {
             delete payload.currency;
             delete payload.ourOrganizationId;
+            delete payload.vpbx_user_id;
+
+            if (requesterId != null) {
+                const requester = await this.usersRepository.findByPk(
+                    parseUserId(requesterId, 'requester id'),
+                    { attributes: ['id', 'vpbx_user_id', 'canManageUsers'] },
+                );
+                if (!requester) {
+                    throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+                }
+                const requesterIsOwner =
+                    requester.vpbx_user_id === null || requester.vpbx_user_id === undefined;
+                const requesterIsManager = !!requester.canManageUsers && !requesterIsOwner;
+
+                // Only owner/admin may grant or revoke canManageUsers
+                if (!requesterIsOwner) {
+                    delete payload.canManageUsers;
+                }
+
+                if (requesterIsOwner || requesterIsManager) {
+                    const ownerId = requesterIsOwner ? requester.id : requester.vpbx_user_id;
+                    const targetIsSiblingSub =
+                        user.vpbx_user_id === ownerId;
+                    const targetIsSelf = user.id === requester.id;
+                    if (!targetIsSiblingSub && !targetIsSelf) {
+                        throw new HttpException(
+                            'Forbidden: not your tenant user',
+                            HttpStatus.FORBIDDEN,
+                        );
+                    }
+                    // Managers cannot edit the tenant owner
+                    if (requesterIsManager && (user.vpbx_user_id === null || user.vpbx_user_id === undefined)) {
+                        throw new HttpException(
+                            'Forbidden: cannot edit tenant owner',
+                            HttpStatus.FORBIDDEN,
+                        );
+                    }
+                }
+            } else {
+                delete payload.canManageUsers;
+            }
         } else if (payload.currency != null && payload.currency !== user.currency) {
             this.logger.warn(
                 `Admin changed user ${user.id} currency ${user.currency} → ${payload.currency}`,
             );
+        }
+
+        // Owners are always managers; flag only applies to sub-users
+        if (Object.prototype.hasOwnProperty.call(payload, 'canManageUsers')) {
+            const willBeOwner =
+                (Object.prototype.hasOwnProperty.call(payload, 'vpbx_user_id')
+                    ? payload.vpbx_user_id == null
+                    : user.vpbx_user_id == null);
+            if (willBeOwner) {
+                payload.canManageUsers = false;
+            } else {
+                payload.canManageUsers = !!payload.canManageUsers;
+            }
+        }
+
+        if (isAdmin && Object.prototype.hasOwnProperty.call(payload, 'vpbx_user_id')) {
+            const nextParent = await this.resolveTenantParentId(payload.vpbx_user_id);
+            payload.vpbx_user_id = await this.assertAdminTenantReassignment(user, nextParent);
+            if (payload.vpbx_user_id == null) {
+                // Promoting to owner — ensure personal account exists after update
+                payload.personalAccountNumber =
+                    user.personalAccountNumber?.trim() ||
+                    formatPersonalAccountNumber(user.id);
+                payload.canManageUsers = false;
+            }
         }
 
         await user.update(payload);
@@ -904,7 +1121,7 @@ export class UsersService {
     }
 
 
-    async deleteUser(id: number, requesterId?: number) {
+    async deleteUser(id: number, requesterId?: number, isAdmin = false) {
         const user = await this.usersRepository.findByPk(id, {
             attributes: ['id', 'vpbx_user_id'],
         });
@@ -926,9 +1143,16 @@ export class UsersService {
         }
 
         // Если requester указан — проверяем права
-        if (requesterId && user.vpbx_user_id !== null) {
-            if (user.vpbx_user_id !== requesterId && user.id !== requesterId) {
+        if (requesterId && !isAdmin) {
+            const ownerId = await this.assertCanManageTenantUsers(requesterId, false);
+            if (user.vpbx_user_id !== ownerId && user.id !== requesterId) {
                 throw new HttpException('Forbidden: not your sub-user', HttpStatus.FORBIDDEN);
+            }
+            // Managers/owners must not delete the tenant owner via this path when linked
+            if (user.vpbx_user_id === null || user.vpbx_user_id === undefined) {
+                if (user.id !== requesterId) {
+                    throw new HttpException('Forbidden: cannot delete tenant owner', HttpStatus.FORBIDDEN);
+                }
             }
         }
 

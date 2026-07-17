@@ -78,4 +78,11 @@ export class User extends Model<User, UserCreationAttrs> {
     @ApiProperty({ example: 'AIPBX-00000042', description: 'Personal account number for bank payments (tenant owner)' })
     @Column({ type: DataType.STRING(32), allowNull: true, unique: true })
     personalAccountNumber: string | null
+
+    @ApiProperty({
+        example: false,
+        description: 'Sub-user may create/edit tenant users and receive tenant balance notifications',
+    })
+    @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
+    canManageUsers: boolean
 }

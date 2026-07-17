@@ -231,6 +231,63 @@ export class OrganizationDocumentsService {
 
     }
 
+    async updateDocument(
+        actingUserId: number,
+        organizationId: number,
+        docId: string,
+        isAdmin: boolean,
+        patch: { number?: string; documentDate?: string; amountRub?: number },
+    ): Promise<OrganizationDocument> {
+        if (!isAdmin) {
+            throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+        }
+
+        const hasNumber = patch.number !== undefined;
+        const hasDate = patch.documentDate !== undefined;
+        const hasAmount = patch.amountRub !== undefined;
+        if (!hasNumber && !hasDate && !hasAmount) {
+            throw new HttpException(
+                'At least one of number, documentDate, amountRub is required',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        const org = await this.assertOrgAccess(actingUserId, organizationId, true);
+        const normalizedDocId = extractOrganizationDocumentId(docId) || docId.trim();
+        const doc = await this.docModel.findOne({
+            where: { id: normalizedDocId, userId: String(org.userId), organizationId },
+        });
+        if (!doc) {
+            throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+        }
+
+        const updates: Partial<{ number: string; documentDate: string; amountRub: string }> = {};
+        if (hasNumber) {
+            const number = String(patch.number ?? '').trim();
+            if (!number) {
+                throw new HttpException('number must not be empty', HttpStatus.BAD_REQUEST);
+            }
+            updates.number = number;
+        }
+        if (hasDate) {
+            updates.documentDate = String(patch.documentDate);
+        }
+        if (hasAmount) {
+            const amount = Number(patch.amountRub);
+            if (!Number.isFinite(amount) || amount <= 0) {
+                throw new HttpException('amountRub must be positive', HttpStatus.BAD_REQUEST);
+            }
+            updates.amountRub = amount.toFixed(2);
+        }
+
+        await doc.update(updates);
+        const plain = doc.get({ plain: true }) as OrganizationDocument & { id: unknown };
+        return {
+            ...plain,
+            id: extractOrganizationDocumentId(plain.id) || String(plain.id),
+        } as OrganizationDocument;
+    }
+
     async deleteDocument(
         actingUserId: number,
         organizationId: number,

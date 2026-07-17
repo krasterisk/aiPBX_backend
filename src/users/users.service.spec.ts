@@ -180,6 +180,98 @@ describe('UsersService', () => {
         });
     });
 
+    describe('resolveTenantParentId', () => {
+        it('should return null for empty values', async () => {
+            await expect(service.resolveTenantParentId(null)).resolves.toBeNull();
+            await expect(service.resolveTenantParentId(undefined)).resolves.toBeNull();
+            await expect(service.resolveTenantParentId('')).resolves.toBeNull();
+        });
+
+        it('should return owner id when selecting a root tenant', async () => {
+            mockUsersRepo.findByPk.mockResolvedValue({ id: 7, vpbx_user_id: null });
+
+            await expect(service.resolveTenantParentId(7)).resolves.toBe(7);
+        });
+
+        it('should reject sub-user as tenant parent', async () => {
+            mockUsersRepo.findByPk.mockResolvedValue({ id: 10, vpbx_user_id: 5 });
+
+            await expect(service.resolveTenantParentId(10))
+                .rejects.toThrow('Selected user is not a tenant owner');
+        });
+
+        it('should throw when tenant owner not found', async () => {
+            mockUsersRepo.findByPk.mockResolvedValue(null);
+
+            await expect(service.resolveTenantParentId(999))
+                .rejects.toThrow('Tenant owner not found');
+        });
+    });
+
+    describe('assertAdminTenantReassignment', () => {
+        it('should block demoting owner with sub-users', async () => {
+            mockUsersRepo.count.mockResolvedValue(2);
+
+            await expect(
+                service.assertAdminTenantReassignment(
+                    { id: 1, vpbx_user_id: null } as any,
+                    5,
+                ),
+            ).rejects.toThrow('Cannot demote owner');
+        });
+
+        it('should allow demoting owner with no sub-users', async () => {
+            mockUsersRepo.count.mockResolvedValue(0);
+
+            await expect(
+                service.assertAdminTenantReassignment(
+                    { id: 1, vpbx_user_id: null } as any,
+                    5,
+                ),
+            ).resolves.toBe(5);
+        });
+
+        it('should reject self as parent', async () => {
+            await expect(
+                service.assertAdminTenantReassignment(
+                    { id: 5, vpbx_user_id: null } as any,
+                    5,
+                ),
+            ).rejects.toThrow('User cannot be a sub-user of themselves');
+        });
+    });
+
+    describe('assertCanManageTenantUsers', () => {
+        it('should allow tenant owner', async () => {
+            mockUsersRepo.findByPk.mockResolvedValue({ id: 5, vpbx_user_id: null, canManageUsers: false });
+            await expect(service.assertCanManageTenantUsers(5)).resolves.toBe(5);
+        });
+
+        it('should allow sub-user with canManageUsers', async () => {
+            mockUsersRepo.findByPk.mockResolvedValue({ id: 8, vpbx_user_id: 5, canManageUsers: true });
+            await expect(service.assertCanManageTenantUsers(8)).resolves.toBe(5);
+        });
+
+        it('should reject sub-user without canManageUsers', async () => {
+            mockUsersRepo.findByPk.mockResolvedValue({ id: 8, vpbx_user_id: 5, canManageUsers: false });
+            await expect(service.assertCanManageTenantUsers(8))
+                .rejects.toThrow('Forbidden: no permission to manage tenant users');
+        });
+    });
+
+    describe('getTenantManagerEmails', () => {
+        it('should return emails of managers', async () => {
+            mockUsersRepo.findAll.mockResolvedValue([
+                { email: 'Mgr@Example.com' },
+                { email: 'other@test.com' },
+            ]);
+            await expect(service.getTenantManagerEmails(5)).resolves.toEqual([
+                'mgr@example.com',
+                'other@test.com',
+            ]);
+        });
+    });
+
     // ═══════════════════════════════════════════════════════════════════
     // updateUserBalance
     // ═══════════════════════════════════════════════════════════════════
@@ -223,6 +315,7 @@ describe('UsersService', () => {
         beforeEach(() => {
             mockBalanceThresholdAlertsService.listForOwner.mockResolvedValue([]);
             mockBalanceThresholdAlertsService.processBalanceCrossing.mockResolvedValue(undefined);
+            mockUsersRepo.findAll.mockResolvedValue([]);
         });
 
         it('should decrement balance via user.update inside transaction', async () => {
@@ -259,6 +352,20 @@ describe('UsersService', () => {
 
             expect(mockMailerService.sendCriticalBalanceNotification).toHaveBeenCalledWith(
                 ['user@test.com'],
+                2.5,
+            );
+        });
+
+        it('should include canManageUsers emails in critical notification', async () => {
+            mockUsersRepo.findByPk
+                .mockResolvedValueOnce({ id: 1, vpbx_user_id: null })
+                .mockResolvedValueOnce(ledgerUser(4.5));
+            mockUsersRepo.findAll.mockResolvedValue([{ email: 'manager@tenant.com' }]);
+
+            await service.decrementUserBalance('1', 2);
+
+            expect(mockMailerService.sendCriticalBalanceNotification).toHaveBeenCalledWith(
+                expect.arrayContaining(['user@test.com', 'manager@tenant.com']),
                 2.5,
             );
         });
@@ -383,17 +490,32 @@ describe('UsersService', () => {
             expect(result.statusCode).toBe(HttpStatus.OK);
         });
 
-        it('should throw 403 when requester is not the owner of sub-user', async () => {
-            mockUsersRepo.findByPk.mockResolvedValue({ id: 10, vpbx_user_id: 5 });
+        it('should throw 403 when requester cannot manage tenant users', async () => {
+            mockUsersRepo.findByPk
+                .mockResolvedValueOnce({ id: 10, vpbx_user_id: 5 }) // target
+                .mockResolvedValueOnce({ id: 99, vpbx_user_id: 5, canManageUsers: false }); // requester
 
             await expect(service.deleteUser(10, 99))
-                .rejects.toThrow('Forbidden: not your sub-user');
+                .rejects.toThrow('Forbidden: no permission to manage tenant users');
         });
 
         it('should allow owner to delete their sub-user', async () => {
-            mockUsersRepo.findByPk.mockResolvedValue({ id: 10, vpbx_user_id: 5 });
+            mockUsersRepo.findByPk
+                .mockResolvedValueOnce({ id: 10, vpbx_user_id: 5 }) // target
+                .mockResolvedValueOnce({ id: 5, vpbx_user_id: null, canManageUsers: false }); // owner
 
             const result = await service.deleteUser(10, 5);
+
+            expect(mockUsersRepo.destroy).toHaveBeenCalledWith({ where: { id: 10 } });
+            expect(result.statusCode).toBe(HttpStatus.OK);
+        });
+
+        it('should allow manager to delete sibling sub-user', async () => {
+            mockUsersRepo.findByPk
+                .mockResolvedValueOnce({ id: 10, vpbx_user_id: 5 }) // target
+                .mockResolvedValueOnce({ id: 8, vpbx_user_id: 5, canManageUsers: true }); // manager
+
+            const result = await service.deleteUser(10, 8);
 
             expect(mockUsersRepo.destroy).toHaveBeenCalledWith({ where: { id: 10 } });
             expect(result.statusCode).toBe(HttpStatus.OK);

@@ -196,7 +196,15 @@ export class BalanceThresholdAlertsService {
                 continue;
             }
 
-            const emails = alert.emails?.length ? alert.emails : [];
+            const emails = alert.emails?.length ? [...alert.emails] : [];
+            const managers = await this.usersRepo.findAll({
+                where: { vpbx_user_id: ownerUserId, canManageUsers: true },
+                attributes: ['email'],
+            });
+            for (const m of managers) {
+                if (m.email) emails.push(m.email);
+            }
+            const uniqueEmails = this.normalizeEmails(emails);
 
             let invoiceAttachment:
                 | {
@@ -242,9 +250,9 @@ export class BalanceThresholdAlertsService {
                 }
             }
 
-            if (emails.length) {
+            if (uniqueEmails.length) {
                 await this.mailerService.sendLowBalanceNotification(
-                    emails,
+                    uniqueEmails,
                     newBalance,
                     alert.limitAmount,
                     invoiceAttachment,

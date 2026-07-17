@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsEmail, IsOptional, IsString, Length } from "class-validator";
+import { IsEmail, IsBoolean, IsOptional, IsString, Length } from "class-validator";
 
 export class CreateSubUserDto {
     @ApiProperty({ example: 'user@domain.com', description: "Sub-user e-mail address" })
@@ -17,4 +17,13 @@ export class CreateSubUserDto {
     @IsString({ message: 'Must be a string!' })
     @Length(8, 50, { message: 'The password must contain from 8 to 50 characters.' })
     readonly password?: string;
+
+    @ApiProperty({
+        example: false,
+        description: 'Allow this sub-user to manage tenant users (owner/admin only)',
+        required: false,
+    })
+    @IsOptional()
+    @IsBoolean()
+    readonly canManageUsers?: boolean;
 }

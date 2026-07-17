@@ -6,6 +6,7 @@ import {
     Get,
     Headers,
     Param,
+    Patch,
     Post,
     Put,
     Query,
@@ -19,6 +20,7 @@ import { OrganizationsService } from "./organizations.service";
 import { Organization } from "./organizations.model";
 import { CreateOrganizationDto } from "./dto/create-organization.dto";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
+import { UpdateOrganizationDocumentDto } from "./dto/update-organization-document.dto";
 import { Roles } from "../auth/roles-auth.decorator";
 import { RolesGuard } from "../auth/roles.guard";
 import { LoggerService } from "../logger/logger.service";
@@ -265,6 +267,36 @@ export class OrganizationsController {
     @Post(':id/documents/:docId/resend-sbis')
     resendSbis(@Req() req: any, @Param('id') id: string, @Param('docId') docId: string) {
         return this.organizationDocumentsService.resendToSbis(Number(req.tokenUserId), Number(id), docId, !!req.isAdmin);
+    }
+
+    @ApiOperation({ summary: 'Update organization document fields (admin only; DB only, PDF untouched)' })
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
+    @Patch(':id/documents/:docId')
+    async updateDocument(
+        @Req() req: any,
+        @Param('id') id: string,
+        @Param('docId') docId: string,
+        @Body() dto: UpdateOrganizationDocumentDto,
+    ) {
+        const result = await this.organizationDocumentsService.updateDocument(
+            Number(req.tokenUserId),
+            Number(id),
+            decodeURIComponent(docId),
+            true,
+            dto,
+        );
+        await this.loggerService.logAction(
+            Number(req.tokenUserId),
+            'update',
+            'organization_document',
+            null,
+            `Updated document ${decodeURIComponent(docId)} for organization #${id}`,
+            null,
+            null,
+            req,
+        );
+        return result;
     }
 
     @ApiOperation({ summary: 'Delete organization document (admin only)' })

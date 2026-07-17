@@ -47,8 +47,24 @@ export class CreateUserDto {
     @ApiProperty({ example: 'USER', description: "Role" })
     // @IsString({message: 'Must be a array of Roles'})
     readonly roles?: CreateRoleDto[]
-    @ApiProperty({ example: '4', description: "Parent user ID (for sub-users)", required: false })
-    readonly vpbx_user_id?: number
+    @ApiProperty({
+        example: false,
+        description: 'Allow sub-user to manage tenant users (admin/owner only)',
+        required: false,
+    })
+    @IsOptional()
+    @IsBoolean()
+    readonly canManageUsers?: boolean
+
+    @ApiProperty({
+        example: 4,
+        description: 'Tenant owner user ID for sub-users; omit/null for new tenant owner (admin)',
+        required: false,
+        nullable: true,
+    })
+    @IsOptional()
+    @IsNumber()
+    readonly vpbx_user_id?: number | null
 
     @ApiProperty({ example: 1, description: 'Our organization id for billing issuer (admin)', required: false })
     @IsOptional()

@@ -86,7 +86,12 @@ export class BillingRunwayService {
             attributes: ['emails'],
         });
         const fromAlerts = alerts.flatMap((a) => a.emails || []);
-        return [...new Set([ownerEmail, ...fromAlerts].filter(Boolean) as string[])].map((e) =>
+        const managers = await this.usersRepo.findAll({
+            where: { vpbx_user_id: ownerUserId, canManageUsers: true },
+            attributes: ['email'],
+        });
+        const fromManagers = managers.map((u) => u.email).filter(Boolean) as string[];
+        return [...new Set([ownerEmail, ...fromAlerts, ...fromManagers].filter(Boolean) as string[])].map((e) =>
             e.trim().toLowerCase(),
         );
     }

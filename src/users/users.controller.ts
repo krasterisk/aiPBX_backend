@@ -95,7 +95,17 @@ export class UsersController {
         if (request.vpbxUserId) {
             throw new HttpException('Sub-users cannot create users', HttpStatus.FORBIDDEN);
         }
-        const activatedDto = { ...dto, isActivated: true, vpbx_user_id: Number(request.tokenUserId) }
+
+        let vpbxUserId: number | null;
+        if (request.isAdmin) {
+            // Admin: empty/null → new tenant owner; otherwise → sub-user of selected owner
+            vpbxUserId = await this.userService.resolveTenantParentId(dto.vpbx_user_id);
+        } else {
+            // Owner creating via POST /users: attach to self
+            vpbxUserId = Number(request.tokenUserId);
+        }
+
+        const activatedDto = { ...dto, isActivated: true, vpbx_user_id: vpbxUserId }
         const result = await this.authService.create(activatedDto)
         const userId = request.vpbxUserId || request.tokenUserId;
         await this.loggerService.logAction(Number(userId), 'create', 'user', null, `Created user ${dto.email || dto.username}`, null, null, request);
@@ -109,8 +119,17 @@ export class UsersController {
     @Post('sub-user')
     @UsePipes(ValidationPipe)
     async createSubUser(@Body() dto: CreateSubUserDto, @Req() request: RequestWithUser) {
-        const ownerUserId = Number(request.vpbxUserId || request.tokenUserId);
-        const result = await this.userService.createSubUser(ownerUserId, dto);
+        const requesterId = Number(request.tokenUserId);
+        const ownerUserId = await this.userService.assertCanManageTenantUsers(
+            requesterId,
+            !!request.isAdmin,
+        );
+        // Only owner/admin may grant manage permission
+        const canGrant = !!request.isAdmin || !request.vpbxUserId;
+        const payload: CreateSubUserDto = canGrant
+            ? dto
+            : { ...dto, canManageUsers: false };
+        const result = await this.userService.createSubUser(ownerUserId, payload);
         await this.loggerService.logAction(ownerUserId, 'create', 'sub-user', result.id, `Created sub-user ${dto.email}`, null, null, request);
         return result;
     }
@@ -120,8 +139,11 @@ export class UsersController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Get('sub-users')
-    getSubUsers(@Req() request: RequestWithUser) {
-        const ownerUserId = Number(request.vpbxUserId || request.tokenUserId);
+    async getSubUsers(@Req() request: RequestWithUser) {
+        const ownerUserId = await this.userService.assertCanManageTenantUsers(
+            Number(request.tokenUserId),
+            !!request.isAdmin,
+        );
         return this.userService.getSubUsers(ownerUserId);
     }
 
@@ -271,7 +293,10 @@ export class UsersController {
     @UseGuards(RolesGuard)
     @Patch()
     updateUser(@Body() updates: Partial<User>, @Req() request: RequestWithUser) {
-        return this.userService.updateUser(updates, request.isAdmin)
+        return this.userService.updateUser(updates, {
+            isAdmin: !!request.isAdmin,
+            requesterId: request.tokenUserId,
+        })
     }
 
     @ApiOperation({ summary: "Get user by id" })
@@ -346,8 +371,12 @@ export class UsersController {
     @UseGuards(RolesGuard)
     @Delete('/:id')
     async DeleteUser(@Param('id') id: number, @Req() request: RequestWithUser) {
-        const requesterId = Number(request.vpbxUserId || request.tokenUserId);
-        const result = await this.userService.deleteUser(id, request.isAdmin ? undefined : requesterId)
+        const requesterId = Number(request.tokenUserId);
+        const result = await this.userService.deleteUser(
+            id,
+            request.isAdmin ? undefined : requesterId,
+            !!request.isAdmin,
+        )
         await this.loggerService.logAction(requesterId, 'delete', 'user', id, `Deleted user #${id}`, null, null, request);
         return result;
     }

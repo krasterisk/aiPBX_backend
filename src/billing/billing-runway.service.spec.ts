@@ -58,8 +58,9 @@ describe('BillingRunwayService', () => {
 
     it('notifies owner when runway is within alert threshold', async () => {
         usersRepo.findAll
-            .mockResolvedValueOnce([{ id: 1, email: 'owner@test.com', balance: 50 }])
-            .mockResolvedValueOnce([]);
+            .mockResolvedValueOnce([{ id: 1, email: 'owner@test.com', balance: 50 }]) // owners
+            .mockResolvedValueOnce([]) // memberUserIds (subs)
+            .mockResolvedValueOnce([]); // managers with canManageUsers
         billingService.sumTenantSpendUsd.mockResolvedValue(70);
         runwayNotifyRepo.findByPk.mockResolvedValue(null);
         alertRepo.findAll.mockResolvedValue([]);

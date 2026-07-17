@@ -731,6 +731,82 @@ describe('UsersService', () => {
     });
 
     // ═══════════════════════════════════════════════════════════════════
+    // updateUser
+    // ═══════════════════════════════════════════════════════════════════
+
+    describe('updateUser', () => {
+        it('should not persist client personalAccountNumber or balance on sub-user echo-back', async () => {
+            const subUser = {
+                ...mockUser,
+                id: 99,
+                vpbx_user_id: 95,
+                balance: 0,
+                currency: 'USD',
+                personalAccountNumber: null,
+                canManageUsers: false,
+                update: jest.fn().mockResolvedValue(undefined),
+                reload: jest.fn().mockResolvedValue(undefined),
+            };
+            mockUsersRepo.findByPk.mockResolvedValue(subUser);
+            jest.spyOn(service as any, 'resolveTenantParentId').mockResolvedValue(95);
+            jest.spyOn(service as any, 'assertAdminTenantReassignment').mockResolvedValue(95);
+
+            await service.updateUser(
+                {
+                    id: 99,
+                    name: 'test',
+                    balance: 4133.65,
+                    currency: 'RUB',
+                    vpbx_user_id: 95,
+                    personalAccountNumber: 'AIPBX-00000095',
+                    canManageUsers: true,
+                },
+                true,
+            );
+
+            const payload = subUser.update.mock.calls[0][0];
+            expect(payload.canManageUsers).toBe(true);
+            expect(payload.currency).toBe('RUB');
+            expect(payload).not.toHaveProperty('personalAccountNumber');
+            expect(payload).not.toHaveProperty('balance');
+        });
+
+        it('should assign personalAccountNumber when admin promotes user to owner', async () => {
+            const subUser = {
+                ...mockUser,
+                id: 99,
+                vpbx_user_id: 95,
+                personalAccountNumber: null,
+                canManageUsers: true,
+                update: jest.fn().mockResolvedValue(undefined),
+                reload: jest.fn().mockResolvedValue(undefined),
+            };
+            mockUsersRepo.findByPk
+                .mockResolvedValueOnce(subUser)
+                .mockResolvedValueOnce(null); // resolveTenantParentId / assert path may call findByPk
+
+            // assertAdminTenantReassignment needs parent resolution — mock owner-null path
+            jest.spyOn(service as any, 'resolveTenantParentId').mockResolvedValue(null);
+            jest.spyOn(service as any, 'assertAdminTenantReassignment').mockResolvedValue(null);
+
+            await service.updateUser(
+                {
+                    id: 99,
+                    vpbx_user_id: null,
+                    personalAccountNumber: 'AIPBX-SHOULD-IGNORE',
+                },
+                true,
+            );
+
+            const payload = subUser.update.mock.calls[0][0];
+            expect(payload.vpbx_user_id).toBeNull();
+            expect(payload.canManageUsers).toBe(false);
+            expect(payload.personalAccountNumber).toMatch(/^AIPBX-/);
+            expect(payload.personalAccountNumber).not.toBe('AIPBX-SHOULD-IGNORE');
+        });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════
     // getMe
     // ═══════════════════════════════════════════════════════════════════
 

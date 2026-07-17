@@ -991,6 +991,9 @@ export class UsersService {
         }
 
         const payload = { ...updates };
+        // Display-only / server-managed fields echoed by admin UI must not be persisted
+        delete payload.personalAccountNumber;
+        delete payload.balance;
         if (!isAdmin) {
             delete payload.currency;
             delete payload.ourOrganizationId;

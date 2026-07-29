@@ -31,7 +31,7 @@ export interface CreateInvoiceInput {
     subjectOverride?: string | null;
     /** Admin override: issuer legal entity for this invoice */
     ourOrganizationId?: number | null;
-    /** Create draft in SBIS (EDO); otherwise local PDF only */
+    /** Create draft in SBIS; otherwise local PDF only. Does not send via EDO. */
     sendViaEdo?: boolean;
 }
 
@@ -110,7 +110,7 @@ export class InvoiceService {
         const issuerRequisites = this.buildIssuerRequisitesForPdf(issuerOrg);
         if (input.sendViaEdo && !this.sbis.isConfigured()) {
             throw new HttpException(
-                'SBIS is not configured; cannot send invoice via EDO',
+                'SBIS is not configured; cannot create invoice draft in SBIS',
                 HttpStatus.SERVICE_UNAVAILABLE,
             );
         }
@@ -212,7 +212,7 @@ export class InvoiceService {
         });
 
         if (sbisDraft) {
-            this.enqueueInvoiceSbisDraft(docId, sbisDraft, issuerOrg);
+            this.enqueueInvoiceSbisDraft(docId, sbisDraft);
         }
 
         try {
@@ -260,53 +260,24 @@ export class InvoiceService {
         return this.ourOrganizationsService.resolveIssuerForTenant(owner?.ourOrganizationId ?? null);
     }
 
-    /** SBIS draft after HTTP response; local PDF is already stored. */
-    private enqueueInvoiceSbisDraft(
-        docId: string,
-        draftInput: SbisInvoiceDraftInput,
-        issuerOrg: OurOrganization,
-    ): void {
+    /**
+     * Create SBIS draft after HTTP response; local PDF is already stored.
+     * Does not send via EDO — sign/send manually in Saby when needed.
+     */
+    private enqueueInvoiceSbisDraft(docId: string, draftInput: SbisInvoiceDraftInput): void {
         void (async () => {
             try {
                 const draft = await this.sbis.createInvoiceDraft(draftInput);
-                let sbisStatus: string = 'draft';
-                let sbisLastError: string | null = null;
-                if (this.sbis.edoAutoSendEnabled()) {
-                    const thumbprint = issuerOrg?.sbisCertThumbprint?.trim() || null;
-                    if (!thumbprint) {
-                        sbisLastError = 'Issuer certificate thumbprint is not configured';
-                        sbisStatus = 'failed';
-                    } else {
-                    try {
-                        const sent = await this.sbis.sendInvoiceToEdo(draft, {
-                            certThumbprint: thumbprint,
-                        });
-                        if (this.sbis.isEdoAwaitingOwnerSignature(sent.stateCode, sent.stateName)) {
-                            sbisStatus = 'awaiting_signature';
-                            this.logger.log(
-                                `SBIS invoice ${docId} queued for owner signature in Saby: ${sent.stateName || sent.stateCode}`,
-                            );
-                        } else {
-                            sbisStatus = 'sent_to_sbis';
-                            this.logger.log(
-                                `SBIS invoice ${docId} sent to EDO: ${sent.stateName || sent.stateCode || 'ok'}`,
-                            );
-                        }
-                    } catch (sendErr) {
-                        const msg = (sendErr as Error).message;
-                        sbisLastError = msg.slice(0, 500);
-                        sbisStatus = 'failed';
-                        this.logger.warn(`SBIS EDO send failed for ${docId}: ${msg}`);
-                    }
-                    }
-                }
+                this.logger.log(
+                    `SBIS invoice ${docId} created as draft ${draft.documentId} (no EDO send)`,
+                );
                 await this.docModel.update(
                     {
                         sbisId: draft.documentId,
                         sbisUrl: draft.sbisUrl,
                         sbisDocNum: draft.sbisNumber,
-                        sbisStatus,
-                        sbisLastError,
+                        sbisStatus: 'draft',
+                        sbisLastError: null,
                     },
                     { where: { id: docId } },
                 );

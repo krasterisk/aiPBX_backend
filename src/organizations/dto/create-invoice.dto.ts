@@ -21,7 +21,8 @@ export class CreateInvoiceDto {
     @ApiProperty({
         required: false,
         default: false,
-        description: 'Create invoice in SBIS (EDO). If false, only local PDF is generated.',
+        description:
+            'Create invoice draft in SBIS. If false, only local PDF is generated. Does not send via EDO.',
     })
     @IsOptional()
     @IsBoolean()

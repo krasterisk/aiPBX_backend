@@ -13,6 +13,7 @@ import { AnalyticsSource } from './operator-analytics.model';
 import { CustomMetricDef, MetricDefinition } from './interfaces/operator-metrics.interface';
 import { GenerateSchemaDto, BulkMoveDto, CreateProjectDto } from './dto/project.dto';
 import { OperatorInsightsResponseDto } from './dto/operator-insights-response.dto';
+import { OperatorEvidenceResponseDto } from './dto/operator-evidence.dto';
 
 
 
@@ -546,6 +547,7 @@ export class OperatorAnalyticsController {
             startDate?: string;
             endDate?: string;
             operatorName?: string;
+            operatorNameExact?: string;
             projectId?: number;
             page?: number;
             limit?: number;
@@ -605,6 +607,50 @@ export class OperatorAnalyticsController {
         const authUserId = req.vpbxUserId || req.tokenUserId;
         const realUserId = isAdmin ? null : authUserId;
         return this.service.getInsights(query, isAdmin, realUserId, authUserId);
+    }
+
+    @Get('operator-evidence')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Get aggregated per-metric evidence for one operator over the dashboard period' })
+    @ApiResponse({ status: 200, type: OperatorEvidenceResponseDto, description: 'Per-metric quotes and rationales' })
+    async getOperatorEvidence(
+        @Req() req: RequestWithUser,
+        @Query() query: {
+            operatorName?: string;
+            userId?: string;
+            startDate?: string;
+            endDate?: string;
+            projectId?: number;
+            limit?: number;
+            order?: string;
+        },
+    ) {
+        if (!query.operatorName?.trim()) {
+            throw new HttpException('operatorName is required', HttpStatus.BAD_REQUEST);
+        }
+        const order = query.order ?? 'worst';
+        if (order !== 'worst' && order !== 'best') {
+            throw new HttpException('order must be worst or best', HttpStatus.BAD_REQUEST);
+        }
+        const isAdmin = req.isAdmin ?? false;
+        const authUserId = req.vpbxUserId || req.tokenUserId;
+        const realUserId = isAdmin ? null : authUserId;
+        return this.service.getOperatorEvidence(
+            {
+                operatorName: query.operatorName.trim(),
+                userId: query.userId,
+                startDate: query.startDate,
+                endDate: query.endDate,
+                projectId: query.projectId,
+                limit: query.limit,
+                order: order as 'worst' | 'best',
+            },
+            isAdmin,
+            realUserId,
+            authUserId,
+        );
     }
 
     // ─── Human-in-the-loop metric overrides (JWT Auth) ───────────────

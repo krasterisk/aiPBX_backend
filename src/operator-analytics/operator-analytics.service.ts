@@ -59,6 +59,10 @@ import {
 import { buildInsightsFacts, resolveInsightsMinCalls } from './lib/insights-facts';
 import { enrichInsightsWithChannelIds } from './lib/insights-drilldown';
 import { InsightsCacheService } from './insights-cache.service';
+import {
+    buildOperatorEvidence,
+    resolveEvidenceMaxCalls,
+} from './lib/operator-evidence';
 import { buildInsightsPrompt } from './lib/insights-prompt';
 import { PROJECT_TEMPLATES } from './project-templates';
 import { OPERATOR_CDR_SOURCE } from './lib/analytics-source';
@@ -1214,6 +1218,7 @@ export class OperatorAnalyticsService {
         startDate?: string;
         endDate?: string;
         operatorName?: string;
+        operatorNameExact?: string;
         projectId?: number;
         page?: number;
         limit?: number;
@@ -1243,7 +1248,9 @@ export class OperatorAnalyticsService {
             where.createdAt = { [Op.lte]: new Date(`${query.endDate}T23:59:59`) };
         }
 
-        if (query.operatorName) {
+        if (query.operatorNameExact) {
+            where.assistantName = query.operatorNameExact;
+        } else if (query.operatorName) {
             where.assistantName = this.likeOp(`%${query.operatorName}%`);
         }
 
@@ -1315,6 +1322,88 @@ export class OperatorAnalyticsService {
         return { data: enrichedData, total, page, limit };
     }
 
+    async getOperatorEvidence(
+        query: {
+            operatorName: string;
+            userId?: string;
+            startDate?: string;
+            endDate?: string;
+            projectId?: number;
+            limit?: number;
+            order?: 'worst' | 'best';
+        },
+        isAdmin: boolean,
+        realUserId: string | null,
+        actorUserId?: string,
+    ) {
+        const operatorName = query.operatorName.trim();
+        const cap = resolveEvidenceMaxCalls(query.limit);
+        const order = query.order ?? 'worst';
+
+        const filters = {
+            userId: query.userId,
+            startDate: query.startDate,
+            endDate: query.endDate,
+            projectId: query.projectId,
+            operatorNameExact: operatorName,
+        };
+
+        const where = buildDashboardCdrWhere(
+            filters,
+            isAdmin,
+            realUserId ?? '',
+            (v) => this.likeOp(v),
+        );
+
+        const rows = await this.aiCdrRepository.findAll({
+            where,
+            include: [{ model: AiAnalytics, as: 'analytics' }],
+            order: [['createdAt', 'DESC']],
+            limit: cap,
+        });
+
+        const eligibleRecords = rows.filter(r => {
+            const quality = (r.analytics?.metrics as any)?._quality?.quality as TranscriptionQualityLevel | undefined;
+            return quality !== 'low' && quality !== 'unusable';
+        });
+
+        let customMetricIds: string[] = [];
+        if (query.projectId) {
+            const project = await this.projectRepository.findByPk(query.projectId);
+            customMetricIds = project?.customMetricsSchema?.map(m => m.id) ?? [];
+        }
+
+        const sampleCapped = rows.length >= cap;
+        const result = buildOperatorEvidence(eligibleRecords, {
+            operatorName,
+            order,
+            customMetricIds,
+            sampleCapped,
+        });
+
+        this.logOperatorEvidenceAccess(actorUserId, operatorName, eligibleRecords.length);
+
+        return result;
+    }
+
+    private logOperatorEvidenceAccess(
+        actorUserId: string | undefined,
+        operatorName: string,
+        recordCount: number,
+    ): void {
+        try {
+            this.logger.log(`AUDIT ${JSON.stringify({
+                kind: 'operator_evidence_access',
+                operatorName,
+                recordCount,
+                actorUserId: actorUserId ?? null,
+                at: new Date().toISOString(),
+            })}`);
+        } catch {
+            // never let audit logging break the read path
+        }
+    }
+
     async getDashboard(query: {
         userId?: string;
         startDate?: string;
@@ -1368,7 +1457,7 @@ export class OperatorAnalyticsService {
             ? totalAmountCurrency
             : totalCostUsd;
 
-        let sqlAgg = await aggregateMetricsFromSql(
+        const sqlAgg = await aggregateMetricsFromSql(
             this.aiCdrRepository.sequelize,
             query,
             isAdmin,

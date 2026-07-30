@@ -1557,6 +1557,151 @@ describe('OperatorAnalyticsService', () => {
                 data: [], total: 0, page: 1, limit: 20,
             });
         });
+
+        it('uses exact equality for operatorNameExact', async () => {
+            await service.getCdrs({ operatorNameExact: 'Иван' }, true, null);
+
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where.assistantName).toBe('Иван');
+        });
+
+        it('excludes prefix operators when operatorNameExact is set', async () => {
+            await service.getCdrs({ operatorNameExact: 'Иван' }, true, null);
+
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(typeof call.where.assistantName).toBe('string');
+            expect(call.where.assistantName).toBe('Иван');
+        });
+    });
+
+    describe('getOperatorEvidence', () => {
+        beforeEach(() => {
+            mockAiCdrRepo.findAll = jest.fn().mockResolvedValue([]);
+        });
+
+        it('scopes non-admin requests to the caller user id and ignores supplied userId', async () => {
+            await service.getOperatorEvidence(
+                { operatorName: 'Иван', userId: '999' },
+                false,
+                '42',
+                '42',
+            );
+
+            const call = mockAiCdrRepo.findAll.mock.calls[0][0];
+            expect(call.where.userId).toBe('42');
+        });
+
+        it('uses exact equality on assistantName, not a pattern operator', async () => {
+            await service.getOperatorEvidence(
+                { operatorName: 'Иван' },
+                true,
+                null,
+                'admin',
+            );
+
+            const call = mockAiCdrRepo.findAll.mock.calls[0][0];
+            expect(call.where.assistantName).toBe('Иван');
+            expect(typeof call.where.assistantName).toBe('string');
+        });
+
+        it('omits metrics whose sampled calls carry neither quote nor rationale', async () => {
+            mockAiCdrRepo.findAll.mockResolvedValue([
+                {
+                    channelId: '1',
+                    createdAt: new Date('2026-07-01'),
+                    analytics: {
+                        metrics: {
+                            greeting_quality: 80,
+                            _assessments: {
+                                greeting_quality: {},
+                                script_compliance: { rationale: 'Нарушение скрипта.' },
+                            },
+                        },
+                    },
+                },
+            ]);
+
+            const result = await service.getOperatorEvidence(
+                { operatorName: 'Иван' },
+                true,
+                null,
+            );
+
+            expect(result.metrics.map(m => m.metricId)).toEqual(['script_compliance']);
+        });
+
+        it('returns at most five evidence items per metric', async () => {
+            mockAiCdrRepo.findAll.mockResolvedValue(
+                Array.from({ length: 6 }, (_, i) => ({
+                    channelId: String(i + 1),
+                    createdAt: new Date(`2026-07-0${i + 1}`),
+                    analytics: {
+                        metrics: {
+                            greeting_quality: 10 + i,
+                            _assessments: {
+                                greeting_quality: { quote: `Цитата ${i}` },
+                            },
+                        },
+                    },
+                })),
+            );
+
+            const result = await service.getOperatorEvidence(
+                { operatorName: 'Иван' },
+                true,
+                null,
+            );
+
+            expect(result.metrics[0].evidence).toHaveLength(5);
+        });
+
+        it('sets sampleCapped when repository returns exactly the cap', async () => {
+            const cap = 300;
+            mockAiCdrRepo.findAll.mockResolvedValue(
+                Array.from({ length: cap }, (_, i) => ({
+                    channelId: String(i + 1),
+                    createdAt: new Date('2026-07-01'),
+                    analytics: {
+                        metrics: {
+                            greeting_quality: 70,
+                            _assessments: { greeting_quality: { quote: 'Привет.' } },
+                        },
+                    },
+                })),
+            );
+
+            const result = await service.getOperatorEvidence(
+                { operatorName: 'Иван' },
+                true,
+                null,
+            );
+
+            expect(result.sampleCapped).toBe(true);
+            expect(mockAiCdrRepo.findAll.mock.calls[0][0].limit).toBe(cap);
+        });
+
+        it('skips anonymised records whose metrics are absent without throwing', async () => {
+            mockAiCdrRepo.findAll.mockResolvedValue([
+                { channelId: '1', createdAt: new Date('2026-07-01'), analytics: null },
+                {
+                    channelId: '2',
+                    createdAt: new Date('2026-07-02'),
+                    analytics: {
+                        metrics: {
+                            greeting_quality: 60,
+                            _assessments: { greeting_quality: { quote: 'Здравствуйте.' } },
+                        },
+                    },
+                },
+            ]);
+
+            await expect(
+                service.getOperatorEvidence({ operatorName: 'Иван' }, true, null),
+            ).resolves.toMatchObject({
+                scoredCalls: 1,
+                metrics: [{ metricId: 'greeting_quality' }],
+            });
+        });
     });
 
     describe('buildAgentScorecards', () => {

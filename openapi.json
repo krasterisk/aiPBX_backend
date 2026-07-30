@@ -1169,6 +1169,15 @@
             }
           },
           {
+            "name": "types",
+            "required": false,
+            "in": "query",
+            "description": "Comma-separated billing types (e.g. analytic,insight)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "type",
             "required": false,
             "in": "query",
@@ -1780,6 +1789,46 @@
       }
     },
     "/api/organizations/{id}/documents/{docId}": {
+      "patch": {
+        "operationId": "OrganizationsController_updateDocument",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "docId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganizationDocumentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Update organization document fields (admin only; DB only, PDF untouched)",
+        "tags": [
+          "Organizations"
+        ]
+      },
       "delete": {
         "operationId": "OrganizationsController_deleteDocument",
         "parameters": [
@@ -5904,6 +5953,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectDto"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
@@ -5931,6 +5990,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -6195,6 +6264,33 @@
         ]
       }
     },
+    "/api/operator-analytics/operator-evidence": {
+      "get": {
+        "operationId": "OperatorAnalyticsController_getOperatorEvidence",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Per-metric quotes and rationales",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorEvidenceResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get aggregated per-metric evidence for one operator over the dashboard period",
+        "tags": [
+          "Operator Analytics"
+        ]
+      }
+    },
     "/api/operator-analytics/{id}/overrides": {
       "get": {
         "operationId": "OperatorAnalyticsController_getOverrides",
@@ -6283,6 +6379,45 @@
           }
         ],
         "summary": "Delete a supervisor metric override",
+        "tags": [
+          "Operator Analytics"
+        ]
+      }
+    },
+    "/api/operator-analytics/{id}/tags": {
+      "patch": {
+        "operationId": "OperatorAnalyticsController_updateCallTags",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCallTagsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update manual call tags for an analysed call",
         "tags": [
           "Operator Analytics"
         ]
@@ -6898,10 +7033,16 @@
               "type": "string"
             }
           },
+          "canManageUsers": {
+            "type": "boolean",
+            "example": false,
+            "description": "Allow sub-user to manage tenant users (admin/owner only)"
+          },
           "vpbx_user_id": {
             "type": "number",
-            "example": "4",
-            "description": "Parent user ID (for sub-users)"
+            "example": 4,
+            "description": "Tenant owner user ID for sub-users; omit/null for new tenant owner (admin)",
+            "nullable": true
           },
           "ourOrganizationId": {
             "type": "number",
@@ -7034,6 +7175,11 @@
             "type": "string",
             "example": "AIPBX-00000042",
             "description": "Personal account number for bank payments (tenant owner)"
+          },
+          "canManageUsers": {
+            "type": "boolean",
+            "example": false,
+            "description": "Sub-user may create/edit tenant users and receive tenant balance notifications"
           }
         },
         "required": [
@@ -7056,7 +7202,8 @@
           "isActivated",
           "vpbx_user_id",
           "ourOrganizationId",
-          "personalAccountNumber"
+          "personalAccountNumber",
+          "canManageUsers"
         ]
       },
       "CreateSubUserDto": {
@@ -7076,6 +7223,11 @@
             "type": "string",
             "example": "12345678",
             "description": "Sub-user password"
+          },
+          "canManageUsers": {
+            "type": "boolean",
+            "example": false,
+            "description": "Allow this sub-user to manage tenant users (owner/admin only)"
           }
         },
         "required": [
@@ -7781,12 +7933,30 @@
           "sendViaEdo": {
             "type": "boolean",
             "default": false,
-            "description": "Create invoice in SBIS (EDO). If false, only local PDF is generated."
+            "description": "Create invoice draft in SBIS. If false, only local PDF is generated. Does not send via EDO."
           }
         },
         "required": [
           "amountRub"
         ]
+      },
+      "UpdateOrganizationDocumentDto": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "example": "AI-001"
+          },
+          "documentDate": {
+            "type": "string",
+            "example": "2026-07-16",
+            "description": "YYYY-MM-DD"
+          },
+          "amountRub": {
+            "type": "number",
+            "example": 10000
+          }
+        }
       },
       "Prices": {
         "type": "object",
@@ -9523,6 +9693,44 @@
           "description"
         ]
       },
+      "TagDefinitionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "returns",
+            "description": "snake_case identifier"
+          },
+          "name": {
+            "type": "string",
+            "example": "Возвраты"
+          },
+          "aliases": {
+            "example": [
+              "возврат",
+              "вернуть товар"
+            ],
+            "description": "Synonym phrases for keyword matching",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "color": {
+            "type": "string",
+            "example": "#5ed3f3"
+          },
+          "description": {
+            "type": "string",
+            "example": "Клиент просит вернуть товар или деньги"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "aliases"
+        ]
+      },
       "CreateProjectDto": {
         "type": "object",
         "properties": {
@@ -9547,6 +9755,13 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/MetricDefinitionDto"
+            }
+          },
+          "callTaxonomy": {
+            "description": "Call topic taxonomy",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagDefinitionDto"
             }
           },
           "visibleDefaultMetrics": {
@@ -9597,6 +9812,80 @@
           "name"
         ]
       },
+      "UpdateProjectDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Отдел продаж"
+          },
+          "description": {
+            "type": "string",
+            "example": "Входящие звонки менеджеров продаж"
+          },
+          "systemPrompt": {
+            "type": "string",
+            "description": "Business context prompt for LLM (max 1000 chars)"
+          },
+          "customMetricsSchema": {
+            "description": "Custom metrics definitions",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetricDefinitionDto"
+            }
+          },
+          "callTaxonomy": {
+            "description": "Call topic taxonomy",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagDefinitionDto"
+            }
+          },
+          "visibleDefaultMetrics": {
+            "description": "Which default metrics to show",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "webhookUrl": {
+            "type": "string",
+            "example": "https://example.com/webhook"
+          },
+          "webhookEvents": {
+            "example": [
+              "analysis.completed",
+              "analysis.error"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "webhookHeaders": {
+            "type": "object",
+            "example": {
+              "Authorization": "Bearer xxx"
+            },
+            "description": "Custom headers for webhook requests"
+          },
+          "monthlyBudgetUsd": {
+            "type": "number",
+            "example": 50,
+            "description": "Monthly spend budget in USD (null/0 = disabled)"
+          },
+          "budgetAlertEmails": {
+            "example": [
+              "ops@example.com"
+            ],
+            "description": "Emails notified on budget exceed",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "OperatorInsightEvidenceDto": {
         "type": "object",
         "properties": {
@@ -9620,6 +9909,13 @@
           "periodLabel": {
             "type": "string",
             "example": "2026-02-01 — 2026-02-13"
+          },
+          "channelIds": {
+            "description": "Exemplar CDR channel IDs for drill-down (max 5)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -9733,6 +10029,139 @@
         "required": [
           "ids",
           "targetProjectId"
+        ]
+      },
+      "OperatorEvidenceItemDto": {
+        "type": "object",
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "example": "12345"
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-07-30T10:00:00.000Z"
+          },
+          "value": {
+            "type": "object",
+            "example": 72,
+            "nullable": true
+          },
+          "rationale": {
+            "type": "string",
+            "example": "Оператор не представился по стандарту."
+          },
+          "quote": {
+            "type": "string",
+            "example": "Здравствуйте, чем могу помочь?"
+          }
+        },
+        "required": [
+          "channelId",
+          "createdAt",
+          "value"
+        ]
+      },
+      "OperatorEvidenceMetricDto": {
+        "type": "object",
+        "properties": {
+          "metricId": {
+            "type": "string",
+            "example": "greeting_quality"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "default",
+              "custom",
+              "summary"
+            ],
+            "example": "default"
+          },
+          "label": {
+            "type": "string",
+            "example": "Попытка апселла"
+          },
+          "average": {
+            "type": "number",
+            "example": 68.5,
+            "nullable": true
+          },
+          "sampleSize": {
+            "type": "number",
+            "example": 12
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperatorEvidenceItemDto"
+            }
+          }
+        },
+        "required": [
+          "metricId",
+          "origin",
+          "average",
+          "sampleSize",
+          "evidence"
+        ]
+      },
+      "OperatorEvidenceResponseDto": {
+        "type": "object",
+        "properties": {
+          "operatorName": {
+            "type": "string",
+            "example": "Иван"
+          },
+          "callsCount": {
+            "type": "number",
+            "example": 42
+          },
+          "scoredCalls": {
+            "type": "number",
+            "example": 38
+          },
+          "averageScore": {
+            "type": "number",
+            "example": 71.25
+          },
+          "sampleCapped": {
+            "type": "boolean",
+            "example": false
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperatorEvidenceMetricDto"
+            }
+          }
+        },
+        "required": [
+          "operatorName",
+          "callsCount",
+          "scoredCalls",
+          "averageScore",
+          "sampleCapped",
+          "metrics"
+        ]
+      },
+      "UpdateCallTagsDto": {
+        "type": "object",
+        "properties": {
+          "tagIds": {
+            "example": [
+              "returns",
+              "billing"
+            ],
+            "description": "Theme ids from the project callTaxonomy",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "tagIds"
         ]
       },
       "SipTrunks": {

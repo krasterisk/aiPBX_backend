@@ -6,7 +6,8 @@ import { OperatorApiToken } from './operator-api-token.model';
 import { OperatorProject } from './operator-project.model';
 import { MetricValue, MetricValueOrigin } from './operator-metric-value.model';
 import { MetricOverride, MetricOverrideOrigin } from './operator-metric-override.model';
-import { parseKeywordList, spotKeywords } from './lib/keyword-spotting';
+import { parseKeywordList, spotKeywords, spotTaxonomyTags } from './lib/keyword-spotting';
+import { CallTag } from './operator-call-tag.model';
 import { computeAudioSha256 } from './lib/audio-hash';
 import {
     aggregateMetricsFromSql,
@@ -99,6 +100,7 @@ export class OperatorAnalyticsService {
         @InjectModel(OperatorProject) private readonly projectRepository: typeof OperatorProject,
         @InjectModel(MetricValue) private readonly metricValueRepository: typeof MetricValue,
         @InjectModel(MetricOverride) private readonly metricOverrideRepository: typeof MetricOverride,
+        @InjectModel(CallTag) private readonly callTagRepository: typeof CallTag,
         @InjectModel(Prices) private readonly pricesRepository: typeof Prices,
         @InjectModel(User) private readonly userRepository: typeof User,
         private readonly usersService: UsersService,
@@ -413,10 +415,14 @@ export class OperatorAnalyticsService {
             const channelId = record.id.toString();
             const cdrSource = source === AnalyticsSource.API ? OPERATOR_CDR_SOURCE.EXTERNAL_API : OPERATOR_CDR_SOURCE.EXTERNAL_FRONT;
             const assistantName = options.operatorName || 'Unknown Operator';
+            const autoTagIds = project?.callTaxonomy?.length
+                ? spotTaxonomyTags(sttResult.text, project.callTaxonomy)
+                : [];
+            const topicsBlock = this.buildTopicsBlock(sttResult.text, project, []);
             const mergedMetrics = this.enrichStoredMetrics(
                 customMetricsResult ? { ...metrics, custom_metrics: customMetricsResult } : metrics,
                 finalQuality,
-                { assessments, customMeta, model: modelName, schemaVersion, customInvalid: customMetricsInvalid, promptVersion: PROMPT_VERSION, topics: this.spotTopicKeywords(sttResult.text) },
+                { assessments, customMeta, model: modelName, schemaVersion, customInvalid: customMetricsInvalid, promptVersion: PROMPT_VERSION, topicsBlock },
             );
 
             const cdrCost = await this.cdrCostFields(totalCost);
@@ -445,6 +451,7 @@ export class OperatorAnalyticsService {
                 tokens: totalTokens,
             });
             await this.writeMetricValues(channelId, record.userId, record.projectId, schemaVersion, mergedMetrics);
+            await this.writeAutoCallTags(channelId, record.userId, record.projectId, autoTagIds);
 
             await this.billingRecordRepository.create({
                 channelId,
@@ -792,10 +799,14 @@ export class OperatorAnalyticsService {
             // Source is frontend or api depending on what's set
             const cdrSource = record.source === AnalyticsSource.API ? OPERATOR_CDR_SOURCE.EXTERNAL_API : OPERATOR_CDR_SOURCE.EXTERNAL_FRONT;
             const assistantName = record.operatorName || 'Unknown Operator';
+            const autoTagIds = project?.callTaxonomy?.length
+                ? spotTaxonomyTags(sttResult.text, project.callTaxonomy)
+                : [];
+            const topicsBlock = this.buildTopicsBlock(sttResult.text, project, []);
             const mergedMetrics = this.enrichStoredMetrics(
                 customMetricsResult ? { ...metrics, custom_metrics: customMetricsResult } : metrics,
                 finalQuality,
-                { assessments, customMeta, model: modelName, schemaVersion, customInvalid: customMetricsInvalid, promptVersion: PROMPT_VERSION, topics: this.spotTopicKeywords(sttResult.text) },
+                { assessments, customMeta, model: modelName, schemaVersion, customInvalid: customMetricsInvalid, promptVersion: PROMPT_VERSION, topicsBlock },
             );
 
             const cdrCost = await this.cdrCostFields(totalCost);
@@ -824,6 +835,7 @@ export class OperatorAnalyticsService {
                 tokens: totalTokens,
             });
             await this.writeMetricValues(channelId, record.userId, record.projectId, schemaVersion, mergedMetrics);
+            await this.writeAutoCallTags(channelId, record.userId, record.projectId, autoTagIds);
 
             await this.billingRecordRepository.create({
                 channelId,
@@ -906,6 +918,10 @@ export class OperatorAnalyticsService {
         await this.checkBalance(record.userId);
         await record.update({ status: AnalyticsStatus.PROCESSING, errorMessage: null });
 
+        const channelIdStrEarly = String(recordId);
+        await this.deleteAutoCallTags(channelIdStrEarly);
+        const manualTagIds = await this.loadManualTagIds(channelIdStrEarly);
+
         try {
         const url = this.sanitizeUrl(recordUrl);
         this.logger.log(`Regenerating analysis for record #${recordId}: downloading ${url}`);
@@ -977,10 +993,14 @@ export class OperatorAnalyticsService {
 
         await record.update({ status: AnalyticsStatus.COMPLETED });
 
+        const autoTagIds = project?.callTaxonomy?.length
+            ? spotTaxonomyTags(sttResult.text, project.callTaxonomy)
+            : [];
+        const topicsBlock = this.buildTopicsBlock(sttResult.text, project, manualTagIds);
         const mergedMetrics = this.enrichStoredMetrics(
             customMetricsResult ? { ...metrics, custom_metrics: customMetricsResult } : metrics,
             finalQuality,
-            { assessments, customMeta, model: modelName, schemaVersion, customInvalid: customMetricsInvalid, promptVersion: PROMPT_VERSION, topics: this.spotTopicKeywords(sttResult.text) },
+            { assessments, customMeta, model: modelName, schemaVersion, customInvalid: customMetricsInvalid, promptVersion: PROMPT_VERSION, topicsBlock },
         );
         const cdrCost = await this.cdrCostFields(totalCost);
         const billingFx = await this.billingFx.fieldsForUsdAmount(totalCost);
@@ -1031,6 +1051,7 @@ export class OperatorAnalyticsService {
             });
         }
         await this.writeMetricValues(channelIdStr, record.userId, record.projectId, schemaVersion, mergedMetrics);
+        await this.writeAutoCallTags(channelIdStr, record.userId, record.projectId, autoTagIds);
 
         await this.billingRecordRepository.create({
             channelId: channelIdStr,
@@ -1213,12 +1234,99 @@ export class OperatorAnalyticsService {
         return { deleted };
     }
 
+    async updateCallTags(
+        channelId: string,
+        actorUserId: string,
+        isAdmin: boolean,
+        tagIds: string[],
+    ): Promise<{ tagIds: string[] }> {
+        const record = await this.assertRecordAccess(channelId, actorUserId, isAdmin);
+        if (!record.projectId) {
+            throw new HttpException('Call has no project', HttpStatus.BAD_REQUEST);
+        }
+
+        const project = await this.projectRepository.findByPk(record.projectId);
+        if (!project) {
+            throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+        }
+
+        const taxonomy = project.callTaxonomy ?? [];
+        const taxonomyIds = new Set(taxonomy.map(t => t.id));
+        const uniqueTagIds = [...new Set(tagIds ?? [])];
+        for (const id of uniqueTagIds) {
+            if (!taxonomyIds.has(id)) {
+                throw new HttpException('Invalid tag id for project taxonomy', HttpStatus.BAD_REQUEST);
+            }
+        }
+
+        const channelIdStr = String(channelId);
+        if (!uniqueTagIds.length) {
+            await this.callTagRepository.destroy({ where: { channelId: channelIdStr } });
+        } else {
+            await this.callTagRepository.destroy({
+                where: {
+                    channelId: channelIdStr,
+                    tagId: { [Op.notIn]: uniqueTagIds },
+                },
+            });
+            for (const tagId of uniqueTagIds) {
+                const existing = await this.callTagRepository.findOne({
+                    where: { channelId: channelIdStr, tagId },
+                });
+                if (existing) {
+                    await existing.update({
+                        source: 'manual',
+                        actorUserId: String(actorUserId),
+                    });
+                } else {
+                    await this.callTagRepository.create({
+                        channelId: channelIdStr,
+                        userId: String(record.userId),
+                        projectId: record.projectId,
+                        tagId,
+                        source: 'manual',
+                        actorUserId: String(actorUserId),
+                    });
+                }
+            }
+        }
+
+        const tagNames = this.buildTagNameSnapshot(uniqueTagIds, taxonomy);
+        const analytics = await this.aiAnalyticsRepository.findOne({
+            where: { channelId: channelIdStr },
+        });
+        if (analytics) {
+            const metrics = { ...(analytics.metrics || {}) };
+            const topics = { ...(metrics._topics || {}) };
+            if (uniqueTagIds.length) {
+                topics.tags = uniqueTagIds;
+                topics.tag_names = tagNames;
+            } else {
+                delete topics.tags;
+                delete topics.tag_names;
+            }
+            metrics._topics = topics;
+            await analytics.update({ metrics });
+        }
+
+        this.logger.log(`AUDIT ${JSON.stringify({
+            kind: 'operator_call_tags',
+            channelId: channelIdStr,
+            actorUserId: String(actorUserId),
+            tagIds: uniqueTagIds,
+            at: new Date().toISOString(),
+        })}`);
+
+        return { tagIds: uniqueTagIds };
+    }
+
     async getCdrs(query: {
         userId?: string;
         startDate?: string;
         endDate?: string;
         operatorName?: string;
         operatorNameExact?: string;
+        tagId?: string;
         projectId?: number;
         page?: number;
         limit?: number;
@@ -1256,6 +1364,27 @@ export class OperatorAnalyticsService {
 
         if (query.projectId) {
             where.projectId = query.projectId;
+        }
+
+        if (query.tagId) {
+            const tagWhere: Record<string, unknown> = { tagId: query.tagId };
+            if (!isAdmin) {
+                tagWhere.userId = realUserId;
+            } else if (query.userId) {
+                tagWhere.userId = query.userId;
+            }
+            if (query.projectId) {
+                tagWhere.projectId = query.projectId;
+            }
+            const tagRows = await this.callTagRepository.findAll({
+                where: tagWhere,
+                attributes: ['channelId'],
+                limit: 5000,
+            });
+            const channelIds = tagRows.map(r => r.channelId);
+            where.channelId = channelIds.length
+                ? { [Op.in]: channelIds }
+                : { [Op.in]: ['__no_matching_tag__'] };
         }
 
         // Search logic (name, phone, transcription — additive)
@@ -1749,6 +1878,100 @@ export class OperatorAnalyticsService {
     private spotTopicKeywords(transcription: string): string[] | null {
         const hits = spotKeywords(transcription, this.keywordSpottingList);
         return hits.length ? hits : null;
+    }
+
+    private buildTopicsBlock(
+        transcription: string,
+        project: OperatorProject | null,
+        manualTagIds: string[],
+    ): Record<string, unknown> | null {
+        const block: Record<string, unknown> = {};
+        const keywords = this.spotTopicKeywords(transcription);
+        if (keywords?.length) {
+            block.keywords = keywords;
+        }
+
+        const taxonomy = project?.callTaxonomy ?? [];
+        const autoTagIds = taxonomy.length
+            ? spotTaxonomyTags(transcription, taxonomy)
+            : [];
+        const mergedTagIds = this.mergeTagIds(autoTagIds, manualTagIds);
+        if (mergedTagIds.length) {
+            block.tags = mergedTagIds;
+            block.tag_names = this.buildTagNameSnapshot(mergedTagIds, taxonomy);
+        }
+
+        return Object.keys(block).length ? block : null;
+    }
+
+    private mergeTagIds(autoTagIds: string[], manualTagIds: string[]): string[] {
+        const merged = [...autoTagIds];
+        for (const id of manualTagIds) {
+            if (!merged.includes(id)) merged.push(id);
+        }
+        return merged.slice(0, 10);
+    }
+
+    private buildTagNameSnapshot(tagIds: string[], taxonomy: TagDefinition[]): Record<string, string> {
+        const byId = new Map(taxonomy.map(t => [t.id, t.name]));
+        const names: Record<string, string> = {};
+        for (const id of tagIds) {
+            const name = byId.get(id);
+            if (name) names[id] = name;
+        }
+        return names;
+    }
+
+    private async loadManualTagIds(channelId: string): Promise<string[]> {
+        try {
+            const rows = await this.callTagRepository.findAll({
+                where: { channelId: String(channelId), source: 'manual' },
+                attributes: ['tagId'],
+            });
+            return rows.map(r => r.tagId);
+        } catch (e) {
+            this.logger.warn(
+                `Could not load manual call tags for channel ${channelId}: ${(e as Error).message}`,
+            );
+            return [];
+        }
+    }
+
+    private async deleteAutoCallTags(channelId: string): Promise<void> {
+        try {
+            await this.callTagRepository.destroy({
+                where: { channelId: String(channelId), source: 'auto' },
+            });
+        } catch (e) {
+            this.logger.warn(
+                `Could not delete auto call tags for channel ${channelId}: ${(e as Error).message}`,
+            );
+        }
+    }
+
+    private async writeAutoCallTags(
+        channelId: string,
+        userId: string | null,
+        projectId: number | null,
+        tagIds: string[],
+    ): Promise<void> {
+        if (!tagIds.length) return;
+        try {
+            await this.callTagRepository.bulkCreate(
+                tagIds.map(tagId => ({
+                    channelId: String(channelId),
+                    userId: userId ?? null,
+                    projectId: projectId ?? null,
+                    tagId,
+                    source: 'auto' as const,
+                })),
+                { ignoreDuplicates: true },
+            );
+        } catch (e) {
+            this.logger.warn(
+                `call_tags auto-write failed for channel ${channelId}: ${(e as Error).message}`,
+            );
+        }
     }
 
     // ─── Projects ────────────────────────────────────────────────────
@@ -2790,7 +3013,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             schemaVersion?: number | null;
             customInvalid?: string[] | null;
             promptVersion?: string | null;
-            topics?: string[] | null;
+            topicsBlock?: Record<string, unknown> | null;
         },
     ) {
         return {
@@ -2802,7 +3025,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             ...(extras?.model || extras?.promptVersion
                 ? { _model: { ...(extras?.model ? { name: extras.model } : {}), ...(extras?.promptVersion ? { promptVersion: extras.promptVersion } : {}) } }
                 : {}),
-            ...(extras?.topics && extras.topics.length ? { _topics: { keywords: extras.topics } } : {}),
+            ...(extras?.topicsBlock ? { _topics: extras.topicsBlock } : {}),
             ...(extras?.schemaVersion != null ? { _schema_version: extras.schemaVersion } : {}),
             ...(extras?.customInvalid && extras.customInvalid.length
                 ? { _custom_invalid: extras.customInvalid }

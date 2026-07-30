@@ -7,6 +7,7 @@ import { OperatorAnalytics, AnalyticsSource, AnalyticsStatus } from './operator-
 import { OperatorProject } from './operator-project.model';
 import { MetricValue } from './operator-metric-value.model';
 import { MetricOverride } from './operator-metric-override.model';
+import { CallTag } from './operator-call-tag.model';
 import { OperatorApiToken } from './operator-api-token.model';
 import { AiCdr } from '../ai-cdr/ai-cdr.model';
 import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
@@ -19,6 +20,7 @@ import { OpenAiTranscriptionProvider } from './providers/openai-transcription.pr
 import { ExternalSttProvider } from './providers/external-stt.provider';
 import { WhisperService } from '../whisper/whisper.service';
 import { InsightsCacheService } from './insights-cache.service';
+import { Op } from 'sequelize';
 
 describe('OperatorAnalyticsService', () => {
     let service: OperatorAnalyticsService;
@@ -32,6 +34,7 @@ describe('OperatorAnalyticsService', () => {
     let mockProjectRepo: any;
     let mockMetricValueRepo: any;
     let mockMetricOverrideRepo: any;
+    let mockCallTagRepo: any;
     let mockPricesRepo: any;
     let mockUserRepo: any;
     let mockUsersService: any;
@@ -85,6 +88,9 @@ describe('OperatorAnalyticsService', () => {
             findOne: jest.fn(),
             findAll: jest.fn().mockResolvedValue([]),
             update: jest.fn().mockResolvedValue([0]),
+            sequelize: {
+                getDialect: jest.fn().mockReturnValue('postgres'),
+            },
         };
 
         mockAiCdrRepo = {
@@ -134,6 +140,14 @@ describe('OperatorAnalyticsService', () => {
             destroy: jest.fn().mockResolvedValue(0),
         };
 
+        mockCallTagRepo = {
+            findAll: jest.fn().mockResolvedValue([]),
+            findOne: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockImplementation((v: any) => Promise.resolve(v)),
+            destroy: jest.fn().mockResolvedValue(0),
+            bulkCreate: jest.fn().mockResolvedValue([]),
+        };
+
         mockPricesRepo = {
             findOne: jest.fn().mockResolvedValue(mockPrice),
         };
@@ -174,6 +188,7 @@ describe('OperatorAnalyticsService', () => {
                 { provide: getModelToken(OperatorProject), useValue: mockProjectRepo },
                 { provide: getModelToken(MetricValue), useValue: mockMetricValueRepo },
                 { provide: getModelToken(MetricOverride), useValue: mockMetricOverrideRepo },
+                { provide: getModelToken(CallTag), useValue: mockCallTagRepo },
                 { provide: getModelToken(Prices), useValue: mockPricesRepo },
                 { provide: getModelToken(User), useValue: mockUserRepo },
                 { provide: UsersService, useValue: mockUsersService },
@@ -1727,6 +1742,210 @@ describe('OperatorAnalyticsService', () => {
             const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
             expect(typeof call.where.assistantName).toBe('string');
             expect(call.where.assistantName).toBe('Иван');
+        });
+
+        it('filters by tagId within tenant scope', async () => {
+            mockCallTagRepo.findAll.mockResolvedValue([
+                { channelId: '10' },
+                { channelId: '11' },
+            ]);
+
+            await service.getCdrs({ tagId: 'returns', userId: '5' }, true, null);
+
+            expect(mockCallTagRepo.findAll).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({ tagId: 'returns', userId: '5' }),
+                }),
+            );
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where.channelId).toEqual({ [Op.in]: ['10', '11'] });
+        });
+
+        it('returns nothing when tagId matches no rows in tenant scope', async () => {
+            mockCallTagRepo.findAll.mockResolvedValue([]);
+
+            await service.getCdrs({ tagId: 'foreign-tag' }, false, '42');
+
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where.channelId).toEqual({ [Op.in]: ['__no_matching_tag__'] });
+        });
+
+        it('composes tagId filter with operatorNameExact and projectId', async () => {
+            mockCallTagRepo.findAll.mockResolvedValue([{ channelId: '7' }]);
+
+            await service.getCdrs({
+                tagId: 'billing',
+                operatorNameExact: 'Иван',
+                projectId: 1,
+            }, false, '42');
+
+            expect(mockCallTagRepo.findAll).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({
+                        tagId: 'billing',
+                        userId: '42',
+                        projectId: 1,
+                    }),
+                }),
+            );
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where.assistantName).toBe('Иван');
+            expect(call.where.projectId).toBe(1);
+        });
+
+        it('leaves search substring behaviour unchanged when tagId is set', async () => {
+            mockCallTagRepo.findAll.mockResolvedValue([{ channelId: '3' }]);
+
+            await service.getCdrs({ tagId: 'returns', search: '7900' }, true, null);
+
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where[Op.or]).toBeDefined();
+        });
+    });
+
+    describe('taxonomy tagging', () => {
+        const taxonomy = [
+            { id: 'billing', name: 'Счета', aliases: ['счёт'] },
+            { id: 'returns', name: 'Возвраты', aliases: ['возврат'] },
+        ];
+
+        it('buildTopicsBlock writes matched tag ids and name snapshot', () => {
+            const project = { callTaxonomy: taxonomy } as any;
+            const block = (service as any).buildTopicsBlock('Клиент просит счёт и возврат', project, []);
+            expect(block.tags).toEqual(['billing', 'returns']);
+            expect(block.tag_names).toEqual({ billing: 'Счета', returns: 'Возвраты' });
+        });
+
+        it('buildTopicsBlock returns null when no taxonomy and no compliance keywords', () => {
+            const block = (service as any).buildTopicsBlock('обычный текст', { callTaxonomy: [] }, []);
+            expect(block).toBeNull();
+        });
+
+        it('writeAutoCallTags bulk-inserts automatic rows and swallows errors', async () => {
+            await (service as any).writeAutoCallTags('55', '1', 1, ['billing']);
+            expect(mockCallTagRepo.bulkCreate).toHaveBeenCalledWith(
+                [expect.objectContaining({ channelId: '55', tagId: 'billing', source: 'auto' })],
+                { ignoreDuplicates: true },
+            );
+
+            mockCallTagRepo.bulkCreate.mockRejectedValueOnce(new Error('db down'));
+            await expect(
+                (service as any).writeAutoCallTags('55', '1', 1, ['billing']),
+            ).resolves.toBeUndefined();
+        });
+
+        it('deleteAutoCallTags removes only automatic source rows', async () => {
+            await (service as any).deleteAutoCallTags('99');
+            expect(mockCallTagRepo.destroy).toHaveBeenCalledWith({
+                where: { channelId: '99', source: 'auto' },
+            });
+        });
+
+        it('mergeTagIds unions auto and manual tags with cap', () => {
+            const auto = ['a', 'b', 'c'];
+            const manual = ['d', 'e', 'f', 'g', 'h', 'i', 'j', 'k'];
+            const merged = (service as any).mergeTagIds(auto, manual);
+            expect(merged).toHaveLength(10);
+            expect(merged[0]).toBe('a');
+            expect(merged).toContain('d');
+        });
+    });
+
+    describe('updateCallTags', () => {
+        const taxonomy = [
+            { id: 'billing', name: 'Счета', aliases: ['счёт'] },
+            { id: 'returns', name: 'Возвраты', aliases: ['возврат'] },
+        ];
+
+        beforeEach(() => {
+            mockAiCdrRepo.findOne.mockResolvedValue({
+                channelId: '7',
+                userId: '1',
+                projectId: 1,
+            });
+            mockProjectRepo.findByPk.mockResolvedValue({
+                ...mockProject,
+                callTaxonomy: taxonomy,
+            });
+            mockAiAnalyticsRepo.findOne = jest.fn().mockResolvedValue({
+                metrics: { _topics: { keywords: ['kw'] } },
+                update: jest.fn().mockResolvedValue(undefined),
+            });
+        });
+
+        it('stores manual tags and updates analytics JSON', async () => {
+            mockCallTagRepo.findOne.mockResolvedValue(null);
+
+            const result = await service.updateCallTags('7', '9', false, ['billing', 'returns']);
+
+            expect(result.tagIds).toEqual(['billing', 'returns']);
+            expect(mockCallTagRepo.create).toHaveBeenCalledTimes(2);
+            expect(mockCallTagRepo.create).toHaveBeenCalledWith(
+                expect.objectContaining({ source: 'manual', actorUserId: '9', tagId: 'billing' }),
+            );
+            const analytics = await mockAiAnalyticsRepo.findOne.mock.results[0].value;
+            expect(analytics.update).toHaveBeenCalledWith({
+                metrics: expect.objectContaining({
+                    _topics: expect.objectContaining({
+                        tags: ['billing', 'returns'],
+                        tag_names: { billing: 'Счета', returns: 'Возвраты' },
+                    }),
+                }),
+            });
+        });
+
+        it('rejects tag ids outside project taxonomy', async () => {
+            await expect(
+                service.updateCallTags('7', '9', false, ['unknown']),
+            ).rejects.toThrow('Invalid tag id for project taxonomy');
+            expect(mockCallTagRepo.create).not.toHaveBeenCalled();
+        });
+
+        it('rejects cross-tenant calls before writing tags', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue(null);
+
+            await expect(
+                service.updateCallTags('7', '999', false, ['billing']),
+            ).rejects.toThrow('Analysis not found');
+            expect(mockCallTagRepo.create).not.toHaveBeenCalled();
+        });
+
+        it('deletes removed manual tags from the call', async () => {
+            mockCallTagRepo.findOne.mockImplementation(({ where }: any) =>
+                Promise.resolve(where.tagId === 'billing' ? { update: jest.fn() } : null),
+            );
+
+            await service.updateCallTags('7', '9', false, ['billing']);
+
+            expect(mockCallTagRepo.destroy).toHaveBeenCalledWith({
+                where: { channelId: '7', tagId: { [Op.notIn]: ['billing'] } },
+            });
+        });
+
+        it('writes audit log on successful manual update', async () => {
+            const logSpy = jest.spyOn((service as any).logger, 'log');
+            mockCallTagRepo.findOne.mockResolvedValue(null);
+
+            await service.updateCallTags('7', '9', false, ['billing']);
+
+            expect(logSpy).toHaveBeenCalledWith(
+                expect.stringContaining('"kind":"operator_call_tags"'),
+            );
+            expect(logSpy).toHaveBeenCalledWith(
+                expect.stringContaining('"tagIds":["billing"]'),
+            );
+            logSpy.mockRestore();
+        });
+
+        it('re-analysis rebuild merges auto matches with surviving manual tags', () => {
+            const project = { callTaxonomy: taxonomy } as any;
+            const block = (service as any).buildTopicsBlock(
+                'Клиент просит счёт',
+                project,
+                ['returns'],
+            );
+            expect(block.tags).toEqual(['billing', 'returns']);
+            expect(block.tag_names.returns).toBe('Возвраты');
         });
     });
 

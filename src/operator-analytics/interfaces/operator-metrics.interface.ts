@@ -35,6 +35,15 @@ export interface CustomMetricDef {
  */
 export type MetricPolarity = 'positive' | 'negative' | 'neutral';
 
+/** Project-level call topic / theme definition for taxonomy tagging */
+export interface TagDefinition {
+    id: string;
+    name: string;
+    aliases: string[];
+    color?: string;
+    description?: string;
+}
+
 /** Project-level custom metric definition (with id and enum support) */
 export interface MetricDefinition {
     id: string;                     // snake_case identifier

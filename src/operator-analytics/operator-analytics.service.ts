@@ -27,7 +27,7 @@ import { BillingFxService } from '../billing/billing-fx.service';
 import { isRubTenant } from '../shared/tenant/tenant-currency';
 import {
     OperatorMetrics, CustomMetricDef, ITranscriptionProvider, TranscriptionResult,
-    MetricDefinition, DefaultMetricKey, WebhookEvent, BatchStatus,
+    MetricDefinition, TagDefinition, DefaultMetricKey, WebhookEvent, BatchStatus,
     TranscriptionQualityLevel, StoredMetricMeta, ALL_DEFAULT_METRIC_KEYS,
 } from './interfaces/operator-metrics.interface';
 import {
@@ -1776,6 +1776,7 @@ export class OperatorAnalyticsService {
             templateId?: string;
             systemPrompt?: string;
             customMetricsSchema?: MetricDefinition[];
+            callTaxonomy?: TagDefinition[];
             visibleDefaultMetrics?: string[];
             webhookUrl?: string;
             webhookEvents?: string[];
@@ -1803,6 +1804,17 @@ export class OperatorAnalyticsService {
         // Explicit body values override template values
         if (data.systemPrompt !== undefined) createData.systemPrompt = data.systemPrompt || null;
         if (data.customMetricsSchema !== undefined) createData.customMetricsSchema = data.customMetricsSchema;
+        if (data.callTaxonomy !== undefined) {
+            this.validateCallTaxonomy(data.callTaxonomy);
+            try {
+                createData.callTaxonomy = data.callTaxonomy;
+            } catch (e) {
+                this.logger.warn(
+                    `Could not persist callTaxonomy on new project `
+                    + `(apply migration 2026-07-30-operator-call-taxonomy.sql): ${(e as Error).message}`,
+                );
+            }
+        }
         if (data.visibleDefaultMetrics !== undefined) createData.visibleDefaultMetrics = data.visibleDefaultMetrics;
         if (data.webhookUrl !== undefined) createData.webhookUrl = data.webhookUrl || null;
         if (data.webhookEvents !== undefined) createData.webhookEvents = data.webhookEvents;
@@ -1821,6 +1833,7 @@ export class OperatorAnalyticsService {
             description?: string;
             systemPrompt?: string;
             customMetricsSchema?: MetricDefinition[];
+            callTaxonomy?: TagDefinition[];
             visibleDefaultMetrics?: string[];
             webhookUrl?: string;
             webhookEvents?: string[];
@@ -1841,6 +1854,17 @@ export class OperatorAnalyticsService {
             project.customMetricsSchema = data.customMetricsSchema;
             project.currentSchemaVersion = (project.currentSchemaVersion || 1) + 1;
         }
+        if (data.callTaxonomy !== undefined) {
+            this.validateCallTaxonomy(data.callTaxonomy);
+            try {
+                project.callTaxonomy = data.callTaxonomy;
+            } catch (e) {
+                this.logger.warn(
+                    `Could not persist callTaxonomy on project #${project.id} `
+                    + `(apply migration 2026-07-30-operator-call-taxonomy.sql): ${(e as Error).message}`,
+                );
+            }
+        }
         if (data.visibleDefaultMetrics !== undefined) project.visibleDefaultMetrics = data.visibleDefaultMetrics as DefaultMetricKey[];
         if (data.webhookUrl !== undefined) project.webhookUrl = data.webhookUrl || null;
         if (data.webhookEvents !== undefined) project.webhookEvents = data.webhookEvents as WebhookEvent[];
@@ -1860,6 +1884,39 @@ export class OperatorAnalyticsService {
     private normalizeBudget(value: number | null | undefined): number | null {
         const n = Number(value);
         return Number.isFinite(n) && n > 0 ? n : null;
+    }
+
+    /** Validate caller-authored taxonomy before persistence (defence-in-depth; mirrors TagDefinitionDto caps). */
+    private validateCallTaxonomy(taxonomy: TagDefinition[]): void {
+        if (!Array.isArray(taxonomy)) {
+            throw new HttpException('callTaxonomy must be an array', HttpStatus.BAD_REQUEST);
+        }
+        if (taxonomy.length > 20) {
+            throw new HttpException('callTaxonomy exceeds maximum theme count (20)', HttpStatus.BAD_REQUEST);
+        }
+        const hasControlChar = (s: string): boolean => {
+            for (let i = 0; i < s.length; i++) {
+                const code = s.charCodeAt(i);
+                if (code <= 0x1f || code === 0x7f) return true;
+            }
+            return false;
+        };
+        for (const tag of taxonomy) {
+            if (!tag?.id || tag.id.length > 50 || hasControlChar(tag.id)) {
+                throw new HttpException('Invalid tag id in callTaxonomy', HttpStatus.BAD_REQUEST);
+            }
+            if (!tag?.name || tag.name.length > 100 || hasControlChar(tag.name)) {
+                throw new HttpException('Invalid tag name in callTaxonomy', HttpStatus.BAD_REQUEST);
+            }
+            if (!Array.isArray(tag.aliases) || tag.aliases.length > 30) {
+                throw new HttpException('Invalid tag aliases in callTaxonomy', HttpStatus.BAD_REQUEST);
+            }
+            for (const alias of tag.aliases) {
+                if (typeof alias !== 'string' || !alias || alias.length > 100 || hasControlChar(alias)) {
+                    throw new HttpException('Invalid tag alias in callTaxonomy', HttpStatus.BAD_REQUEST);
+                }
+            }
+        }
     }
 
     async deleteProject(id: number, userId: string, isAdmin = false) {

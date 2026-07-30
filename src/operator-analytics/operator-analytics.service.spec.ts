@@ -574,6 +574,162 @@ describe('OperatorAnalyticsService', () => {
         });
     });
 
+    describe('taxonomy', () => {
+        const twoThemes = [
+            { id: 'returns', name: 'Возвраты', aliases: ['возврат', 'вернуть'] },
+            { id: 'delivery', name: 'Доставка', aliases: ['доставка', 'курьер'] },
+        ];
+
+        it('persists a two-theme taxonomy and reads it back unchanged', async () => {
+            const project: any = {
+                ...mockProject,
+                callTaxonomy: [],
+                currentSchemaVersion: 1,
+                save: jest.fn().mockResolvedValue(undefined),
+            };
+            mockProjectRepo.findOne.mockResolvedValue(project);
+
+            await service.updateProject(1, '1', { callTaxonomy: twoThemes });
+
+            expect(project.callTaxonomy).toEqual(twoThemes);
+            expect(project.save).toHaveBeenCalled();
+        });
+
+        it('does not increment schema version when taxonomy changes', async () => {
+            const project: any = {
+                ...mockProject,
+                callTaxonomy: [],
+                currentSchemaVersion: 3,
+                save: jest.fn().mockResolvedValue(undefined),
+            };
+            mockProjectRepo.findOne.mockResolvedValue(project);
+
+            await service.updateProject(1, '1', { callTaxonomy: twoThemes });
+
+            expect(project.currentSchemaVersion).toBe(3);
+        });
+
+        it('still increments schema version when custom metrics change', async () => {
+            const project: any = {
+                ...mockProject,
+                currentSchemaVersion: 3,
+                save: jest.fn().mockResolvedValue(undefined),
+            };
+            mockProjectRepo.findOne.mockResolvedValue(project);
+
+            await service.updateProject(1, '1', {
+                customMetricsSchema: [
+                    { id: 'test', name: 'Test', type: 'boolean', description: 'test' },
+                ],
+            });
+
+            expect(project.currentSchemaVersion).toBe(4);
+        });
+
+        it('creates a project without taxonomy with an empty list default on the model', async () => {
+            await service.createProject('1', { name: 'No Taxonomy' });
+
+            expect(mockProjectRepo.create).toHaveBeenCalledWith(
+                expect.objectContaining({ name: 'No Taxonomy', userId: '1' }),
+            );
+            expect(mockProjectRepo.create.mock.calls[0][0].callTaxonomy).toBeUndefined();
+        });
+
+        it('rejects a theme id exceeding the length cap', async () => {
+            const project: any = { ...mockProject, save: jest.fn() };
+            mockProjectRepo.findOne.mockResolvedValue(project);
+
+            await expect(
+                service.updateProject(1, '1', {
+                    callTaxonomy: [{ id: 'x'.repeat(51), name: 'Bad', aliases: ['a'] }],
+                }),
+            ).rejects.toThrow('Invalid tag id in callTaxonomy');
+        });
+
+        it('rejects a theme name exceeding the length cap', async () => {
+            const project: any = { ...mockProject, save: jest.fn() };
+            mockProjectRepo.findOne.mockResolvedValue(project);
+
+            await expect(
+                service.updateProject(1, '1', {
+                    callTaxonomy: [{ id: 'ok', name: 'x'.repeat(101), aliases: ['a'] }],
+                }),
+            ).rejects.toThrow('Invalid tag name in callTaxonomy');
+        });
+
+        it('rejects a taxonomy exceeding the theme count cap', async () => {
+            const project: any = { ...mockProject, save: jest.fn() };
+            mockProjectRepo.findOne.mockResolvedValue(project);
+            const tooMany = Array.from({ length: 21 }, (_, i) => ({
+                id: `tag_${i}`,
+                name: `Tag ${i}`,
+                aliases: ['a'],
+            }));
+
+            await expect(
+                service.updateProject(1, '1', { callTaxonomy: tooMany }),
+            ).rejects.toThrow('callTaxonomy exceeds maximum theme count');
+        });
+
+        it('rejects a theme whose synonym list exceeds the count cap', async () => {
+            const project: any = { ...mockProject, save: jest.fn() };
+            mockProjectRepo.findOne.mockResolvedValue(project);
+
+            await expect(
+                service.updateProject(1, '1', {
+                    callTaxonomy: [{
+                        id: 'big',
+                        name: 'Big',
+                        aliases: Array.from({ length: 31 }, (_, i) => `alias_${i}`),
+                    }],
+                }),
+            ).rejects.toThrow('Invalid tag aliases in callTaxonomy');
+        });
+
+        it('rejects a synonym exceeding the length cap', async () => {
+            const project: any = { ...mockProject, save: jest.fn() };
+            mockProjectRepo.findOne.mockResolvedValue(project);
+
+            await expect(
+                service.updateProject(1, '1', {
+                    callTaxonomy: [{ id: 'bad', name: 'Bad', aliases: ['x'.repeat(101)] }],
+                }),
+            ).rejects.toThrow('Invalid tag alias in callTaxonomy');
+        });
+
+        it('logs a warning and continues when callTaxonomy column is missing', async () => {
+            const project: any = {
+                ...mockProject,
+                callTaxonomy: [],
+                currentSchemaVersion: 1,
+                save: jest.fn().mockResolvedValue(undefined),
+            };
+            Object.defineProperty(project, 'callTaxonomy', {
+                set() {
+                    throw new Error('column "callTaxonomy" does not exist');
+                },
+                get() {
+                    return [];
+                },
+                configurable: true,
+            });
+            mockProjectRepo.findOne.mockResolvedValue(project);
+            const warnSpy = jest.spyOn((service as any).logger, 'warn');
+
+            await service.updateProject(1, '1', {
+                name: 'Still Updated',
+                callTaxonomy: twoThemes,
+            });
+
+            expect(project.name).toBe('Still Updated');
+            expect(warnSpy).toHaveBeenCalledWith(
+                expect.stringContaining('2026-07-30-operator-call-taxonomy.sql'),
+            );
+            expect(project.save).toHaveBeenCalled();
+            warnSpy.mockRestore();
+        });
+    });
+
     describe('deleteProject', () => {
         it('should throw 404 when project not found', async () => {
             mockProjectRepo.findOne.mockResolvedValue(null);

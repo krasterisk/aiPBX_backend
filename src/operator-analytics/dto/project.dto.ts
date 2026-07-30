@@ -2,6 +2,39 @@ import { IsString, IsArray, IsOptional, IsNumber, IsObject, MaxLength, IsEnum, V
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+// ─── Tag Definition DTO ────────────────────────────────────────────
+
+export class TagDefinitionDto {
+    @ApiProperty({ example: 'returns', description: 'snake_case identifier' })
+    @IsString()
+    @MaxLength(50)
+    id: string;
+
+    @ApiProperty({ example: 'Возвраты' })
+    @IsString()
+    @MaxLength(100)
+    name: string;
+
+    @ApiProperty({ example: ['возврат', 'вернуть товар'], description: 'Synonym phrases for keyword matching' })
+    @IsArray()
+    @IsString({ each: true })
+    @ArrayMaxSize(30)
+    @MaxLength(100, { each: true })
+    aliases: string[];
+
+    @ApiPropertyOptional({ example: '#5ed3f3' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(20)
+    color?: string;
+
+    @ApiPropertyOptional({ example: 'Клиент просит вернуть товар или деньги' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    description?: string;
+}
+
 // ─── Metric Definition DTO ───────────────────────────────────────
 
 class MetricDefinitionDto {
@@ -61,6 +94,14 @@ export class UpdateSchemaDto {
     @Type(() => MetricDefinitionDto)
     @ArrayMaxSize(20)
     customMetricsSchema: MetricDefinitionDto[];
+
+    @ApiPropertyOptional({ type: [TagDefinitionDto], description: 'Call topic taxonomy' })
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => TagDefinitionDto)
+    @ArrayMaxSize(20)
+    callTaxonomy?: TagDefinitionDto[];
 
     @ApiPropertyOptional({ description: 'Business context for LLM (max 1000 chars)' })
     @IsOptional()
@@ -177,6 +218,86 @@ export class CreateProjectDto {
     @Type(() => MetricDefinitionDto)
     @ArrayMaxSize(20)
     customMetricsSchema?: MetricDefinitionDto[];
+
+    @ApiPropertyOptional({ type: [TagDefinitionDto], description: 'Call topic taxonomy' })
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => TagDefinitionDto)
+    @ArrayMaxSize(20)
+    callTaxonomy?: TagDefinitionDto[];
+
+    @ApiPropertyOptional({ description: 'Which default metrics to show' })
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    visibleDefaultMetrics?: string[];
+
+    @ApiPropertyOptional({ example: 'https://example.com/webhook' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    webhookUrl?: string;
+
+    @ApiPropertyOptional({ example: ['analysis.completed', 'analysis.error'] })
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    webhookEvents?: string[];
+
+    @ApiPropertyOptional({ example: { Authorization: 'Bearer xxx' }, description: 'Custom headers for webhook requests' })
+    @IsOptional()
+    @IsObject()
+    webhookHeaders?: Record<string, string>;
+
+    @ApiPropertyOptional({ example: 50, description: 'Monthly spend budget in USD (null/0 = disabled)' })
+    @IsOptional()
+    @IsNumber()
+    monthlyBudgetUsd?: number | null;
+
+    @ApiPropertyOptional({ example: ['ops@example.com'], description: 'Emails notified on budget exceed' })
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    budgetAlertEmails?: string[] | null;
+}
+
+// ─── Update Project DTO ──────────────────────────────────────────
+
+export class UpdateProjectDto {
+    @ApiPropertyOptional({ example: 'Отдел продаж' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(100)
+    name?: string;
+
+    @ApiPropertyOptional({ example: 'Входящие звонки менеджеров продаж' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    description?: string;
+
+    @ApiPropertyOptional({ description: 'Business context prompt for LLM (max 1000 chars)' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(1000)
+    systemPrompt?: string;
+
+    @ApiPropertyOptional({ type: [MetricDefinitionDto], description: 'Custom metrics definitions' })
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => MetricDefinitionDto)
+    @ArrayMaxSize(20)
+    customMetricsSchema?: MetricDefinitionDto[];
+
+    @ApiPropertyOptional({ type: [TagDefinitionDto], description: 'Call topic taxonomy' })
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => TagDefinitionDto)
+    @ArrayMaxSize(20)
+    callTaxonomy?: TagDefinitionDto[];
 
     @ApiPropertyOptional({ description: 'Which default metrics to show' })
     @IsOptional()

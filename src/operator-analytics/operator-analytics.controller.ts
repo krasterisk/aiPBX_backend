@@ -11,7 +11,7 @@ import { Roles } from '../auth/roles-auth.decorator';
 import { ApiTokenGuard } from './guards/api-token.guard';
 import { AnalyticsSource } from './operator-analytics.model';
 import { CustomMetricDef, MetricDefinition } from './interfaces/operator-metrics.interface';
-import { GenerateSchemaDto, BulkMoveDto, CreateProjectDto } from './dto/project.dto';
+import { GenerateSchemaDto, BulkMoveDto, CreateProjectDto, UpdateProjectDto } from './dto/project.dto';
 import { OperatorInsightsResponseDto } from './dto/operator-insights-response.dto';
 import { OperatorEvidenceResponseDto } from './dto/operator-evidence.dto';
 
@@ -416,18 +416,7 @@ export class OperatorAnalyticsController {
     async updateProjectPost(
         @Req() req: RequestWithUser,
         @Param('id') id: string,
-        @Body() body: {
-            name?: string;
-            description?: string;
-            systemPrompt?: string;
-            customMetricsSchema?: MetricDefinition[];
-            visibleDefaultMetrics?: string[];
-            webhookUrl?: string;
-            webhookEvents?: string[];
-            webhookHeaders?: Record<string, string>;
-            monthlyBudgetUsd?: number | null;
-            budgetAlertEmails?: string[] | null;
-        },
+        @Body() body: UpdateProjectDto,
     ) {
         return this.service.updateProject(+id, req.vpbxUserId || req.tokenUserId, body);
     }
@@ -440,18 +429,7 @@ export class OperatorAnalyticsController {
     async updateProject(
         @Req() req: RequestWithUser,
         @Param('id') id: string,
-        @Body() body: {
-            name?: string;
-            description?: string;
-            systemPrompt?: string;
-            customMetricsSchema?: MetricDefinition[];
-            visibleDefaultMetrics?: string[];
-            webhookUrl?: string;
-            webhookEvents?: string[];
-            webhookHeaders?: Record<string, string>;
-            monthlyBudgetUsd?: number | null;
-            budgetAlertEmails?: string[] | null;
-        },
+        @Body() body: UpdateProjectDto,
     ) {
         return this.service.updateProject(+id, req.vpbxUserId || req.tokenUserId, body);
     }

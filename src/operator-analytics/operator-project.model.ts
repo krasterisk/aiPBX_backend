@@ -1,6 +1,6 @@
 import { Column, DataType, Model, Table, Index } from 'sequelize-typescript';
 import { ApiProperty } from '@nestjs/swagger';
-import { MetricDefinition, DefaultMetricKey, DashboardConfig, WebhookEvent, WebhookHeaders, ALL_DEFAULT_METRIC_KEYS } from './interfaces/operator-metrics.interface';
+import { MetricDefinition, TagDefinition, DefaultMetricKey, DashboardConfig, WebhookEvent, WebhookHeaders, ALL_DEFAULT_METRIC_KEYS } from './interfaces/operator-metrics.interface';
 
 export interface OperatorProjectCreationAttrs {
     name: string;
@@ -9,6 +9,7 @@ export interface OperatorProjectCreationAttrs {
     isDefault?: boolean;
     systemPrompt?: string;
     customMetricsSchema?: MetricDefinition[];
+    callTaxonomy?: TagDefinition[];
     visibleDefaultMetrics?: DefaultMetricKey[];
     dashboardConfig?: DashboardConfig;
     webhookUrl?: string;
@@ -53,6 +54,10 @@ export class OperatorProject extends Model<OperatorProject, OperatorProjectCreat
     @ApiProperty({ description: 'Custom metrics schema definitions' })
     @Column({ type: DataType.JSON, allowNull: false, defaultValue: [] })
     customMetricsSchema: MetricDefinition[];
+
+    @ApiProperty({ description: 'Call topic taxonomy (controlled tag vocabulary)' })
+    @Column({ type: DataType.JSON, allowNull: false, defaultValue: [] })
+    callTaxonomy: TagDefinition[];
 
     @ApiProperty({ example: 1, description: 'Current schema version (auto-incremented)' })
     @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1 })

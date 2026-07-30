@@ -12,6 +12,7 @@ import { ApiTokenGuard } from './guards/api-token.guard';
 import { AnalyticsSource } from './operator-analytics.model';
 import { CustomMetricDef, MetricDefinition } from './interfaces/operator-metrics.interface';
 import { GenerateSchemaDto, BulkMoveDto, CreateProjectDto, UpdateProjectDto } from './dto/project.dto';
+import { UpdateCallTagsDto } from './dto/call-tags.dto';
 import { OperatorInsightsResponseDto } from './dto/operator-insights-response.dto';
 import { OperatorEvidenceResponseDto } from './dto/operator-evidence.dto';
 
@@ -526,6 +527,7 @@ export class OperatorAnalyticsController {
             endDate?: string;
             operatorName?: string;
             operatorNameExact?: string;
+            tagId?: string;
             projectId?: number;
             page?: number;
             limit?: number;
@@ -681,6 +683,21 @@ export class OperatorAnalyticsController {
         const userId = req.vpbxUserId || req.tokenUserId;
         if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
         return this.service.deleteMetricOverride(id, metricId, userId, req.isAdmin ?? false);
+    }
+
+    @Patch(':id/tags')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Update manual call tags for an analysed call' })
+    async updateCallTags(
+        @Param('id') id: string,
+        @Req() req: RequestWithUser,
+        @Body() body: UpdateCallTagsDto,
+    ) {
+        const userId = req.vpbxUserId || req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        return this.service.updateCallTags(id, userId, req.isAdmin ?? false, body.tagIds ?? []);
     }
 
     // ─── Get by ID (JWT or API Token) ────────────────────────────────

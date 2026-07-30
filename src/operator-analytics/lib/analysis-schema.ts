@@ -3,7 +3,6 @@ import {
     ALL_DEFAULT_METRIC_KEYS,
     CustomMetricDef,
     DefaultMetricKey,
-    MetricDefinition,
     MetricPolarity,
     StoredMetricMeta,
 } from '../interfaces/operator-metrics.interface';

@@ -1,6 +1,5 @@
 import { Logger } from '@nestjs/common';
 import {
-    ILlmProvider,
     LlmDelta,
     LlmMessage,
     LlmTool,

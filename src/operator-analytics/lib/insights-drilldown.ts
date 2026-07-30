@@ -1,4 +1,4 @@
-import { Op, WhereOptions } from 'sequelize';
+import { WhereOptions } from 'sequelize';
 import type { AiCdr } from '../../ai-cdr/ai-cdr.model';
 import type { OperatorInsight, OperatorInsightEvidence } from './insights-schema';
 import { buildDashboardCdrWhere } from './dashboard-aggregation';

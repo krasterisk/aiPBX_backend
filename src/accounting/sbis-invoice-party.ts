@@ -38,7 +38,7 @@ export interface InvoiceChetopParty {
 
 /** Parse FIO for СвИП; strips leading «ИП» from name/director fields. */
 export function parsePersonFio(fullName: string): { family: string; first: string; patronymic?: string } {
-    let s = fullName.trim().replace(/^(ИП|ип)\s+/iu, '').trim();
+    const s = fullName.trim().replace(/^(ИП|ип)\s+/iu, '').trim();
     const parts = s.split(/\s+/).filter(Boolean);
     if (parts[0]?.toUpperCase() === 'ИП') {
         parts.shift();

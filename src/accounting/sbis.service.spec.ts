@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { HttpService } from '@nestjs/axios';
 import { getModelToken } from '@nestjs/sequelize';
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { HttpStatus } from '@nestjs/common';
 import { of } from 'rxjs';
 import { SbisService } from './sbis.service';
 import { EgrulCache } from './egrul-cache.model';

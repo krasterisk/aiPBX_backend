@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { NonRealtimeSession } from './non-realtime.session';
-import { IVadProvider, VadConfig } from './interfaces/vad-provider.interface';
+import { IVadProvider } from './interfaces/vad-provider.interface';
 import { ISttProvider } from './interfaces/stt-provider.interface';
-import { ILlmProvider, LlmDelta, LlmTool, LlmToolCall } from './interfaces/llm-provider.interface';
+import { ILlmProvider, LlmTool, LlmToolCall } from './interfaces/llm-provider.interface';
 import { IAudioLlmProvider, isAudioLlmProvider } from './interfaces/audio-llm-provider.interface';
 import { ITtsProvider } from './interfaces/tts-provider.interface';
 import { Assistant } from '../assistants/assistants.model';

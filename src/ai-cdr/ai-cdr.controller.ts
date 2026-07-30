@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, HttpException, HttpStatus, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse } from "@nestjs/swagger";
 import { Roles } from "../auth/roles-auth.decorator";
 import { RolesGuard } from "../auth/roles.guard";

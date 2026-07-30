@@ -25,7 +25,7 @@ export class SileroVadProvider implements IVadProvider {
         this.config = config;
 
         try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
+             
             this.ort = require('onnxruntime-node');
             const modelPath = require.resolve('@ricky0123/vad-node/dist/silero_vad.onnx');
 

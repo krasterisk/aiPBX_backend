@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { HttpException, HttpStatus } from '@nestjs/common';
 import { getModelToken, getConnectionToken } from '@nestjs/sequelize';
 import { ConfigService } from '@nestjs/config';
 import { PaymentsService } from './payments.service';

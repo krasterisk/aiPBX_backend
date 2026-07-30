@@ -7,7 +7,6 @@ import { Organization } from '../organizations/organizations.model';
 import { OrganizationDocument } from './organization-document.model';
 import { DocumentCounterService, getDayOfYear } from './document-counter.service';
 import { formatInvoiceLineItemSubject, resolveInvoiceSubject } from './subject-resolver';
-import { DOC_TYPE_INVOICE } from './billing.constants';
 import { renderInvoicePdfToFile, type InvoiceIssuerRequisites } from './pdf/invoice-pdf';
 import { AlfawebhookClient } from './alfawebhook-client.service';
 import { extractOrganizationDocumentId } from './document-id.util';

@@ -75,7 +75,7 @@ export class ParserService {
      */
     private async parsePdf(buffer: Buffer): Promise<string> {
         try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
+             
             const { PDFParse } = require('pdf-parse');
             const parser = new PDFParse({ data: buffer, verbosity: 0 });
             const result = await parser.getText();
@@ -92,7 +92,7 @@ export class ParserService {
      */
     private async parseDocx(buffer: Buffer): Promise<string> {
         try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
+             
             const mammoth = require('mammoth');
             const result = await mammoth.extractRawText({ buffer });
             return result.value || '';
@@ -108,7 +108,7 @@ export class ParserService {
      */
     private parseExcel(buffer: Buffer, fileName?: string): string {
         try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
+             
             const XLSX = require('xlsx');
             const workbook = XLSX.read(buffer, { type: 'buffer' });
 
@@ -144,7 +144,7 @@ export class ParserService {
      */
     private parseCsv(buffer: Buffer, fileName?: string): string {
         try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
+             
             const XLSX = require('xlsx');
             const workbook = XLSX.read(buffer, { type: 'buffer' });
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -166,7 +166,7 @@ export class ParserService {
      */
     private extractTextFromHtml(html: string): string {
         try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
+             
             const cheerio = require('cheerio');
             const $ = cheerio.load(html);
 

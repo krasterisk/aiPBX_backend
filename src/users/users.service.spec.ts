@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { HttpStatus } from '@nestjs/common';
 import { getModelToken, getConnectionToken } from '@nestjs/sequelize';
 import { UsersService } from './users.service';
 import { User } from './users.model';

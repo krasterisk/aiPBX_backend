@@ -20,4 +20,34 @@ describe('dashboard-aggregation', () => {
         expect(where.assistantName).toEqual({ [Op.like]: '%Alice%' });
         expect(where.createdAt?.[Op.between]).toHaveLength(2);
     });
+
+    it('buildDashboardCdrWhere uses exact equality for operatorNameExact', () => {
+        const where = buildDashboardCdrWhere(
+            { operatorNameExact: 'Иван' },
+            true,
+            '1',
+            likeOp,
+        );
+        expect(where.assistantName).toBe('Иван');
+    });
+
+    it('buildDashboardCdrWhere keeps substring behaviour for operatorName', () => {
+        const where = buildDashboardCdrWhere(
+            { operatorName: 'Иван' },
+            true,
+            '1',
+            likeOp,
+        );
+        expect(where.assistantName).toEqual({ [Op.like]: '%Иван%' });
+    });
+
+    it('buildDashboardCdrWhere prefers exact filter when both operator filters are supplied', () => {
+        const where = buildDashboardCdrWhere(
+            { operatorName: 'Иван', operatorNameExact: 'Иван Петров' },
+            true,
+            '1',
+            likeOp,
+        );
+        expect(where.assistantName).toBe('Иван Петров');
+    });
 });

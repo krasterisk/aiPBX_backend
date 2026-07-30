@@ -7,6 +7,7 @@ export interface DashboardCdrFilters {
     startDate?: string;
     endDate?: string;
     operatorName?: string;
+    operatorNameExact?: string;
 }
 
 export function buildDashboardCdrWhere(
@@ -36,7 +37,9 @@ export function buildDashboardCdrWhere(
         where.createdAt = { [Op.lte]: new Date(`${query.endDate}T23:59:59`) };
     }
 
-    if (query.operatorName) {
+    if (query.operatorNameExact) {
+        where.assistantName = query.operatorNameExact;
+    } else if (query.operatorName) {
         where.assistantName = likeOp(`%${query.operatorName}%`);
     }
 
@@ -82,7 +85,10 @@ export async function countLowQualityCdrs(
         clauses.push(`${c}.${q('projectId', dialect)} = :projectId`);
         replacements.projectId = filters.projectId;
     }
-    if (filters.operatorName) {
+    if (filters.operatorNameExact) {
+        clauses.push(`${c}.${q('assistantName', dialect)} = :operatorNameExact`);
+        replacements.operatorNameExact = filters.operatorNameExact;
+    } else if (filters.operatorName) {
         const op = dialect === 'postgres' ? 'ILIKE' : 'LIKE';
         clauses.push(`${c}.${q('assistantName', dialect)} ${op} :operatorName`);
         replacements.operatorName = `%${filters.operatorName}%`;
@@ -161,7 +167,10 @@ export async function aggregateMetricsFromSql(
         cdrClauses.push(`${c}.${q('projectId', dialect)} = :projectId`);
         replacements.projectId = filters.projectId;
     }
-    if (filters.operatorName) {
+    if (filters.operatorNameExact) {
+        cdrClauses.push(`${c}.${q('assistantName', dialect)} = :operatorNameExact`);
+        replacements.operatorNameExact = filters.operatorNameExact;
+    } else if (filters.operatorName) {
         const op = dialect === 'postgres' ? 'ILIKE' : 'LIKE';
         cdrClauses.push(`${c}.${q('assistantName', dialect)} ${op} :operatorName`);
         replacements.operatorName = `%${filters.operatorName}%`;

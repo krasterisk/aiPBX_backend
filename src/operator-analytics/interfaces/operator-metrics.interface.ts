@@ -44,6 +44,48 @@ export interface TagDefinition {
     description?: string;
 }
 
+/** Per-theme statistics block on the operator analytics dashboard (D-16) */
+export interface TagStat {
+    tagId: string;
+    name: string;
+    callsCount: number;
+    averageScore: number;
+    successRate: number;
+    sentiment: {
+        positive: number;
+        neutral: number;
+        negative: number;
+    };
+    shareOfPeriodCalls?: number;
+    deltaVsPeriodAverage?: number;
+}
+
+export interface AgentScorecard {
+    operatorName: string;
+    callsCount: number;
+    averageScore: number;
+    successRate: number;
+    avgCsat: number | null;
+    negativeRate: number;
+}
+
+export interface OperatorDashboardResponse {
+    totalAnalyzed: number;
+    totalCost: number;
+    totalAmountCurrency?: number | null;
+    averageDuration: number;
+    averageScore: number;
+    successRate: number;
+    aggregatedMetrics: Record<string, number>;
+    customMetricsAggregated: Record<string, { type: string; value?: number; distribution?: Record<string, number> }>;
+    sentimentDistribution: { positive: number; neutral: number; negative: number };
+    timeSeries: { monthly: unknown[]; daily: unknown[] };
+    insightsAvailable?: boolean;
+    excludedLowQualityCount?: number;
+    agentScorecards?: AgentScorecard[];
+    tagStats?: TagStat[];
+}
+
 /** Project-level custom metric definition (with id and enum support) */
 export interface MetricDefinition {
     id: string;                     // snake_case identifier

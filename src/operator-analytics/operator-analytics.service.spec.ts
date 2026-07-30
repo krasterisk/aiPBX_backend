@@ -1321,6 +1321,137 @@ describe('OperatorAnalyticsService', () => {
                 }),
             );
         });
+
+        const dashboardRecord = (overrides: Partial<{
+            assistantName: string;
+            tags: string[];
+            tagNames: Record<string, string>;
+            metrics: Record<string, unknown>;
+            sentiment: string;
+        }> = {}) => ({
+            assistantName: overrides.assistantName ?? 'Alice',
+            createdAt: new Date('2026-07-01T12:00:00.000Z'),
+            duration: 60,
+            cost: 1,
+            analytics: {
+                sentiment: overrides.sentiment ?? 'Positive',
+                metrics: {
+                    greeting_quality: 80,
+                    script_compliance: 80,
+                    politeness_empathy: 80,
+                    active_listening: 80,
+                    objection_handling: 80,
+                    product_knowledge: 80,
+                    problem_resolution: 80,
+                    speech_clarity_pace: 80,
+                    closing_quality: 80,
+                    success: true,
+                    customer_sentiment: 'Positive',
+                    _topics: {
+                        tags: overrides.tags ?? ['billing'],
+                        tag_names: overrides.tagNames ?? { billing: 'Счета' },
+                    },
+                    ...overrides.metrics,
+                },
+            },
+        });
+
+        const setupDashboardWithRecords = (records: unknown[], projectOverrides: Record<string, unknown> = {}) => {
+            mockAiCdrRepo.count.mockResolvedValue(records.length || 1);
+            mockAiCdrRepo.findOne.mockResolvedValue({
+                totalCostUsd: '10',
+                totalAmountCurrency: '0',
+                avgDuration: '60',
+            });
+            mockAiCdrRepo.sequelize.query.mockResolvedValue([[
+                { metricId: 'greeting_quality', avgNum: '80', trueCount: '0', channelCount: '1', strValue: null, rowCount: '1' },
+            ]]);
+            mockAiCdrRepo.findAll.mockResolvedValue(records);
+            mockProjectRepo.findByPk.mockResolvedValue({
+                customMetricsSchema: [],
+                callTaxonomy: [
+                    { id: 'billing', name: 'Счета', aliases: ['счёт'] },
+                    { id: 'returns', name: 'Возвраты', aliases: ['возврат'] },
+                ],
+                ...projectOverrides,
+            });
+        };
+
+        it('omits tagStats when no project is selected', async () => {
+            setupDashboardWithRecords([dashboardRecord()]);
+
+            const result = await service.getDashboard({}, true, null);
+
+            expect(result.tagStats).toBeUndefined();
+            expect(mockProjectRepo.findByPk).not.toHaveBeenCalled();
+        });
+
+        it('omits tagStats when the project taxonomy is empty', async () => {
+            setupDashboardWithRecords([dashboardRecord()], { callTaxonomy: [] });
+
+            const result = await service.getDashboard({ projectId: 1 }, true, null);
+
+            expect(result.tagStats).toBeUndefined();
+        });
+
+        it('returns an empty tagStats list when taxonomy exists but nothing matched', async () => {
+            setupDashboardWithRecords([
+                dashboardRecord({ tags: [], tagNames: {} }),
+            ]);
+
+            const result = await service.getDashboard({ projectId: 1 }, true, null);
+
+            expect(result.tagStats).toEqual([]);
+        });
+
+        it('includes per-theme statistics for a selected project', async () => {
+            setupDashboardWithRecords([
+                dashboardRecord({ tags: ['billing'], tagNames: { billing: 'Счета' } }),
+                dashboardRecord({ tags: ['returns'], tagNames: { returns: 'Возвраты' } }),
+            ]);
+
+            const result = await service.getDashboard({ projectId: 1 }, true, null);
+
+            expect(result.tagStats).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        tagId: 'billing',
+                        name: 'Счета',
+                        callsCount: 1,
+                        averageScore: expect.any(Number),
+                        successRate: expect.any(Number),
+                        sentiment: expect.objectContaining({
+                            positive: expect.any(Number),
+                            neutral: expect.any(Number),
+                            negative: expect.any(Number),
+                        }),
+                    }),
+                    expect.objectContaining({ tagId: 'returns', callsCount: 1 }),
+                ]),
+            );
+        });
+
+        it('does not add extra repository calls when taxonomy is present', async () => {
+            setupDashboardWithRecords([dashboardRecord()], { callTaxonomy: [] });
+            await service.getDashboard({ projectId: 1 }, true, null);
+            const withoutTaxonomy = mockProjectRepo.findByPk.mock.calls.length
+                + mockAiCdrRepo.count.mock.calls.length
+                + mockAiCdrRepo.findAll.mock.calls.length
+                + mockAiCdrRepo.findOne.mock.calls.length
+                + mockAiCdrRepo.sequelize.query.mock.calls.length;
+
+            jest.clearAllMocks();
+            setupDashboardWithRecords([dashboardRecord()]);
+            await service.getDashboard({ projectId: 1 }, true, null);
+            const withTaxonomy = mockProjectRepo.findByPk.mock.calls.length
+                + mockAiCdrRepo.count.mock.calls.length
+                + mockAiCdrRepo.findAll.mock.calls.length
+                + mockAiCdrRepo.findOne.mock.calls.length
+                + mockAiCdrRepo.sequelize.query.mock.calls.length;
+
+            expect(withTaxonomy).toBe(withoutTaxonomy);
+            expect(mockProjectRepo.findByPk).toHaveBeenCalledTimes(1);
+        });
     });
 
     // ═════════════════════════════════════════════════════════════════

@@ -15,6 +15,7 @@ import {
     countLowQualityCdrs,
     DASHBOARD_PAGE_SIZE,
 } from './lib/dashboard-aggregation';
+import { buildTagStats } from './lib/tag-stats';
 import { OpenAiTranscriptionProvider } from './providers/openai-transcription.provider';
 import { ExternalSttProvider } from './providers/external-stt.provider';
 import { WhisperService } from '../whisper/whisper.service';
@@ -28,7 +29,7 @@ import { BillingFxService } from '../billing/billing-fx.service';
 import { isRubTenant } from '../shared/tenant/tenant-currency';
 import {
     OperatorMetrics, CustomMetricDef, ITranscriptionProvider, TranscriptionResult,
-    MetricDefinition, TagDefinition, DefaultMetricKey, WebhookEvent, BatchStatus,
+    MetricDefinition, TagDefinition, TagStat, DefaultMetricKey, WebhookEvent, BatchStatus,
     TranscriptionQualityLevel, StoredMetricMeta, ALL_DEFAULT_METRIC_KEYS,
 } from './interfaces/operator-metrics.interface';
 import {
@@ -1549,6 +1550,13 @@ export class OperatorAnalyticsService {
 
         const totalAnalyzed = await this.aiCdrRepository.count({ where });
         if (totalAnalyzed === 0) {
+            let tagStats: TagStat[] | undefined;
+            if (query.projectId) {
+                const project = await this.projectRepository.findByPk(query.projectId);
+                if (project?.callTaxonomy?.length) {
+                    tagStats = [];
+                }
+            }
             return {
                 totalAnalyzed: 0, totalCost: 0, averageDuration: 0,
                 averageScore: 0, successRate: 0,
@@ -1558,6 +1566,7 @@ export class OperatorAnalyticsService {
                 timeSeries: { monthly: [], daily: [] },
                 excludedLowQualityCount: 0,
                 agentScorecards: [],
+                ...(tagStats !== undefined ? { tagStats } : {}),
             };
         }
 
@@ -1658,10 +1667,14 @@ export class OperatorAnalyticsService {
         const timeSeries = this.buildTimeSeries(recordsForDerived, query.startDate, query.endDate);
 
         let customMetricsAggregated: Record<string, { type: string; value?: number; distribution?: Record<string, number> }> = {};
+        let tagStats: TagStat[] | undefined;
         if (query.projectId) {
             const project = await this.projectRepository.findByPk(query.projectId);
             if (project?.customMetricsSchema?.length) {
                 customMetricsAggregated = this.aggregateCustomMetrics(recordsForDerived, project.customMetricsSchema);
+            }
+            if (project?.callTaxonomy?.length) {
+                tagStats = buildTagStats(recordsForDerived, project.callTaxonomy);
             }
         }
 
@@ -1683,6 +1696,7 @@ export class OperatorAnalyticsService {
             insightsAvailable: aggregationCount >= resolveInsightsMinCalls(),
             excludedLowQualityCount,
             agentScorecards,
+            ...(tagStats !== undefined ? { tagStats } : {}),
         };
     }
 

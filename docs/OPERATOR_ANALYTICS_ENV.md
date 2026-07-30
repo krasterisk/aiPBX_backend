@@ -67,6 +67,10 @@ Webhook: добавьте `anomaly.detected` в `webhookEvents` проекта.
 
 Ключ кэша включает `userId` (tenant), фильтры, `INSIGHTS_PROMPT_VERSION` и digest фактов. Query `refresh=1` обходит кэш.
 
+| Переменная | Дефолт | Назначение |
+|---|---|---|
+| `OPERATOR_EVIDENCE_MAX_CALLS` | `300` | Максимум звонков, загружаемых для агрегации evidence в панели оператора (`GET /operator-analytics/operator-evidence`). Ограничивает latency и объём цитат в ответе; клиентский `limit` может только уменьшить cap. Per-metric evidence дополнительно ограничен 5 элементами на метрику в коде. Оба порога стоит пересмотреть на UAT. |
+
 ### Troubleshooting: insight billing FK error
 
 Инсайты и генерация промптов пишут `billingRecords` с синтетическим `channelId` (`insight-*`, `prompt-*`), без строки в `aiCdr`. На старых БД остаётся FK `billingRecords.channelId → aiCdr.channelId` и INSERT падает с `ER_NO_REFERENCED_ROW_2`.

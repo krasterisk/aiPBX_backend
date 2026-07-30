@@ -1,5 +1,28 @@
 import { InsightsCacheService } from './insights-cache.service';
 import type { OperatorInsightsResponse } from './lib/insights-schema';
+import { INSIGHTS_PROMPT_VERSION } from './lib/insights-schema';
+
+function buildInsightsCacheKey(
+    tenantUserId: string,
+    query: {
+        projectId?: number;
+        startDate?: string;
+        endDate?: string;
+        operatorName?: string;
+    },
+    factsDigest: string,
+): string {
+    return [
+        'insights:v1',
+        tenantUserId,
+        query.projectId ?? 'all',
+        query.startDate || '',
+        query.endDate || '',
+        query.operatorName || '',
+        INSIGHTS_PROMPT_VERSION,
+        factsDigest,
+    ].join(':');
+}
 
 const sampleResponse: OperatorInsightsResponse = {
     insights: [],
@@ -37,5 +60,19 @@ describe('InsightsCacheService', () => {
         jest.advanceTimersByTime(1500);
         await expect(service.get('k2')).resolves.toBeNull();
         jest.useRealTimers();
+    });
+
+    it('uses different cache keys for different tenants with otherwise identical inputs', () => {
+        const digest = 'facts-digest-abc';
+        const filters = {
+            projectId: 1,
+            startDate: '2026-01-01',
+            endDate: '2026-01-31',
+        };
+        const tenantA = buildInsightsCacheKey('tenant-a', filters, digest);
+        const tenantB = buildInsightsCacheKey('tenant-b', filters, digest);
+        expect(tenantA).not.toBe(tenantB);
+        expect(tenantA).toContain('tenant-a');
+        expect(tenantB).toContain('tenant-b');
     });
 });

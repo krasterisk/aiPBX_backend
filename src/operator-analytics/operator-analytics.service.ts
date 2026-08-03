@@ -1103,9 +1103,34 @@ export class OperatorAnalyticsService {
 
     // ─── Read Endpoints ──────────────────────────────────────────────
 
-    async getById(id: number, userId?: string, projectId?: number): Promise<AiCdr> {
-        const where: any = { channelId: String(id) };
-        if (userId) where.userId = userId;
+    async getById(
+        id: number,
+        userId?: string | null,
+        projectId?: number,
+        isAdmin = false,
+        /** Extra owner ids (e.g. both JWT `users.id` and `vpbx_user_id`) */
+        actorUserIds: Array<string | null | undefined> = [],
+    ): Promise<AiCdr> {
+        const idStr = String(id);
+        // channelId is usually operator_analytics.id; also accept aiCdr PK for legacy callers
+        const where: any = {
+            [Op.or]: [
+                { channelId: idStr },
+                { id },
+            ],
+        };
+        if (!isAdmin) {
+            const owners = Array.from(new Set(
+                [userId, ...actorUserIds]
+                    .filter((v): v is string => v != null && String(v).length > 0)
+                    .map(String),
+            ));
+            if (owners.length === 1) {
+                where.userId = owners[0];
+            } else if (owners.length > 1) {
+                where.userId = { [Op.in]: owners };
+            }
+        }
         // Project-scoped API tokens may only read records of their project (least privilege)
         if (projectId != null) where.projectId = projectId;
 
@@ -1120,7 +1145,7 @@ export class OperatorAnalyticsService {
             throw new HttpException('Analysis not found', HttpStatus.NOT_FOUND);
         }
         // Compliance: audit every full-record (transcript) read.
-        this.logTranscriptAccess(userId, id, 'read');
+        this.logTranscriptAccess(userId ?? undefined, id, 'read');
         return record;
     }
 

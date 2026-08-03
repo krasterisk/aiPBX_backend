@@ -713,9 +713,16 @@ export class OperatorAnalyticsController {
         @Param('id') id: string,
         @Req() req: RequestWithUser,
     ) {
-        // Try API token first, then fall back to JWT parsing
+        // Prefer vpbx id for tenancy, but also accept internal users.id — historical
+        // aiCdr.userId rows may store either depending on when the analysis was created.
         const userId = req.vpbxUserId || req.tokenUserId || null;
-        return this.service.getById(+id, userId);
+        return this.service.getById(
+            +id,
+            userId,
+            undefined,
+            req.isAdmin ?? false,
+            [req.tokenUserId, req.vpbxUserId],
+        );
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────

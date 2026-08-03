@@ -1730,7 +1730,8 @@ describe('OperatorAnalyticsService', () => {
             await service.getById(7, '1', 3);
 
             const call = mockAiCdrRepo.findOne.mock.calls[0][0];
-            expect(call.where).toMatchObject({ channelId: '7', userId: '1', projectId: 3 });
+            expect(call.where).toMatchObject({ userId: '1', projectId: 3 });
+            expect(call.where[Op.or]).toEqual([{ channelId: '7' }, { id: 7 }]);
         });
 
         it('does not add projectId filter when omitted', async () => {
@@ -1739,6 +1740,22 @@ describe('OperatorAnalyticsService', () => {
 
             const call = mockAiCdrRepo.findOne.mock.calls[0][0];
             expect(call.where).not.toHaveProperty('projectId');
+        });
+
+        it('skips userId filter for admin so cross-tenant evidence opens', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue({ channelId: '7', userId: '95' });
+            await service.getById(7, '1', undefined, true);
+
+            const call = mockAiCdrRepo.findOne.mock.calls[0][0];
+            expect(call.where).not.toHaveProperty('userId');
+        });
+
+        it('matches either JWT user id or vpbx_user_id for non-admin', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue({ channelId: '7', userId: '42' });
+            await service.getById(7, '1006', undefined, false, ['42', '1006']);
+
+            const call = mockAiCdrRepo.findOne.mock.calls[0][0];
+            expect(call.where.userId).toEqual({ [Op.in]: ['1006', '42'] });
         });
 
         it('emits a structured audit log on transcript read', async () => {

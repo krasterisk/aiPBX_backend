@@ -154,6 +154,44 @@ describe('operator-evidence', () => {
                 metrics: [],
             });
         });
+
+        it('averages summary metrics on meaningful scales (csat 1–5, success %, sentiment 0–100)', () => {
+            const records = [
+                baseRecord({
+                    channelId: '1',
+                    metrics: {
+                        csat: 5,
+                        success: true,
+                        customer_sentiment: 'Positive',
+                        _assessments: {
+                            csat: { rationale: 'High CSAT' },
+                            success: { rationale: 'Resolved' },
+                            customer_sentiment: { rationale: 'Happy' },
+                        },
+                    },
+                }),
+                baseRecord({
+                    channelId: '2',
+                    metrics: {
+                        csat: 3,
+                        success: false,
+                        customer_sentiment: 'Negative',
+                        _assessments: {
+                            csat: { rationale: 'Mid CSAT' },
+                            success: { rationale: 'Not resolved' },
+                            customer_sentiment: { rationale: 'Upset' },
+                        },
+                    },
+                }),
+            ];
+
+            const result = buildOperatorEvidence(records, { operatorName: 'Иван' });
+            const byId = Object.fromEntries(result.metrics.map(m => [m.metricId, m]));
+
+            expect(byId.csat.average).toBe(4);
+            expect(byId.success.average).toBe(50);
+            expect(byId.customer_sentiment.average).toBe(50);
+        });
     });
 
     describe('resolveEvidenceMaxCalls', () => {

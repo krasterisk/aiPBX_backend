@@ -1759,7 +1759,11 @@ describe('OperatorAnalyticsService', () => {
         });
 
         it('emits a structured audit log on transcript read', async () => {
-            mockAiCdrRepo.findOne.mockResolvedValue({ channelId: '7' });
+            mockAiCdrRepo.findOne.mockResolvedValue({
+                channelId: '7',
+                toJSON: () => ({ channelId: '7' }),
+            });
+            mockAnalyticsRepo.findByPk.mockResolvedValue(null);
             const logSpy = jest.spyOn((service as any).logger, 'log');
 
             await service.getById(7, '42');
@@ -1769,6 +1773,30 @@ describe('OperatorAnalyticsService', () => {
             expect(audit).toContain('"actorUserId":"42"');
             expect(audit).toContain('"recordId":7');
             logSpy.mockRestore();
+        });
+
+        it('attaches operator_analytics transcription for the call panel', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue({
+                channelId: '7',
+                analytics: { metrics: {} },
+                toJSON: () => ({ channelId: '7', recordUrl: 'https://cdn/a.mp3' }),
+            });
+            mockAnalyticsRepo.findByPk.mockResolvedValue({
+                transcription: 'hello transcript',
+                transcriptionQuality: 'ok',
+                transcriptionConfidence: 0.9,
+                detectedLanguage: 'ru',
+                qualityReasons: null,
+            });
+
+            const result = await service.getById(7, '1', undefined, true);
+
+            expect(mockAnalyticsRepo.findByPk).toHaveBeenCalledWith(7, expect.any(Object));
+            expect(result).toMatchObject({
+                channelId: '7',
+                recordUrl: 'https://cdn/a.mp3',
+                transcription: 'hello transcript',
+            });
         });
     });
 
@@ -1948,6 +1976,78 @@ describe('OperatorAnalyticsService', () => {
 
             const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
             expect(call.where[Op.or]).toBeDefined();
+        });
+
+        it('filters by sentiment via operator_metric_values', async () => {
+            mockMetricValueRepo.findAll.mockResolvedValue([
+                { channelId: '20' },
+                { channelId: '21' },
+            ]);
+
+            await service.getCdrs({ sentiment: 'negative', projectId: 3 }, false, '42');
+
+            expect(mockMetricValueRepo.findAll).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({
+                        metricId: 'customer_sentiment',
+                        userId: '42',
+                        projectId: 3,
+                    }),
+                }),
+            );
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where.channelId).toEqual({ [Op.in]: ['20', '21'] });
+        });
+
+        it('filters by success=false via operator_metric_values', async () => {
+            mockMetricValueRepo.findAll.mockResolvedValue([{ channelId: '9' }]);
+
+            await service.getCdrs({ success: 'false' }, true, null);
+
+            expect(mockMetricValueRepo.findAll).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({
+                        metricId: 'success',
+                        boolValue: false,
+                    }),
+                }),
+            );
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where.channelId).toEqual({ [Op.in]: ['9'] });
+        });
+
+        it('returns nothing when sentiment matches no metric_values rows', async () => {
+            mockMetricValueRepo.findAll.mockResolvedValue([]);
+
+            await service.getCdrs({ sentiment: 'positive' }, false, '7');
+
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where.channelId).toEqual({ [Op.in]: ['__no_matching_sentiment__'] });
+        });
+
+        it('composes sentiment filter with projectId', async () => {
+            mockMetricValueRepo.findAll.mockResolvedValue([{ channelId: '5' }]);
+
+            await service.getCdrs({ sentiment: 'Neutral', projectId: 2 }, false, '42');
+
+            expect(mockMetricValueRepo.findAll).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({
+                        metricId: 'customer_sentiment',
+                        projectId: 2,
+                        userId: '42',
+                    }),
+                }),
+            );
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where.projectId).toBe(2);
+            expect(call.where.channelId).toEqual({ [Op.in]: ['5'] });
+        });
+
+        it('rejects invalid sentiment values', async () => {
+            await expect(
+                service.getCdrs({ sentiment: 'angry' }, false, '42'),
+            ).rejects.toThrow('sentiment must be positive, neutral, or negative');
         });
     });
 

@@ -87,7 +87,48 @@ function sortValueForMetric(value: number | boolean | string | null): number {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (value === true) return 1;
     if (value === false) return 0;
+    const sentiment = sentimentToScore(value);
+    if (sentiment != null) return sentiment;
     return 0;
+}
+
+/** Map summary values onto a numeric scale so averages/colors are meaningful. */
+function valueToAverageContribution(
+    metricId: string,
+    value: number | boolean | string | null,
+): number | null {
+    if (metricId === 'success') {
+        if (value === true || value === 1 || value === 'true') return 100;
+        if (value === false || value === 0 || value === 'false') return 0;
+        return null;
+    }
+    if (metricId === 'customer_sentiment') {
+        return sentimentToScore(value);
+    }
+    if (metricId === 'csat') {
+        if (typeof value === 'number' && Number.isFinite(value)) return value;
+        return null;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    return null;
+}
+
+function sentimentToScore(value: number | boolean | string | null): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        // Already on 0–100 (from a prior average) or unexpected — keep as-is if in range
+        return value;
+    }
+    if (typeof value !== 'string') return null;
+    switch (value.trim().toLowerCase()) {
+        case 'positive':
+            return 100;
+        case 'neutral':
+            return 50;
+        case 'negative':
+            return 0;
+        default:
+            return null;
+    }
 }
 
 function classifyOrigin(
@@ -170,8 +211,9 @@ export function buildOperatorEvidence(
             }
             const bucket = buckets.get(key)!;
 
-            if (typeof value === 'number' && Number.isFinite(value)) {
-                bucket.sum += value;
+            const numeric = valueToAverageContribution(key, value);
+            if (numeric != null) {
+                bucket.sum += numeric;
                 bucket.sampleSize++;
             } else if (value !== null) {
                 bucket.sampleSize++;
@@ -209,13 +251,16 @@ export function buildOperatorEvidence(
 
         if (evidence.length === 0) continue;
 
-        const hasNumeric = bucket.candidates.some(c => typeof c.value === 'number');
-        const avgDenom = bucket.sampleSize || 1;
+        const numericCount = bucket.candidates.reduce(
+            (n, c) => n + (valueToAverageContribution(metricId, c.value) != null ? 1 : 0),
+            0,
+        );
+        const avgDenom = numericCount || bucket.sampleSize || 1;
         metrics.push({
             metricId,
             origin: classifyOrigin(metricId, customMetricIds),
             label: bucket.label,
-            average: bucket.sampleSize > 0 && hasNumeric
+            average: numericCount > 0
                 ? parseFloat((bucket.sum / avgDenom).toFixed(2))
                 : null,
             sampleSize: bucket.sampleSize,

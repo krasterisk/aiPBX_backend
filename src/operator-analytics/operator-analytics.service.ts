@@ -68,7 +68,7 @@ import {
 import { buildInsightsPrompt } from './lib/insights-prompt';
 import { PROJECT_TEMPLATES } from './project-templates';
 import { OPERATOR_CDR_SOURCE } from './lib/analytics-source';
-import { Op, Sequelize } from 'sequelize';
+import { Op, Sequelize, where as sqlWhere, fn, col } from 'sequelize';
 import OpenAI from 'openai';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
@@ -252,6 +252,61 @@ export class OperatorAnalyticsService {
         const dialect = this.analyticsRepository.sequelize.getDialect();
         const op = dialect === 'postgres' ? Op.iLike : Op.like;
         return { [op]: value };
+    }
+
+    private parseSentimentFilter(raw?: string): string | null {
+        if (raw == null || String(raw).trim() === '') return null;
+        const key = String(raw).trim().toLowerCase();
+        if (key === 'positive' || key === 'neutral' || key === 'negative') return key;
+        throw new HttpException(
+            'sentiment must be positive, neutral, or negative',
+            HttpStatus.BAD_REQUEST,
+        );
+    }
+
+    private parseSuccessFilter(raw?: string | boolean): boolean | null {
+        if (raw === undefined || raw === null || raw === '') return null;
+        if (raw === true || raw === 'true' || raw === '1') return true;
+        if (raw === false || raw === 'false' || raw === '0') return false;
+        throw new HttpException(
+            'success must be true or false',
+            HttpStatus.BAD_REQUEST,
+        );
+    }
+
+    private scopeMetricValueWhere(
+        mvWhere: Record<string, unknown>,
+        isAdmin: boolean,
+        realUserId: string,
+        queryUserId?: string,
+        projectId?: number,
+    ): void {
+        if (!isAdmin) {
+            mvWhere.userId = realUserId;
+        } else if (queryUserId) {
+            mvWhere.userId = queryUserId;
+        }
+        if (projectId != null) {
+            mvWhere.projectId = projectId;
+        }
+    }
+
+    private applyChannelIdFilter(
+        where: Record<string, unknown>,
+        channelIds: string[],
+        emptySentinel: string,
+    ): void {
+        const next = channelIds.length ? channelIds : [emptySentinel];
+        const existing = where.channelId as { [Op.in]?: string[] } | undefined;
+        if (existing?.[Op.in]) {
+            const prev = new Set(existing[Op.in]);
+            const intersected = next.filter(id => prev.has(id));
+            where.channelId = {
+                [Op.in]: intersected.length ? intersected : [emptySentinel],
+            };
+        } else {
+            where.channelId = { [Op.in]: next };
+        }
     }
 
     /**
@@ -1146,7 +1201,34 @@ export class OperatorAnalyticsService {
         }
         // Compliance: audit every full-record (transcript) read.
         this.logTranscriptAccess(userId ?? undefined, id, 'read');
-        return record;
+
+        // Attach operator_analytics transcription (same enrichment as getCdrs) for the call panel player/dialog.
+        const json = (typeof record.toJSON === 'function'
+            ? record.toJSON()
+            : { ...record }) as unknown as Record<string, unknown>;
+        const oaId = Number(record.channelId);
+        if (Number.isFinite(oaId)) {
+            const oa = await this.analyticsRepository.findByPk(oaId, {
+                attributes: [
+                    'id', 'transcription', 'transcriptionQuality', 'transcriptionConfidence',
+                    'detectedLanguage', 'qualityReasons',
+                ],
+            });
+            if (oa) {
+                json.transcription = oa.transcription || null;
+                json.transcriptionQuality = oa.transcriptionQuality
+                    || (record.analytics?.metrics as any)?._quality?.quality
+                    || null;
+                json.transcriptionConfidence = oa.transcriptionConfidence
+                    ?? (record.analytics?.metrics as any)?._quality?.confidence
+                    ?? null;
+                json.detectedLanguage = oa.detectedLanguage || null;
+                json.qualityReasons = oa.qualityReasons
+                    || (record.analytics?.metrics as any)?._quality?.reasons
+                    || null;
+            }
+        }
+        return json as unknown as AiCdr;
     }
 
     /**
@@ -1353,6 +1435,8 @@ export class OperatorAnalyticsService {
         operatorName?: string;
         operatorNameExact?: string;
         tagId?: string;
+        sentiment?: string;
+        success?: string | boolean;
         projectId?: number;
         page?: number;
         limit?: number;
@@ -1361,6 +1445,8 @@ export class OperatorAnalyticsService {
         sortOrder?: string;
     }, isAdmin: boolean, realUserId: string) {
         const where: any = {};
+        const sentimentKey = this.parseSentimentFilter(query.sentiment);
+        const successFlag = this.parseSuccessFilter(query.success);
 
         // Access control
         if (!isAdmin) {
@@ -1408,9 +1494,35 @@ export class OperatorAnalyticsService {
                 limit: 5000,
             });
             const channelIds = tagRows.map(r => r.channelId);
-            where.channelId = channelIds.length
-                ? { [Op.in]: channelIds }
-                : { [Op.in]: ['__no_matching_tag__'] };
+            this.applyChannelIdFilter(where, channelIds, '__no_matching_tag__');
+        }
+
+        if (sentimentKey) {
+            const mvWhere: Record<string, unknown> = {
+                metricId: 'customer_sentiment',
+                [Op.and]: [sqlWhere(fn('LOWER', col('strValue')), sentimentKey)],
+            };
+            this.scopeMetricValueWhere(mvWhere, isAdmin, realUserId, query.userId, query.projectId);
+            const rows = await this.metricValueRepository.findAll({
+                where: mvWhere,
+                attributes: ['channelId'],
+                limit: 5000,
+            });
+            this.applyChannelIdFilter(where, rows.map(r => r.channelId), '__no_matching_sentiment__');
+        }
+
+        if (successFlag !== null) {
+            const mvWhere: Record<string, unknown> = {
+                metricId: 'success',
+                boolValue: successFlag,
+            };
+            this.scopeMetricValueWhere(mvWhere, isAdmin, realUserId, query.userId, query.projectId);
+            const rows = await this.metricValueRepository.findAll({
+                where: mvWhere,
+                attributes: ['channelId'],
+                limit: 5000,
+            });
+            this.applyChannelIdFilter(where, rows.map(r => r.channelId), '__no_matching_success__');
         }
 
         // Search logic (name, phone, transcription — additive)

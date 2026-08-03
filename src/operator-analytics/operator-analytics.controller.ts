@@ -528,6 +528,8 @@ export class OperatorAnalyticsController {
             operatorName?: string;
             operatorNameExact?: string;
             tagId?: string;
+            sentiment?: string;
+            success?: string;
             projectId?: number;
             page?: number;
             limit?: number;

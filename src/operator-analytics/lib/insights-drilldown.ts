@@ -72,9 +72,15 @@ async function findExemplarChannelIds(
         Object.assign(where, { assistantName: deps.likeOp(`%${operator}%`) });
     }
 
+    // analytics lives on aiAnalytics (HasOne), not as a column on aiCdr
     const rows = await deps.aiCdrRepository.findAll({
         where,
-        attributes: ['channelId', 'analytics'],
+        attributes: ['channelId'],
+        include: [{
+            association: 'analytics',
+            attributes: ['metrics'],
+            required: false,
+        }],
         limit: 120,
         order: [['createdAt', 'DESC']],
     });

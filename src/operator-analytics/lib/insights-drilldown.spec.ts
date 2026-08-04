@@ -29,7 +29,12 @@ describe('insights-drilldown', () => {
         });
 
         expect(result).toEqual([baseInsight]);
-        expect(aiCdrRepository.findAll).toHaveBeenCalled();
+        expect(aiCdrRepository.findAll).toHaveBeenCalledWith(
+            expect.objectContaining({
+                attributes: ['channelId'],
+                include: [expect.objectContaining({ association: 'analytics' })],
+            }),
+        );
     });
 
     it('attaches exemplar channelIds sorted by metric for gap insights', async () => {

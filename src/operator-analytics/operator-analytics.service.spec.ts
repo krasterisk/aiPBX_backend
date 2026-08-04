@@ -2155,11 +2155,64 @@ describe('OperatorAnalyticsService', () => {
             });
         });
 
-        it('rejects tag ids outside project taxonomy', async () => {
+        it('rejects tag ids outside project taxonomy when taxonomy is configured', async () => {
             await expect(
                 service.updateCallTags('7', '9', false, ['unknown']),
             ).rejects.toThrow('Invalid tag id for project taxonomy');
             expect(mockCallTagRepo.create).not.toHaveBeenCalled();
+        });
+
+        it('allows free-form tags when project taxonomy is empty', async () => {
+            mockProjectRepo.findByPk.mockResolvedValue({
+                ...mockProject,
+                callTaxonomy: [],
+            });
+            mockCallTagRepo.findOne.mockResolvedValue(null);
+
+            const result = await service.updateCallTags(
+                '7',
+                '9',
+                false,
+                ['custom-topic'],
+                { 'custom-topic': 'Своя тема' },
+            );
+
+            expect(result.tagIds).toEqual(['custom-topic']);
+            expect(mockCallTagRepo.create).toHaveBeenCalledWith(
+                expect.objectContaining({ tagId: 'custom-topic', source: 'manual' }),
+            );
+            const analytics = await mockAiAnalyticsRepo.findOne.mock.results[0].value;
+            expect(analytics.update).toHaveBeenCalledWith({
+                metrics: expect.objectContaining({
+                    _topics: expect.objectContaining({
+                        tags: ['custom-topic'],
+                        tag_names: { 'custom-topic': 'Своя тема' },
+                    }),
+                }),
+            });
+        });
+
+        it('allows free-form tags when call has no project', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue({
+                channelId: '7',
+                userId: '1',
+                projectId: null,
+            });
+            mockCallTagRepo.findOne.mockResolvedValue(null);
+
+            const result = await service.updateCallTags(
+                '7',
+                '9',
+                false,
+                ['no-project-tag'],
+                { 'no-project-tag': 'Без проекта' },
+            );
+
+            expect(result.tagIds).toEqual(['no-project-tag']);
+            expect(mockProjectRepo.findByPk).not.toHaveBeenCalled();
+            expect(mockCallTagRepo.create).toHaveBeenCalledWith(
+                expect.objectContaining({ projectId: null, tagId: 'no-project-tag' }),
+            );
         });
 
         it('rejects cross-tenant calls before writing tags', async () => {

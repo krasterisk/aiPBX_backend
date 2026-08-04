@@ -1331,23 +1331,38 @@ export class OperatorAnalyticsService {
         actorUserId: string,
         isAdmin: boolean,
         tagIds: string[],
+        tagNamesInput?: Record<string, string>,
     ): Promise<{ tagIds: string[] }> {
         const record = await this.assertRecordAccess(channelId, actorUserId, isAdmin);
-        if (!record.projectId) {
-            throw new HttpException('Call has no project', HttpStatus.BAD_REQUEST);
+
+        let taxonomy: TagDefinition[] = [];
+        if (record.projectId) {
+            const project = await this.projectRepository.findByPk(record.projectId);
+            if (!project) {
+                throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+            }
+            taxonomy = project.callTaxonomy ?? [];
         }
 
-        const project = await this.projectRepository.findByPk(record.projectId);
-        if (!project) {
-            throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
-        }
-
-        const taxonomy = project.callTaxonomy ?? [];
         const taxonomyIds = new Set(taxonomy.map(t => t.id));
-        const uniqueTagIds = [...new Set(tagIds ?? [])];
+        const allowFreeForm = taxonomy.length === 0;
+        const uniqueTagIds = [...new Set((tagIds ?? []).map(id => String(id).trim()).filter(Boolean))];
+
+        if (uniqueTagIds.length > 10) {
+            throw new HttpException('At most 10 tags are allowed', HttpStatus.BAD_REQUEST);
+        }
+
         for (const id of uniqueTagIds) {
-            if (!taxonomyIds.has(id)) {
+            if (id.length > 100) {
+                throw new HttpException('Invalid tag id', HttpStatus.BAD_REQUEST);
+            }
+            if (taxonomyIds.has(id)) continue;
+            if (!allowFreeForm) {
                 throw new HttpException('Invalid tag id for project taxonomy', HttpStatus.BAD_REQUEST);
+            }
+            const name = tagNamesInput?.[id]?.trim() || id;
+            if (!name || name.length > 100) {
+                throw new HttpException('Invalid free-form tag name', HttpStatus.BAD_REQUEST);
             }
         }
 
@@ -1374,7 +1389,7 @@ export class OperatorAnalyticsService {
                     await this.callTagRepository.create({
                         channelId: channelIdStr,
                         userId: String(record.userId),
-                        projectId: record.projectId,
+                        projectId: record.projectId ?? null,
                         tagId,
                         source: 'manual',
                         actorUserId: String(actorUserId),
@@ -1383,7 +1398,7 @@ export class OperatorAnalyticsService {
             }
         }
 
-        const tagNames = this.buildTagNameSnapshot(uniqueTagIds, taxonomy);
+        const tagNames = this.buildTagNameSnapshot(uniqueTagIds, taxonomy, tagNamesInput);
         const analytics = await this.aiAnalyticsRepository.findOne({
             where: { channelId: channelIdStr },
         });
@@ -2057,11 +2072,15 @@ export class OperatorAnalyticsService {
         return merged.slice(0, 10);
     }
 
-    private buildTagNameSnapshot(tagIds: string[], taxonomy: TagDefinition[]): Record<string, string> {
+    private buildTagNameSnapshot(
+        tagIds: string[],
+        taxonomy: TagDefinition[],
+        extraNames?: Record<string, string>,
+    ): Record<string, string> {
         const byId = new Map(taxonomy.map(t => [t.id, t.name]));
         const names: Record<string, string> = {};
         for (const id of tagIds) {
-            const name = byId.get(id);
+            const name = byId.get(id) || extraNames?.[id]?.trim() || id;
             if (name) names[id] = name;
         }
         return names;

@@ -699,7 +699,13 @@ export class OperatorAnalyticsController {
     ) {
         const userId = req.vpbxUserId || req.tokenUserId;
         if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-        return this.service.updateCallTags(id, userId, req.isAdmin ?? false, body.tagIds ?? []);
+        return this.service.updateCallTags(
+            id,
+            userId,
+            req.isAdmin ?? false,
+            body.tagIds ?? [],
+            body.tagNames,
+        );
     }
 
     // ─── Get by ID (JWT or API Token) ────────────────────────────────

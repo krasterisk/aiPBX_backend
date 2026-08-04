@@ -1978,46 +1978,62 @@ describe('OperatorAnalyticsService', () => {
             expect(call.where[Op.or]).toBeDefined();
         });
 
-        it('filters by sentiment via operator_metric_values', async () => {
-            mockMetricValueRepo.findAll.mockResolvedValue([
+        it('filters by sentiment via aiCdr-joined metric values', async () => {
+            mockAiCdrRepo.sequelize.query.mockResolvedValueOnce([[
                 { channelId: '20' },
                 { channelId: '21' },
-            ]);
+            ]]);
 
-            await service.getCdrs({ sentiment: 'negative', projectId: 3 }, false, '42');
+            await service.getCdrs({
+                sentiment: 'negative',
+                projectId: 3,
+                startDate: '2026-01-01',
+                endDate: '2026-01-31',
+            }, false, '42');
 
-            expect(mockMetricValueRepo.findAll).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    where: expect.objectContaining({
-                        metricId: 'customer_sentiment',
-                        userId: '42',
-                        projectId: 3,
-                    }),
-                }),
-            );
+            const [sql, opts] = mockAiCdrRepo.sequelize.query.mock.calls[0];
+            expect(sql).toContain('customer_sentiment');
+            expect(sql).toContain('aiCdr');
+            expect(opts.replacements).toMatchObject({
+                sentiment: 'negative',
+                userId: '42',
+                projectId: 3,
+            });
             const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
             expect(call.where.channelId).toEqual({ [Op.in]: ['20', '21'] });
         });
 
-        it('filters by success=false via operator_metric_values', async () => {
-            mockMetricValueRepo.findAll.mockResolvedValue([{ channelId: '9' }]);
+        it('filters by success=false via aiCdr-joined metric values', async () => {
+            mockAiCdrRepo.sequelize.query.mockResolvedValueOnce([[{ channelId: '9' }]]);
 
             await service.getCdrs({ success: 'false' }, true, null);
 
-            expect(mockMetricValueRepo.findAll).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    where: expect.objectContaining({
-                        metricId: 'success',
-                        boolValue: false,
-                    }),
-                }),
-            );
+            const [sql, opts] = mockAiCdrRepo.sequelize.query.mock.calls[0];
+            expect(sql).toContain("metricId");
+            expect(sql).toContain('success');
+            expect(opts.replacements.successBool).toBe(false);
             const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
             expect(call.where.channelId).toEqual({ [Op.in]: ['9'] });
         });
 
-        it('returns nothing when sentiment matches no metric_values rows', async () => {
-            mockMetricValueRepo.findAll.mockResolvedValue([]);
+        it('falls back to aiAnalytics.sentiment when metric_values are empty', async () => {
+            mockAiCdrRepo.sequelize.query
+                .mockResolvedValueOnce([[]])
+                .mockResolvedValueOnce([[{ channelId: '77' }]]);
+
+            await service.getCdrs({ sentiment: 'positive' }, false, '7');
+
+            expect(mockAiCdrRepo.sequelize.query).toHaveBeenCalledTimes(2);
+            const [fallbackSql] = mockAiCdrRepo.sequelize.query.mock.calls[1];
+            expect(fallbackSql).toContain('aiAnalytics');
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where.channelId).toEqual({ [Op.in]: ['77'] });
+        });
+
+        it('returns nothing when sentiment matches no rows in either source', async () => {
+            mockAiCdrRepo.sequelize.query
+                .mockResolvedValueOnce([[]])
+                .mockResolvedValueOnce([[]]);
 
             await service.getCdrs({ sentiment: 'positive' }, false, '7');
 
@@ -2025,20 +2041,17 @@ describe('OperatorAnalyticsService', () => {
             expect(call.where.channelId).toEqual({ [Op.in]: ['__no_matching_sentiment__'] });
         });
 
-        it('composes sentiment filter with projectId', async () => {
-            mockMetricValueRepo.findAll.mockResolvedValue([{ channelId: '5' }]);
+        it('composes sentiment filter with projectId on CDR query', async () => {
+            mockAiCdrRepo.sequelize.query.mockResolvedValueOnce([[{ channelId: '5' }]]);
 
             await service.getCdrs({ sentiment: 'Neutral', projectId: 2 }, false, '42');
 
-            expect(mockMetricValueRepo.findAll).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    where: expect.objectContaining({
-                        metricId: 'customer_sentiment',
-                        projectId: 2,
-                        userId: '42',
-                    }),
-                }),
-            );
+            const [, opts] = mockAiCdrRepo.sequelize.query.mock.calls[0];
+            expect(opts.replacements).toMatchObject({
+                sentiment: 'neutral',
+                projectId: 2,
+                userId: '42',
+            });
             const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
             expect(call.where.projectId).toBe(2);
             expect(call.where.channelId).toEqual({ [Op.in]: ['5'] });

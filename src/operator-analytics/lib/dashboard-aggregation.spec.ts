@@ -1,4 +1,4 @@
-import { buildDashboardCdrWhere } from './dashboard-aggregation';
+import { buildDashboardCdrWhere, findChannelIdsForDistribution } from './dashboard-aggregation';
 import { Op } from 'sequelize';
 
 describe('dashboard-aggregation', () => {
@@ -49,5 +49,55 @@ describe('dashboard-aggregation', () => {
             likeOp,
         );
         expect(where.assistantName).toBe('Иван Петров');
+    });
+
+    describe('findChannelIdsForDistribution', () => {
+        it('joins metric_values to aiCdr with tenant/date scope (not mv.userId)', async () => {
+            const query = jest.fn().mockResolvedValue([[{ channelId: '11' }]]);
+            const sequelize = {
+                getDialect: () => 'mysql',
+                query,
+            } as any;
+
+            const ids = await findChannelIdsForDistribution(
+                sequelize,
+                { startDate: '2026-08-03', endDate: '2026-08-09', projectId: 2 },
+                false,
+                '42',
+                { sentiment: 'positive' },
+            );
+
+            expect(ids).toEqual(['11']);
+            const [sql, opts] = query.mock.calls[0];
+            expect(sql).toContain('operator_metric_values');
+            expect(sql).toContain('aiCdr');
+            expect(sql).not.toContain('mv.`userId`');
+            expect(opts.replacements).toMatchObject({
+                sentiment: 'positive',
+                userId: '42',
+                projectId: 2,
+            });
+        });
+
+        it('falls back to aiAnalytics when metric_values miss', async () => {
+            const query = jest.fn()
+                .mockResolvedValueOnce([[]])
+                .mockResolvedValueOnce([[{ channelId: '99' }]]);
+            const sequelize = {
+                getDialect: () => 'postgres',
+                query,
+            } as any;
+
+            const ids = await findChannelIdsForDistribution(
+                sequelize,
+                {},
+                true,
+                '1',
+                { sentiment: 'neutral' },
+            );
+
+            expect(ids).toEqual(['99']);
+            expect(query.mock.calls[1][0]).toContain('aiAnalytics');
+        });
     });
 });

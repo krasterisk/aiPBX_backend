@@ -14,6 +14,7 @@ import {
     buildDashboardCdrWhere,
     countLowQualityCdrs,
     DASHBOARD_PAGE_SIZE,
+    findChannelIdsForDistribution,
 } from './lib/dashboard-aggregation';
 import { buildTagStats } from './lib/tag-stats';
 import { OpenAiTranscriptionProvider } from './providers/openai-transcription.provider';
@@ -68,7 +69,7 @@ import {
 import { buildInsightsPrompt } from './lib/insights-prompt';
 import { PROJECT_TEMPLATES } from './project-templates';
 import { OPERATOR_CDR_SOURCE } from './lib/analytics-source';
-import { Op, Sequelize, where as sqlWhere, fn, col } from 'sequelize';
+import { Op, Sequelize } from 'sequelize';
 import OpenAI from 'openai';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
@@ -272,23 +273,6 @@ export class OperatorAnalyticsService {
             'success must be true or false',
             HttpStatus.BAD_REQUEST,
         );
-    }
-
-    private scopeMetricValueWhere(
-        mvWhere: Record<string, unknown>,
-        isAdmin: boolean,
-        realUserId: string,
-        queryUserId?: string,
-        projectId?: number,
-    ): void {
-        if (!isAdmin) {
-            mvWhere.userId = realUserId;
-        } else if (queryUserId) {
-            mvWhere.userId = queryUserId;
-        }
-        if (projectId != null) {
-            mvWhere.projectId = projectId;
-        }
     }
 
     private applyChannelIdFilter(
@@ -1498,31 +1482,39 @@ export class OperatorAnalyticsService {
         }
 
         if (sentimentKey) {
-            const mvWhere: Record<string, unknown> = {
-                metricId: 'customer_sentiment',
-                [Op.and]: [sqlWhere(fn('LOWER', col('strValue')), sentimentKey)],
-            };
-            this.scopeMetricValueWhere(mvWhere, isAdmin, realUserId, query.userId, query.projectId);
-            const rows = await this.metricValueRepository.findAll({
-                where: mvWhere,
-                attributes: ['channelId'],
-                limit: 5000,
-            });
-            this.applyChannelIdFilter(where, rows.map(r => r.channelId), '__no_matching_sentiment__');
+            const channelIds = await findChannelIdsForDistribution(
+                this.aiCdrRepository.sequelize,
+                {
+                    userId: query.userId,
+                    projectId: query.projectId,
+                    startDate: query.startDate,
+                    endDate: query.endDate,
+                    operatorName: query.operatorName,
+                    operatorNameExact: query.operatorNameExact,
+                },
+                isAdmin,
+                realUserId,
+                { sentiment: sentimentKey as 'positive' | 'neutral' | 'negative' },
+            );
+            this.applyChannelIdFilter(where, channelIds, '__no_matching_sentiment__');
         }
 
         if (successFlag !== null) {
-            const mvWhere: Record<string, unknown> = {
-                metricId: 'success',
-                boolValue: successFlag,
-            };
-            this.scopeMetricValueWhere(mvWhere, isAdmin, realUserId, query.userId, query.projectId);
-            const rows = await this.metricValueRepository.findAll({
-                where: mvWhere,
-                attributes: ['channelId'],
-                limit: 5000,
-            });
-            this.applyChannelIdFilter(where, rows.map(r => r.channelId), '__no_matching_success__');
+            const channelIds = await findChannelIdsForDistribution(
+                this.aiCdrRepository.sequelize,
+                {
+                    userId: query.userId,
+                    projectId: query.projectId,
+                    startDate: query.startDate,
+                    endDate: query.endDate,
+                    operatorName: query.operatorName,
+                    operatorNameExact: query.operatorNameExact,
+                },
+                isAdmin,
+                realUserId,
+                { success: successFlag },
+            );
+            this.applyChannelIdFilter(where, channelIds, '__no_matching_success__');
         }
 
         // Search logic (name, phone, transcription — additive)
@@ -1779,7 +1771,9 @@ export class OperatorAnalyticsService {
                 if (!m) return;
                 numericKeys.forEach(k => { sums[k] += (m[k] || 0); });
                 if (m.success) successCount++;
-                const sentiment = (r.analytics?.sentiment || '').toLowerCase();
+                const sentiment = (
+                    r.analytics?.sentiment || m.customer_sentiment || ''
+                ).toString().toLowerCase();
                 if (sentiment === 'positive') positiveCount++;
                 else if (sentiment === 'neutral') neutralCount++;
                 else if (sentiment === 'negative') negativeCount++;

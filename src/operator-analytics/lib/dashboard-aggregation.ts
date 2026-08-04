@@ -293,3 +293,150 @@ export async function aggregateMetricsFromSql(
 }
 
 export const DASHBOARD_PAGE_SIZE = 2000;
+
+function appendCdrFilterClauses(
+    dialect: string,
+    cdrAlias: string,
+    filters: DashboardCdrFilters,
+    isAdmin: boolean,
+    realUserId: string,
+    clauses: string[],
+    replacements: Record<string, unknown>,
+): void {
+    const c = cdrAlias;
+    if (!isAdmin) {
+        clauses.push(`${c}.${q('userId', dialect)} = :userId`);
+        replacements.userId = String(realUserId);
+    } else if (filters.userId) {
+        clauses.push(`${c}.${q('userId', dialect)} = :userId`);
+        replacements.userId = filters.userId;
+    }
+
+    if (filters.projectId != null) {
+        clauses.push(`${c}.${q('projectId', dialect)} = :projectId`);
+        replacements.projectId = filters.projectId;
+    }
+    if (filters.operatorNameExact) {
+        clauses.push(`${c}.${q('assistantName', dialect)} = :operatorNameExact`);
+        replacements.operatorNameExact = filters.operatorNameExact;
+    } else if (filters.operatorName) {
+        const op = dialect === 'postgres' ? 'ILIKE' : 'LIKE';
+        clauses.push(`${c}.${q('assistantName', dialect)} ${op} :operatorName`);
+        replacements.operatorName = `%${filters.operatorName}%`;
+    }
+    if (filters.startDate && filters.endDate) {
+        clauses.push(`${c}.${q('createdAt', dialect)} BETWEEN :from AND :to`);
+        replacements.from = new Date(`${filters.startDate}T00:00:00`);
+        replacements.to = new Date(`${filters.endDate}T23:59:59`);
+    } else if (filters.startDate) {
+        clauses.push(`${c}.${q('createdAt', dialect)} >= :from`);
+        replacements.from = new Date(`${filters.startDate}T00:00:00`);
+    } else if (filters.endDate) {
+        clauses.push(`${c}.${q('createdAt', dialect)} <= :to`);
+        replacements.to = new Date(`${filters.endDate}T23:59:59`);
+    }
+}
+
+function successJsonExpr(dialect: string, analyticsAlias: string): string {
+    if (dialect === 'postgres') {
+        return `(${analyticsAlias}.${q('metrics', dialect)}::jsonb->>'success')`;
+    }
+    return `JSON_UNQUOTE(JSON_EXTRACT(${analyticsAlias}.${q('metrics', dialect)}, '$.success'))`;
+}
+
+function sentimentJsonExpr(dialect: string, analyticsAlias: string): string {
+    if (dialect === 'postgres') {
+        return `LOWER(COALESCE(
+            NULLIF(${analyticsAlias}.${q('sentiment', dialect)}, ''),
+            ${analyticsAlias}.${q('metrics', dialect)}::jsonb->>'customer_sentiment'
+        ))`;
+    }
+    return `LOWER(COALESCE(
+        NULLIF(${analyticsAlias}.${q('sentiment', dialect)}, ''),
+        JSON_UNQUOTE(JSON_EXTRACT(${analyticsAlias}.${q('metrics', dialect)}, '$.customer_sentiment'))
+    ))`;
+}
+
+/**
+ * Resolve AiCdr.channelId values for donut drilldown filters.
+ * Uses the same aiCdr date/tenant join as dashboard SQL aggregation so the list
+ * matches the donut segments (does NOT filter operator_metric_values.userId —
+ * that column can be null/mismatched while CDR ownership is authoritative).
+ */
+export async function findChannelIdsForDistribution(
+    sequelize: Sequelize,
+    filters: DashboardCdrFilters,
+    isAdmin: boolean,
+    realUserId: string,
+    opts: { sentiment?: 'positive' | 'neutral' | 'negative'; success?: boolean },
+): Promise<string[]> {
+    const dialect = sequelize.getDialect();
+    const c = 'c';
+    const mv = 'mv';
+    const a = 'a';
+    const replacements: Record<string, unknown> = {};
+    const cdrClauses: string[] = ['1=1'];
+    appendCdrFilterClauses(dialect, c, filters, isAdmin, realUserId, cdrClauses, replacements);
+
+    let metricClause = '';
+    if (opts.sentiment) {
+        replacements.sentiment = opts.sentiment;
+        metricClause = `
+            ${mv}.${q('metricId', dialect)} = 'customer_sentiment'
+            AND LOWER(${mv}.${q('strValue', dialect)}) = :sentiment
+        `;
+    } else if (opts.success !== undefined) {
+        // postgres boolean column accepts JS boolean; mysql tinyint needs 0/1
+        replacements.successBool = dialect === 'postgres' ? opts.success : (opts.success ? 1 : 0);
+        metricClause = `
+            ${mv}.${q('metricId', dialect)} = 'success'
+            AND ${mv}.${q('boolValue', dialect)} = :successBool
+        `;
+    } else {
+        return [];
+    }
+
+    const mvSql = `
+        SELECT DISTINCT ${mv}.${q('channelId', dialect)} AS "channelId"
+        FROM ${q('operator_metric_values', dialect)} ${mv}
+        INNER JOIN ${q('aiCdr', dialect)} ${c}
+            ON ${c}.${q('channelId', dialect)} = ${mv}.${q('channelId', dialect)}
+        WHERE ${cdrClauses.join(' AND ')}
+          AND ${metricClause}
+        LIMIT 5000
+    `;
+
+    const [mvRows] = await sequelize.query(mvSql, { replacements });
+    const fromMv = Array.isArray(mvRows)
+        ? mvRows.map(r => String((r as { channelId?: string }).channelId ?? '')).filter(Boolean)
+        : [];
+    if (fromMv.length) return fromMv;
+
+    // Fallback to aiAnalytics (JSON / sentiment column) — same population as JS dashboard path
+    const aaReplacements: Record<string, unknown> = {};
+    const aaCdrClauses: string[] = ['1=1'];
+    appendCdrFilterClauses(dialect, c, filters, isAdmin, realUserId, aaCdrClauses, aaReplacements);
+
+    let aaPredicate = '';
+    if (opts.sentiment) {
+        aaReplacements.sentiment = opts.sentiment;
+        aaPredicate = `${sentimentJsonExpr(dialect, a)} = :sentiment`;
+    } else if (opts.success !== undefined) {
+        aaReplacements.successTrue = opts.success ? 'true' : 'false';
+        // JSON may store boolean true/false; compare as lowercase string for both dialects
+        aaPredicate = `LOWER(${successJsonExpr(dialect, a)}) = :successTrue`;
+    }
+
+    const aaSql = `
+        SELECT DISTINCT ${a}.${q('channelId', dialect)} AS "channelId"
+        FROM ${q('aiAnalytics', dialect)} ${a}
+        INNER JOIN ${q('aiCdr', dialect)} ${c}
+            ON ${c}.${q('channelId', dialect)} = ${a}.${q('channelId', dialect)}
+        WHERE ${aaCdrClauses.join(' AND ')}
+          AND ${aaPredicate}
+        LIMIT 5000
+    `;
+    const [aaRows] = await sequelize.query(aaSql, { replacements: aaReplacements });
+    if (!Array.isArray(aaRows)) return [];
+    return aaRows.map(r => String((r as { channelId?: string }).channelId ?? '')).filter(Boolean);
+}

@@ -57,6 +57,8 @@ describe('insights-facts', () => {
         const combined = `${system}\n${user}`;
         expect(combined).toContain('ONLY provided facts');
         expect(combined).toContain('Russian');
+        expect(combined).toContain('priority means importance');
+        expect(combined).toContain('Use type for polarity');
     });
 
     it('resolveInsightsMinCalls defaults to 10', () => {

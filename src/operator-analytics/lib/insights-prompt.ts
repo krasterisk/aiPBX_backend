@@ -32,7 +32,10 @@ export function buildInsightsPrompt(
     const rules = [
         'Generate 3-6 insights.',
         'priority MUST be one of: high, medium, low (English only).',
+        'priority means importance for the supervisor (high = notice/act first), NOT good vs bad.',
         'type MUST be one of: strength, gap, trend, outlier, quality (English only).',
+        'Use type for polarity: strength = positive finding; gap/outlier/quality = problem or risk; trend = change over time.',
+        'A high-priority strength is still type "strength" (not gap). A low-priority gap is still type "gap".',
         'title, observation, recommendation MUST be in Russian.',
         'evidence object MUST always include keys: metric (string, use "" if N/A), value (number or null), operators (string array, [] if N/A), periodLabel (string, use "" if N/A).',
         'When citing a metric, set evidence.metric and evidence.value from facts.',

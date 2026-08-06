@@ -11,6 +11,7 @@
 | `DEFAULT_STT_PROVIDER` | `whisper` | Провайдер распознавания речи по умолчанию (`whisper` / внешний). |
 | `DEFAULT_OLLAMA_MODEL` | `gemma4:e4b` | Локальная LLM-модель для анализа (Ollama). |
 | `ANALYTICS_FALLBACK_MODEL` | `gemma4:e4b` | Фолбэк-модель, если основной LLM-путь недоступен. |
+| `OPERATOR_ANALYTICS_ALLOW_INSECURE_SSL` | `true` | Скачивать записи по HTTPS с self-signed сертификатами (`analyze-url` / regenerate). `false` — строгая проверка TLS. |
 
 ## Контроль качества распознавания (anti-garbage, §6)
 

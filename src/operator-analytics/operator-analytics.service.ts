@@ -90,6 +90,7 @@ import OpenAI from 'openai';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
+import * as https from 'https';
 
 @Injectable()
 export class OperatorAnalyticsService {
@@ -108,6 +109,9 @@ export class OperatorAnalyticsService {
     // ─── Batch Processing Tracker ─────────────────────────────────────
     private readonly batches = new Map<string, BatchStatus>();
     private readonly BATCH_TTL = 60 * 60 * 1000; // 1 hour
+
+    /** Shared agent for PBX recorders that use self-signed TLS certs. */
+    private readonly insecureHttpsAgent = new https.Agent({ rejectUnauthorized: false });
 
     constructor(
         @InjectModel(OperatorAnalytics) private readonly analyticsRepository: typeof OperatorAnalytics,
@@ -696,12 +700,7 @@ export class OperatorAnalyticsService {
         const url = this.sanitizeUrl(rawUrl);
         this.logger.log(`Downloading file from URL: ${url}`);
 
-        const response = await axios.get(url, {
-            responseType: 'arraybuffer',
-            timeout: 120_000, // 2 min
-            maxContentLength: 50 * 1024 * 1024, // 50 MB
-            maxRedirects: 5,
-        });
+        const response = await axios.get(url, this.getRecordingDownloadConfig());
 
         const buffer = Buffer.from(response.data);
         const contentLength = response.headers['content-length'];
@@ -726,11 +725,7 @@ export class OperatorAnalyticsService {
             await this.checkBalance(record.userId);
 
             this.logger.log(`Background: downloading file from URL: ${url}`);
-            const response = await axios.get(url, {
-                responseType: 'arraybuffer',
-                timeout: 120_000,
-                maxContentLength: 50 * 1024 * 1024,
-            });
+            const response = await axios.get(url, this.getRecordingDownloadConfig());
             const buffer = Buffer.from(response.data);
             const contentLength = response.headers['content-length'];
             this.logger.log(`Downloaded ${buffer.length} bytes (Content-Length: ${contentLength || 'unknown'}) from ${url}`);
@@ -1123,12 +1118,7 @@ export class OperatorAnalyticsService {
         const url = this.sanitizeUrl(recordUrl);
         this.logger.log(`Regenerating analysis for record #${recordId}: downloading ${url}`);
 
-        const response = await axios.get(url, {
-            responseType: 'arraybuffer',
-            timeout: 120_000,
-            maxContentLength: 50 * 1024 * 1024,
-            maxRedirects: 5,
-        });
+        const response = await axios.get(url, this.getRecordingDownloadConfig());
         const buffer = Buffer.from(response.data);
 
         let project: OperatorProject | null = null;
@@ -3859,6 +3849,32 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
         cleaned = cleaned.replace(/,\s*([\]}])/g, '$1');
         return cleaned.trim();
+    }
+
+    /**
+     * Axios config for downloading call recordings.
+     * PBX hosts often use self-signed TLS — allow unless OPERATOR_ANALYTICS_ALLOW_INSECURE_SSL=false.
+     */
+    private getRecordingDownloadConfig(): {
+        responseType: 'arraybuffer';
+        timeout: number;
+        maxContentLength: number;
+        maxRedirects: number;
+        httpsAgent?: https.Agent;
+    } {
+        const allowInsecure = (
+            this.configService.get<string>('OPERATOR_ANALYTICS_ALLOW_INSECURE_SSL')
+            || process.env.OPERATOR_ANALYTICS_ALLOW_INSECURE_SSL
+            || 'true'
+        ).toLowerCase() !== 'false';
+
+        return {
+            responseType: 'arraybuffer',
+            timeout: 120_000,
+            maxContentLength: 50 * 1024 * 1024,
+            maxRedirects: 5,
+            ...(allowInsecure ? { httpsAgent: this.insecureHttpsAgent } : {}),
+        };
     }
 
     private extractFilenameFromUrl(url: string): string {

@@ -986,6 +986,7 @@ describe('OperatorAnalyticsService', () => {
                     responseType: 'arraybuffer',
                     timeout: 120_000,
                     maxContentLength: 50 * 1024 * 1024,
+                    httpsAgent: expect.any(Object),
                 }),
             );
         });

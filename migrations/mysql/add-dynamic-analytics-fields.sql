@@ -79,19 +79,35 @@ CREATE TABLE operator_api_tokens (
 CREATE INDEX idx_operator_api_tokens_userId ON operator_api_tokens (`userId`);
 CREATE INDEX idx_operator_api_tokens_token ON operator_api_tokens (token);
 
+-- MySQL/MariaDB: ADD COLUMN IF NOT EXISTS / DROP COLUMN IF EXISTS are not portable.
+-- Use information_schema guards (same pattern as 2026-02-25-unify-analytics.sql).
+
 DROP PROCEDURE IF EXISTS `_tmp_add_dynamic_siptrunks`;
 DELIMITER //
 CREATE PROCEDURE `_tmp_add_dynamic_siptrunks`()
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'SipTrunks') THEN
-        ALTER TABLE `SipTrunks`
-            ADD COLUMN IF NOT EXISTS `trunkType` VARCHAR(20) NOT NULL DEFAULT 'registration',
-            ADD COLUMN IF NOT EXISTS `transport` VARCHAR(10) NOT NULL DEFAULT 'udp',
-            ADD COLUMN IF NOT EXISTS `domain` VARCHAR(255) NULL,
-            ADD COLUMN IF NOT EXISTS `callerId` VARCHAR(255) NULL,
-            ADD COLUMN IF NOT EXISTS `providerIp` VARCHAR(255) NULL,
-            ADD COLUMN IF NOT EXISTS `records` TINYINT(1) NOT NULL DEFAULT 0;
-        ALTER TABLE `SipTrunks` DROP COLUMN IF EXISTS `requireAuth`;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'SipTrunks' AND COLUMN_NAME = 'trunkType') THEN
+            ALTER TABLE `SipTrunks` ADD COLUMN `trunkType` VARCHAR(20) NOT NULL DEFAULT 'registration';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'SipTrunks' AND COLUMN_NAME = 'transport') THEN
+            ALTER TABLE `SipTrunks` ADD COLUMN `transport` VARCHAR(10) NOT NULL DEFAULT 'udp';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'SipTrunks' AND COLUMN_NAME = 'domain') THEN
+            ALTER TABLE `SipTrunks` ADD COLUMN `domain` VARCHAR(255) NULL;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'SipTrunks' AND COLUMN_NAME = 'callerId') THEN
+            ALTER TABLE `SipTrunks` ADD COLUMN `callerId` VARCHAR(255) NULL;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'SipTrunks' AND COLUMN_NAME = 'providerIp') THEN
+            ALTER TABLE `SipTrunks` ADD COLUMN `providerIp` VARCHAR(255) NULL;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'SipTrunks' AND COLUMN_NAME = 'records') THEN
+            ALTER TABLE `SipTrunks` ADD COLUMN `records` TINYINT(1) NOT NULL DEFAULT 0;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'SipTrunks' AND COLUMN_NAME = 'requireAuth') THEN
+            ALTER TABLE `SipTrunks` DROP COLUMN `requireAuth`;
+        END IF;
     END IF;
 END //
 DELIMITER ;
@@ -99,16 +115,27 @@ DELIMITER ;
 CALL `_tmp_add_dynamic_siptrunks`();
 DROP PROCEDURE IF EXISTS `_tmp_add_dynamic_siptrunks`;
 
-ALTER TABLE prices
-    ADD COLUMN IF NOT EXISTS stt FLOAT NOT NULL DEFAULT 0;
+DROP PROCEDURE IF EXISTS `_tmp_add_dynamic_prices_stt`;
+DELIMITER //
+CREATE PROCEDURE `_tmp_add_dynamic_prices_stt`()
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'prices' AND COLUMN_NAME = 'stt') THEN
+        ALTER TABLE prices ADD COLUMN stt FLOAT NOT NULL DEFAULT 0;
+    END IF;
+END //
+DELIMITER ;
+
+CALL `_tmp_add_dynamic_prices_stt`();
+DROP PROCEDURE IF EXISTS `_tmp_add_dynamic_prices_stt`;
 
 DROP PROCEDURE IF EXISTS `_tmp_add_dynamic_pbxservers`;
 DELIMITER //
 CREATE PROCEDURE `_tmp_add_dynamic_pbxservers`()
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'PbxServers') THEN
-        ALTER TABLE `PbxServers`
-            ADD COLUMN IF NOT EXISTS `sipTechnology` VARCHAR(10) NOT NULL DEFAULT 'pjsip';
+        IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'PbxServers' AND COLUMN_NAME = 'sipTechnology') THEN
+            ALTER TABLE `PbxServers` ADD COLUMN `sipTechnology` VARCHAR(10) NOT NULL DEFAULT 'pjsip';
+        END IF;
     END IF;
 END //
 DELIMITER ;

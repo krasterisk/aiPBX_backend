@@ -1,4 +1,4 @@
-import { IsString, IsArray, IsOptional, IsNumber, IsObject, MaxLength, IsEnum, ValidateNested, ArrayMaxSize } from 'class-validator';
+import { IsString, IsArray, IsOptional, IsNumber, IsObject, MaxLength, IsEnum, ValidateNested, ArrayMaxSize, IsBoolean, IsEmail, Min, Max, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -186,6 +186,142 @@ export class BulkMoveDto {
     targetProjectId: number;
 }
 
+// ─── Digest Config DTO ───────────────────────────────────────────
+// Must be declared before CreateProjectDto / UpdateProjectDto:
+// emitDecoratorMetadata evaluates design:type at class init time.
+
+export class DigestConfigDto {
+    @ApiProperty({ example: true })
+    @IsBoolean()
+    enabled: boolean;
+
+    @ApiProperty({ example: ['ops@example.com'], type: [String] })
+    @IsArray()
+    @ArrayMaxSize(10)
+    @IsEmail({}, { each: true })
+    emails: string[];
+
+    @ApiProperty({ example: ['123456789'], type: [String] })
+    @IsArray()
+    @ArrayMaxSize(10)
+    @IsString({ each: true })
+    @MaxLength(32, { each: true })
+    @Matches(/^-?\d+$/, { each: true, message: 'telegramChatIds must be numeric chat ids' })
+    telegramChatIds: string[];
+
+    @ApiProperty({ enum: ['daily', 'weekly', 'monthly'] })
+    @IsEnum(['daily', 'weekly', 'monthly'])
+    schedule: 'daily' | 'weekly' | 'monthly';
+
+    @ApiProperty({ enum: ['last_7_days', 'last_30_days', 'previous_calendar_month'] })
+    @IsEnum(['last_7_days', 'last_30_days', 'previous_calendar_month'])
+    reportWindow: 'last_7_days' | 'last_30_days' | 'previous_calendar_month';
+
+    @ApiPropertyOptional({ example: 1, description: 'ISO weekday 1=Mon … 7=Sun' })
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    @Max(7)
+    weeklyDay?: number;
+
+    @ApiPropertyOptional({ example: 1, description: 'Day of month 1–28' })
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    @Max(28)
+    monthlyDay?: number;
+
+    @ApiPropertyOptional({ example: 9, description: 'Hour 0–23 in server TIMEZONE' })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    @Max(23)
+    sendHour?: number;
+}
+
+// ─── Alert Config DTO ────────────────────────────────────────────
+
+class AlertRuleCsatDropDto {
+    @IsBoolean()
+    enabled: boolean;
+
+    @IsNumber()
+    @Min(1)
+    @Max(100)
+    dropPct: number;
+
+    @IsNumber()
+    @Min(1)
+    @Max(90)
+    windowDays: number;
+
+    @IsNumber()
+    @Min(1)
+    @Max(1000)
+    minCalls: number;
+}
+
+class AlertRuleNegativeSpikeDto {
+    @IsBoolean()
+    enabled: boolean;
+
+    @IsNumber()
+    @Min(1)
+    @Max(100)
+    spikePp: number;
+
+    @IsNumber()
+    @Min(1)
+    @Max(90)
+    windowDays: number;
+
+    @IsNumber()
+    @Min(1)
+    @Max(1000)
+    minCalls: number;
+}
+
+class AlertRuleBudgetExceededDto {
+    @IsBoolean()
+    enabled: boolean;
+}
+
+export class AlertConfigDto {
+    @ApiProperty({ example: true })
+    @IsBoolean()
+    enabled: boolean;
+
+    @ApiProperty({ example: true })
+    @IsBoolean()
+    inheritRecipientsFromDigest: boolean;
+
+    @ApiProperty({ type: [String] })
+    @IsArray()
+    @ArrayMaxSize(10)
+    @IsEmail({}, { each: true })
+    emails: string[];
+
+    @ApiProperty({ type: [String] })
+    @IsArray()
+    @ArrayMaxSize(10)
+    @IsString({ each: true })
+    @MaxLength(32, { each: true })
+    @Matches(/^-?\d+$/, { each: true, message: 'telegramChatIds must be numeric chat ids' })
+    telegramChatIds: string[];
+
+    @ValidateNested()
+    @Type(() => AlertRuleCsatDropDto)
+    csatDrop: AlertRuleCsatDropDto;
+
+    @ValidateNested()
+    @Type(() => AlertRuleNegativeSpikeDto)
+    negativeSpike: AlertRuleNegativeSpikeDto;
+
+    @ValidateNested()
+    @Type(() => AlertRuleBudgetExceededDto)
+    budgetExceeded: AlertRuleBudgetExceededDto;
+}
+
 // ─── Create Project Extended DTO ─────────────────────────────────
 
 export class CreateProjectDto {
@@ -260,6 +396,18 @@ export class CreateProjectDto {
     @IsArray()
     @IsString({ each: true })
     budgetAlertEmails?: string[] | null;
+
+    @ApiPropertyOptional({ type: () => DigestConfigDto, description: 'Email/Telegram dashboard digest settings' })
+    @IsOptional()
+    @ValidateNested()
+    @Type(() => DigestConfigDto)
+    digestConfig?: DigestConfigDto | null;
+
+    @ApiPropertyOptional({ type: () => AlertConfigDto, description: 'Critical analytics alert settings' })
+    @IsOptional()
+    @ValidateNested()
+    @Type(() => AlertConfigDto)
+    alertConfig?: AlertConfigDto | null;
 }
 
 // ─── Update Project DTO ──────────────────────────────────────────
@@ -332,4 +480,16 @@ export class UpdateProjectDto {
     @IsArray()
     @IsString({ each: true })
     budgetAlertEmails?: string[] | null;
+
+    @ApiPropertyOptional({ type: () => DigestConfigDto, description: 'Email/Telegram dashboard digest settings' })
+    @IsOptional()
+    @ValidateNested()
+    @Type(() => DigestConfigDto)
+    digestConfig?: DigestConfigDto | null;
+
+    @ApiPropertyOptional({ type: () => AlertConfigDto, description: 'Critical analytics alert settings' })
+    @IsOptional()
+    @ValidateNested()
+    @Type(() => AlertConfigDto)
+    alertConfig?: AlertConfigDto | null;
 }

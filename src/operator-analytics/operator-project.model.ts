@@ -1,6 +1,8 @@
 import { Column, DataType, Model, Table, Index } from 'sequelize-typescript';
 import { ApiProperty } from '@nestjs/swagger';
 import { MetricDefinition, TagDefinition, DefaultMetricKey, DashboardConfig, WebhookEvent, WebhookHeaders, ALL_DEFAULT_METRIC_KEYS } from './interfaces/operator-metrics.interface';
+import type { DigestConfig } from './interfaces/digest-config.interface';
+import type { AlertConfig } from './interfaces/alert-config.interface';
 
 export interface OperatorProjectCreationAttrs {
     name: string;
@@ -19,6 +21,8 @@ export interface OperatorProjectCreationAttrs {
     budgetAlertEmails?: string[] | null;
     budgetLastAlertAt?: Date | null;
     anomalyLastAlertAt?: Date | null;
+    digestConfig?: DigestConfig | null;
+    alertConfig?: AlertConfig | null;
 }
 
 @Table({ tableName: 'operator_projects' })
@@ -100,4 +104,12 @@ export class OperatorProject extends Model<OperatorProject, OperatorProjectCreat
     @ApiProperty({ description: 'Last time an anomaly alert fired (dedupes per window)' })
     @Column({ type: DataType.DATE, allowNull: true })
     anomalyLastAlertAt: Date | null;
+
+    @ApiProperty({ description: 'Scheduled email/Telegram dashboard digest settings (null = disabled)' })
+    @Column({ type: DataType.JSON, allowNull: true, defaultValue: null })
+    digestConfig: DigestConfig | null;
+
+    @ApiProperty({ description: 'Critical analytics alert settings (CSAT/negativity/budget)' })
+    @Column({ type: DataType.JSON, allowNull: true, defaultValue: null })
+    alertConfig: AlertConfig | null;
 }

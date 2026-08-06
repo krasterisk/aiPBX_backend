@@ -310,6 +310,33 @@ export class TelegramService {
     }
   }
 
+  /**
+   * Send a PNG/JPEG buffer as a photo. Soft-fails (logs warn) like sendMessage.
+   */
+  async sendPhoto(
+    chatId: string | number,
+    buffer: Buffer,
+    caption?: string,
+  ): Promise<void> {
+    if (!chatId) {
+      this.logger.warn('Error send photo to telegram. No chatId provided');
+      return;
+    }
+    if (!this.isConfigured()) {
+      this.logger.warn('Telegram bot not configured; skip sendPhoto');
+      return;
+    }
+    try {
+      await this.bot.sendPhoto(chatId, buffer, {
+        caption: caption ? caption.slice(0, 1024) : undefined,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Error send photo to telegram: ${error?.response?.body?.description || error.message}`,
+      );
+    }
+  }
+
   // ─── Validate Chat ID ───────────────────────────────────────────
 
   /**

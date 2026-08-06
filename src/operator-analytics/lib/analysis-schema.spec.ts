@@ -11,6 +11,7 @@ import {
     PROMPT_VERSION,
     resolveVisibleDefaultMetrics,
     sanitizeCustomMetricValues,
+    sanitizeTopicTagIds,
 } from './analysis-schema';
 import { ALL_DEFAULT_METRIC_KEYS } from '../interfaces/operator-metrics.interface';
 
@@ -59,13 +60,23 @@ describe('analysis-schema', () => {
         } as any);
         const prompt = buildAnalysisPrompt('Оператор: Добрый день, клиника X, меня зовут Татьяна, слушаю вас.', greetingCtx);
 
-        expect(PROMPT_VERSION).toBe('2026-06-19.3');
+        expect(PROMPT_VERSION).toBe('2026-08-05.2');
         expect(prompt).toContain('GLOBAL SCORING');
         expect(prompt).toContain('transcript language');
         expect(prompt).toContain('predominantly English');
         expect(prompt).toContain('Checklist map');
         expect(prompt).toContain('No boilerplate');
         expect(prompt).toContain('Добрый день');
+    });
+
+    it('adds channel-diarization instructions when channelDiarized is set', () => {
+        const prompt = buildAnalysisPrompt(
+            'operator: Hello\ncustomer: Hi',
+            buildAnalysisContext({ visibleDefaultMetrics: ['greeting_quality'] } as any),
+            { channelDiarized: true },
+        );
+        expect(prompt).toContain('CHANNEL DIARIZATION');
+        expect(prompt).toContain('do not change speaker roles');
     });
 
     it('includes compact checklist rubrics for every default metric', () => {
@@ -239,5 +250,74 @@ describe('analysis-schema', () => {
         const result = parseAndValidateAnalysisResponse(JSON.stringify(payload), rangeCtx, raw => raw);
         expect(result.customMetricsResult).toEqual({ score10: null });
         expect(result.customMetricsInvalid).toContain('score10');
+    });
+
+    describe('LLM taxonomy topic_tag_ids', () => {
+        const taxonomyProject = {
+            visibleDefaultMetrics: ['greeting_quality'],
+            callTaxonomy: [
+                { id: 'billing', name: 'Счета', aliases: ['счёт'], description: 'Вопросы по счетам и оплате' },
+                { id: 'returns', name: 'Возвраты', aliases: ['возврат'] },
+            ],
+        } as any;
+
+        it('includes topic_tag_ids enum in OpenAI schema when taxonomy is set', () => {
+            const taxCtx = buildAnalysisContext(taxonomyProject);
+            const schema = buildOpenAiJsonSchema(taxCtx) as any;
+            expect(schema.properties.topic_tag_ids).toEqual({
+                type: 'array',
+                items: { type: 'string', enum: ['billing', 'returns'] },
+                description: expect.any(String),
+            });
+            expect(schema.required).toContain('topic_tag_ids');
+        });
+
+        it('omits topic_tag_ids when taxonomy is empty', () => {
+            const emptyCtx = buildAnalysisContext({
+                visibleDefaultMetrics: ['greeting_quality'],
+                callTaxonomy: [],
+            } as any);
+            const schema = buildOpenAiJsonSchema(emptyCtx) as any;
+            expect(schema.properties.topic_tag_ids).toBeUndefined();
+            expect(schema.required).not.toContain('topic_tag_ids');
+            expect(emptyCtx.taxonomyTags).toEqual([]);
+        });
+
+        it('prompts theme list with description fallback and optional hints', () => {
+            const taxCtx = buildAnalysisContext(taxonomyProject);
+            const prompt = buildAnalysisPrompt('Клиент хочет вернуть товар', taxCtx);
+            expect(prompt).toContain('topic_tag_ids');
+            expect(prompt).toContain('`billing` "Счета" — Вопросы по счетам и оплате');
+            expect(prompt).toContain('`returns` "Возвраты" — match by theme name / meaning');
+            expect(prompt).toContain('hints: возврат');
+            expect(prompt).toContain('Prefer precision');
+        });
+
+        it('sanitizeTopicTagIds drops unknown ids and caps at 10', () => {
+            const taxCtx = buildAnalysisContext(taxonomyProject);
+            expect(sanitizeTopicTagIds(['returns', 'unknown', 'billing', 'returns'], taxCtx))
+                .toEqual(['returns', 'billing']);
+            expect(sanitizeTopicTagIds(null, taxCtx)).toEqual([]);
+            expect(sanitizeTopicTagIds(['x'], buildAnalysisContext({ callTaxonomy: [] } as any))).toEqual([]);
+        });
+
+        it('parseAndValidateAnalysisResponse returns sanitized topicTagIds and strips them from metrics', () => {
+            const taxCtx = buildAnalysisContext(taxonomyProject);
+            const payload = {
+                assessments: {},
+                greeting_quality: 75,
+                customer_sentiment: 'Neutral',
+                csat: 3,
+                summary: 'Возврат',
+                success: true,
+                analysis_confidence: 0.8,
+                insufficient_content: false,
+                diarized_text: [],
+                topic_tag_ids: ['returns', 'hallucinated', 'billing'],
+            };
+            const parsed = parseAndValidateAnalysisResponse(JSON.stringify(payload), taxCtx, raw => raw);
+            expect(parsed.topicTagIds).toEqual(['returns', 'billing']);
+            expect(parsed.metrics.topic_tag_ids).toBeUndefined();
+        });
     });
 });

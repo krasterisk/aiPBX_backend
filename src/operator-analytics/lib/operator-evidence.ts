@@ -76,7 +76,8 @@ function readMetricValue(
     key: string,
 ): number | boolean | string | null {
     const nested = metrics.metrics as Record<string, unknown> | undefined;
-    const raw = nested?.[key] ?? metrics[key];
+    const custom = metrics.custom_metrics as Record<string, unknown> | undefined;
+    const raw = nested?.[key] ?? custom?.[key] ?? metrics[key];
     if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
     if (typeof raw === 'boolean') return raw;
     if (typeof raw === 'string') return raw;
@@ -110,6 +111,10 @@ function valueToAverageContribution(
         return null;
     }
     if (typeof value === 'number' && Number.isFinite(value)) return value;
+    // Custom boolean metrics → rate of "true" on a 0–100 scale.
+    if (typeof value === 'boolean') return value ? 100 : 0;
+    if (value === 'true') return 100;
+    if (value === 'false') return 0;
     return null;
 }
 
@@ -150,6 +155,10 @@ function collectMetricKeys(metrics: Record<string, unknown>): Set<string> {
     const legacy = metrics._evidence as Record<string, string> | undefined;
     if (legacy) {
         Object.keys(legacy).forEach(k => keys.add(k));
+    }
+    const custom = metrics.custom_metrics as Record<string, unknown> | undefined;
+    if (custom && typeof custom === 'object' && !Array.isArray(custom)) {
+        Object.keys(custom).forEach(k => keys.add(k));
     }
     return keys;
 }
@@ -215,7 +224,8 @@ export function buildOperatorEvidence(
             if (numeric != null) {
                 bucket.sum += numeric;
                 bucket.sampleSize++;
-            } else if (value !== null) {
+            } else {
+                // Count assessed rows even when the raw value is missing (legacy / partial payloads).
                 bucket.sampleSize++;
             }
 

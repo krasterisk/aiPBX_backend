@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/sequelize';
 import { HttpException, HttpStatus } from '@nestjs/common';
+import { Op } from 'sequelize';
 import { AiCdrService } from './ai-cdr.service';
 import { AiCdr } from './ai-cdr.model';
 import { AiEvents } from './ai-events.model';
@@ -10,6 +11,7 @@ import { AiAnalyticsService } from '../ai-analytics/ai-analytics.service';
 import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
 import { BillingRecord } from '../billing/billing-record.model';
 import { OperatorAnalytics } from '../operator-analytics/operator-analytics.model';
+import { CallTag } from '../operator-analytics/operator-call-tag.model';
 
 describe('AiCdrService', () => {
     let service: AiCdrService;
@@ -18,6 +20,7 @@ describe('AiCdrService', () => {
     let mockAssistantRepository: any;
     let mockBillingService: any;
     let mockAiAnalyticsService: any;
+    let mockCallTagRepository: any;
     let mockCdrRecord: any;
 
     // ─── Mock Data ──────────────────────────────────────────────────────
@@ -125,6 +128,10 @@ describe('AiCdrService', () => {
             analyzeCall: jest.fn(),
         };
 
+        mockCallTagRepository = {
+            findAll: jest.fn().mockResolvedValue([]),
+        };
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 AiCdrService,
@@ -133,6 +140,7 @@ describe('AiCdrService', () => {
                 { provide: getModelToken(AiAnalytics), useValue: { destroy: jest.fn() } },
                 { provide: getModelToken(BillingRecord), useValue: { destroy: jest.fn() } },
                 { provide: getModelToken(OperatorAnalytics), useValue: { destroy: jest.fn() } },
+                { provide: getModelToken(CallTag), useValue: mockCallTagRepository },
                 { provide: getModelToken(Assistant), useValue: mockAssistantRepository },
                 { provide: BillingService, useValue: mockBillingService },
                 { provide: AiAnalyticsService, useValue: mockAiAnalyticsService },
@@ -572,6 +580,34 @@ describe('AiCdrService', () => {
 
             const callArgs = mockAiCdrRepository.findAndCountAll.mock.calls[0][0];
             expect(callArgs.where.assistantId).toBeDefined();
+        });
+
+        it('should filter by tagId within tenant scope', async () => {
+            mockCallTagRepository.findAll.mockResolvedValue([
+                { channelId: '42' },
+                { channelId: '99' },
+            ]);
+            mockAiCdrRepository.findAndCountAll.mockResolvedValue({ count: 0, rows: [] });
+            mockAiCdrRepository.sum.mockResolvedValue(0);
+
+            await service.get({ ...baseQuery, tagId: 'returns' } as any, false, '1');
+
+            expect(mockCallTagRepository.findAll).toHaveBeenCalledWith(expect.objectContaining({
+                where: { tagId: 'returns', userId: '1' },
+            }));
+            const callArgs = mockAiCdrRepository.findAndCountAll.mock.calls[0][0];
+            expect(callArgs.where.channelId).toEqual({ [Op.in]: ['42', '99'] });
+        });
+
+        it('should return nothing when tagId matches no rows', async () => {
+            mockCallTagRepository.findAll.mockResolvedValue([]);
+            mockAiCdrRepository.findAndCountAll.mockResolvedValue({ count: 0, rows: [] });
+            mockAiCdrRepository.sum.mockResolvedValue(0);
+
+            await service.get({ ...baseQuery, tagId: 'missing' } as any, false, '1');
+
+            const callArgs = mockAiCdrRepository.findAndCountAll.mock.calls[0][0];
+            expect(callArgs.where.channelId).toEqual({ [Op.in]: ['__no_matching_tag__'] });
         });
 
         it('admin should see all records when no userId is set', async () => {

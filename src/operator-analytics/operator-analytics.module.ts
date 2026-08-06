@@ -3,9 +3,12 @@ import { SequelizeModule } from '@nestjs/sequelize';
 import { ConfigModule } from '@nestjs/config';
 import { OperatorAnalyticsController } from './operator-analytics.controller';
 import { OperatorAnalyticsService } from './operator-analytics.service';
+import { OperatorDigestService } from './operator-digest.service';
+import { OperatorAlertService } from './operator-alert.service';
 import { OperatorRetentionTask } from './operator-retention.task';
 import { OperatorAnomalyTask } from './operator-anomaly.task';
 import { OperatorStuckReaperTask } from './operator-stuck-reaper.task';
+import { OperatorDigestTask } from './operator-digest.task';
 import { OperatorAnalytics } from './operator-analytics.model';
 import { OperatorApiToken } from './operator-api-token.model';
 import { OperatorProject } from './operator-project.model';
@@ -24,6 +27,8 @@ import { AiCdr } from '../ai-cdr/ai-cdr.model';
 import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
 import { BillingRecord } from '../billing/billing-record.model';
 import { BillingModule } from '../billing/billing.module';
+import { MailerModule } from '../mailer/mailer.module';
+import { TelegramModule } from '../telegram/telegram.module';
 import { InsightsCacheService } from './insights-cache.service';
 
 @Module({
@@ -34,18 +39,23 @@ import { InsightsCacheService } from './insights-cache.service';
         AuthModule,
         WhisperModule,
         BillingModule,
+        MailerModule,
+        TelegramModule,
     ],
     controllers: [OperatorAnalyticsController],
     providers: [
         OperatorAnalyticsService,
+        OperatorDigestService,
+        OperatorAlertService,
         InsightsCacheService,
         OperatorRetentionTask,
         OperatorAnomalyTask,
         OperatorStuckReaperTask,
+        OperatorDigestTask,
         OpenAiTranscriptionProvider,
         ExternalSttProvider,
         ApiTokenGuard,
     ],
-    exports: [OperatorAnalyticsService],
+    exports: [OperatorAnalyticsService, OperatorDigestService, OperatorAlertService],
 })
 export class OperatorAnalyticsModule { }

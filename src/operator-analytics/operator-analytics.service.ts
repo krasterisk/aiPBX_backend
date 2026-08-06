@@ -1,4 +1,4 @@
-import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Inject, Injectable, Logger, HttpException, HttpStatus, forwardRef } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { ForeignKeyConstraintError } from 'sequelize';
 import { OperatorAnalytics, AnalyticsSource, AnalyticsStatus } from './operator-analytics.model';
@@ -6,9 +6,22 @@ import { OperatorApiToken } from './operator-api-token.model';
 import { OperatorProject } from './operator-project.model';
 import { MetricValue, MetricValueOrigin } from './operator-metric-value.model';
 import { MetricOverride, MetricOverrideOrigin } from './operator-metric-override.model';
-import { parseKeywordList, spotKeywords, spotTaxonomyTags } from './lib/keyword-spotting';
+import { parseKeywordList, spotKeywords } from './lib/keyword-spotting';
 import { CallTag } from './operator-call-tag.model';
 import { computeAudioSha256 } from './lib/audio-hash';
+import { probeAudio } from './lib/audio-probe';
+import {
+    billableStereoDuration,
+    combinedPlainText,
+    diarizedTurnsToStorageJson,
+    formatDiarizedTranscriptForLlm,
+    isChannelDiarizationViable,
+    maxChannelDuration,
+    mergeChannelTranscripts,
+    parseStereoChannelMap,
+    splitStereoChannels,
+    type DiarizationSource,
+} from './lib/channel-diarize';
 import {
     aggregateMetricsFromSql,
     buildDashboardCdrWhere,
@@ -17,6 +30,9 @@ import {
     findChannelIdsForDistribution,
 } from './lib/dashboard-aggregation';
 import { buildTagStats } from './lib/tag-stats';
+import { normalizeDigestConfig, type DigestConfig } from './interfaces/digest-config.interface';
+import { normalizeAlertConfig, type AlertConfig } from './interfaces/alert-config.interface';
+import { OperatorAlertService } from './operator-alert.service';
 import { OpenAiTranscriptionProvider } from './providers/openai-transcription.provider';
 import { ExternalSttProvider } from './providers/external-stt.provider';
 import { WhisperService } from '../whisper/whisper.service';
@@ -112,6 +128,8 @@ export class OperatorAnalyticsService {
         private readonly whisperService: WhisperService,
         private readonly billingFx: BillingFxService,
         private readonly insightsCache: InsightsCacheService,
+        @Inject(forwardRef(() => OperatorAlertService))
+        private readonly alertService: OperatorAlertService,
     ) {
         const apiKey = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
         this.openAiClient = new OpenAI({
@@ -334,6 +352,96 @@ export class OperatorAnalyticsService {
         return { ...result, provider: providerName };
     }
 
+    /**
+     * Probe audio; if true stereo, split channels → dual STT → merge speakers.
+     * Mono / fake-stereo / split failure → single-file STT (LLM diarization later).
+     */
+    private async transcribePossiblyStereo(
+        buffer: Buffer,
+        filename: string,
+        language: string,
+        preferredProvider?: string,
+    ): Promise<{
+        sttResult: TranscriptionResult & { provider: string };
+        /** Wall-clock duration for CDR / quality (not billable STT seconds). */
+        callDuration: number;
+        /** Duration seconds billed for paid STT providers. */
+        billableSttDuration: number;
+        /** Speaker-labeled text for the analysis LLM (channel path only). */
+        llmTranscription: string;
+        /** Canonical JSON for storage when channel diarization succeeded. */
+        channelDiarizedJson: string | null;
+        diarizationSource: DiarizationSource | null;
+    }> {
+        const probe = await probeAudio(buffer, filename);
+        this.logger.log(
+            `[STT] Audio probe: channels=${probe.channels} format=${probe.format} ` +
+            `stereoCandidate=${probe.isStereoCandidate} source=${probe.probeSource}` +
+            (probe.fakeStereo != null ? ` fakeStereo=${probe.fakeStereo}` : ''),
+        );
+
+        if (probe.isStereoCandidate) {
+            try {
+                const split = await splitStereoChannels(buffer, filename);
+                this.logger.log(`[STT] Stereo split via ${split.method}`);
+
+                const [leftResult, rightResult] = await Promise.all([
+                    this.transcribeWithFallback(split.left, split.leftFilename, language, preferredProvider),
+                    this.transcribeWithFallback(split.right, split.rightFilename, language, preferredProvider),
+                ]);
+
+                if (isChannelDiarizationViable(leftResult, rightResult)) {
+                    const channelMap = parseStereoChannelMap(
+                        this.configService.get<string>('OPERATOR_STEREO_CHANNEL_MAP')
+                        || process.env.OPERATOR_STEREO_CHANNEL_MAP,
+                    );
+                    const turns = mergeChannelTranscripts(leftResult, rightResult, channelMap);
+                    const channelDiarizedJson = diarizedTurnsToStorageJson(turns);
+                    const plain = combinedPlainText(leftResult, rightResult);
+                    const callDuration = maxChannelDuration(leftResult, rightResult);
+                    const billableSttDuration = billableStereoDuration(leftResult, rightResult);
+
+                    // Prefer quality signals from the louder/longer channel
+                    const primary = (leftResult.duration || 0) >= (rightResult.duration || 0)
+                        ? leftResult
+                        : rightResult;
+
+                    return {
+                        sttResult: {
+                            ...primary,
+                            text: plain,
+                            duration: callDuration,
+                            wordsCount: (leftResult.wordsCount || 0) + (rightResult.wordsCount || 0),
+                            segmentsCount: (leftResult.segmentsCount || 0) + (rightResult.segmentsCount || 0),
+                            provider: leftResult.provider,
+                        },
+                        callDuration,
+                        billableSttDuration,
+                        llmTranscription: formatDiarizedTranscriptForLlm(turns),
+                        channelDiarizedJson,
+                        diarizationSource: 'channel',
+                    };
+                }
+
+                this.logger.warn('[STT] Stereo channels empty after STT — falling back to mono path');
+            } catch (err) {
+                this.logger.warn(
+                    `[STT] Channel diarization failed, falling back to mono: ${(err as Error).message}`,
+                );
+            }
+        }
+
+        const sttResult = await this.transcribeWithFallback(buffer, filename, language, preferredProvider);
+        return {
+            sttResult,
+            callDuration: sttResult.duration,
+            billableSttDuration: sttResult.duration,
+            llmTranscription: sttResult.text,
+            channelDiarizedJson: null,
+            diarizationSource: null,
+        };
+    }
+
     // ─── Core Analysis Pipeline ──────────────────────────────────────
 
     async analyzeFile(
@@ -398,8 +506,14 @@ export class OperatorAnalyticsService {
             const schemaVersion = project?.currentSchemaVersion ?? null;
             await this.persistSchemaVersion(record, schemaVersion);
 
-            // 3. Transcribe (external first, fallback to OpenAI Whisper)
-            const sttResult = await this.transcribeWithFallback(
+            // 3. Transcribe (stereo channel diarization when applicable)
+            const {
+                sttResult,
+                billableSttDuration,
+                llmTranscription,
+                channelDiarizedJson,
+                diarizationSource,
+            } = await this.transcribePossiblyStereo(
                 buffer,
                 filename,
                 options.language || 'auto',
@@ -417,18 +531,19 @@ export class OperatorAnalyticsService {
             await this.saveQualityOnRecord(record, sttResult, sttQuality);
 
             await record.update({
-                transcription: sttResult.text,
+                transcription: channelDiarizedJson || sttResult.text,
                 duration: sttResult.duration,
                 sttProvider: sttResult.provider,
             });
 
             // 4. Analyze metrics via LLM (with project context if available)
-            const { metrics, customMetricsResult, usage, diarizedText, analysisConfidence, insufficientContent, assessments, customMeta, customMetricsInvalid, modelName } =
+            const { metrics, customMetricsResult, usage, diarizedText, analysisConfidence, insufficientContent, assessments, customMeta, customMetricsInvalid, modelName, topicTagIds } =
                 await this.analyzeTranscription(
-                    sttResult.text,
+                    llmTranscription,
                     options.customMetrics,
                     project,
                     sttQuality.quality === 'low' ? sttQuality : undefined,
+                    { channelDiarized: diarizationSource === 'channel' },
                 );
 
             const finalQuality = combineTranscriptionQuality(sttQuality, {
@@ -437,15 +552,22 @@ export class OperatorAnalyticsService {
             });
             await this.saveQualityOnRecord(record, sttResult, finalQuality);
 
-            // 5. Update transcription with speaker-labeled version if available
-            if (diarizedText) {
+            // 5. Speaker labels: channel diarization wins; else LLM diarized_text
+            if (channelDiarizedJson) {
+                await record.update({ transcription: channelDiarizedJson });
+            } else if (diarizedText) {
                 await record.update({ transcription: diarizedText });
             }
 
             // 6. Calculate cost and charge (LLM tokens + STT duration)
             const totalTokens = usage?.total_tokens || 0;
             const { inTokens: textTokensIn, outTokens: textTokensOut } = this.extractTokenSplit(usage);
-            const { totalCost, llmCost, sttCost } = await this.chargeCost(userId, totalTokens, sttResult.duration, sttResult.provider);
+            const { totalCost, llmCost, sttCost } = await this.chargeCost(
+                userId,
+                totalTokens,
+                billableSttDuration,
+                sttResult.provider,
+            );
 
             // 7. Save results locally
             await record.update({
@@ -455,14 +577,24 @@ export class OperatorAnalyticsService {
             const channelId = record.id.toString();
             const cdrSource = source === AnalyticsSource.API ? OPERATOR_CDR_SOURCE.EXTERNAL_API : OPERATOR_CDR_SOURCE.EXTERNAL_FRONT;
             const assistantName = options.operatorName || 'Unknown Operator';
-            const autoTagIds = project?.callTaxonomy?.length
-                ? spotTaxonomyTags(sttResult.text, project.callTaxonomy)
-                : [];
-            const topicsBlock = this.buildTopicsBlock(sttResult.text, project, []);
+            const autoTagIds = topicTagIds;
+            const topicsBlock = this.buildTopicsBlock(sttResult.text, project, [], autoTagIds);
+            const finalDiarizationSource: DiarizationSource | null = channelDiarizedJson
+                ? 'channel'
+                : (diarizedText ? 'llm' : null);
             const mergedMetrics = this.enrichStoredMetrics(
                 customMetricsResult ? { ...metrics, custom_metrics: customMetricsResult } : metrics,
                 finalQuality,
-                { assessments, customMeta, model: modelName, schemaVersion, customInvalid: customMetricsInvalid, promptVersion: PROMPT_VERSION, topicsBlock },
+                {
+                    assessments,
+                    customMeta,
+                    model: modelName,
+                    schemaVersion,
+                    customInvalid: customMetricsInvalid,
+                    promptVersion: PROMPT_VERSION,
+                    topicsBlock,
+                    diarizationSource: finalDiarizationSource,
+                },
             );
 
             const cdrCost = await this.cdrCostFields(totalCost);
@@ -555,6 +687,8 @@ export class OperatorAnalyticsService {
             customMetrics?: CustomMetricDef[];
             provider?: string;
             projectId?: number;
+            consentObtained?: boolean;
+            consentSource?: string;
         } = {},
     ): Promise<OperatorAnalytics> {
         await this.checkBalance(userId);
@@ -785,7 +919,13 @@ export class OperatorAnalyticsService {
             const schemaVersion = project?.currentSchemaVersion ?? null;
             await this.persistSchemaVersion(record, schemaVersion);
 
-            const sttResult = await this.transcribeWithFallback(
+            const {
+                sttResult,
+                billableSttDuration,
+                llmTranscription,
+                channelDiarizedJson,
+                diarizationSource,
+            } = await this.transcribePossiblyStereo(
                 buffer,
                 record.filename,
                 record.language || 'auto',
@@ -803,17 +943,18 @@ export class OperatorAnalyticsService {
             await this.saveQualityOnRecord(record, sttResult, sttQuality);
 
             await record.update({
-                transcription: sttResult.text,
+                transcription: channelDiarizedJson || sttResult.text,
                 duration: sttResult.duration,
                 sttProvider: sttResult.provider,
             });
 
-            const { metrics, customMetricsResult, usage, diarizedText, analysisConfidence, insufficientContent, assessments, customMeta, customMetricsInvalid, modelName } =
+            const { metrics, customMetricsResult, usage, diarizedText, analysisConfidence, insufficientContent, assessments, customMeta, customMetricsInvalid, modelName, topicTagIds } =
                 await this.analyzeTranscription(
-                    sttResult.text,
+                    llmTranscription,
                     undefined,
                     project,
                     sttQuality.quality === 'low' ? sttQuality : undefined,
+                    { channelDiarized: diarizationSource === 'channel' },
                 );
 
             const finalQuality = combineTranscriptionQuality(sttQuality, {
@@ -822,14 +963,20 @@ export class OperatorAnalyticsService {
             });
             await this.saveQualityOnRecord(record, sttResult, finalQuality);
 
-            // Update transcription with speaker-labeled version if available
-            if (diarizedText) {
+            if (channelDiarizedJson) {
+                await record.update({ transcription: channelDiarizedJson });
+            } else if (diarizedText) {
                 await record.update({ transcription: diarizedText });
             }
 
             const totalTokens = usage?.total_tokens || 0;
             const { inTokens: textTokensIn, outTokens: textTokensOut } = this.extractTokenSplit(usage);
-            const { totalCost, llmCost, sttCost } = await this.chargeCost(record.userId, totalTokens, sttResult.duration, sttResult.provider);
+            const { totalCost, llmCost, sttCost } = await this.chargeCost(
+                record.userId,
+                totalTokens,
+                billableSttDuration,
+                sttResult.provider,
+            );
 
             await record.update({
                 status: AnalyticsStatus.COMPLETED,
@@ -839,14 +986,24 @@ export class OperatorAnalyticsService {
             // Source is frontend or api depending on what's set
             const cdrSource = record.source === AnalyticsSource.API ? OPERATOR_CDR_SOURCE.EXTERNAL_API : OPERATOR_CDR_SOURCE.EXTERNAL_FRONT;
             const assistantName = record.operatorName || 'Unknown Operator';
-            const autoTagIds = project?.callTaxonomy?.length
-                ? spotTaxonomyTags(sttResult.text, project.callTaxonomy)
-                : [];
-            const topicsBlock = this.buildTopicsBlock(sttResult.text, project, []);
+            const autoTagIds = topicTagIds;
+            const topicsBlock = this.buildTopicsBlock(sttResult.text, project, [], autoTagIds);
+            const finalDiarizationSource: DiarizationSource | null = channelDiarizedJson
+                ? 'channel'
+                : (diarizedText ? 'llm' : null);
             const mergedMetrics = this.enrichStoredMetrics(
                 customMetricsResult ? { ...metrics, custom_metrics: customMetricsResult } : metrics,
                 finalQuality,
-                { assessments, customMeta, model: modelName, schemaVersion, customInvalid: customMetricsInvalid, promptVersion: PROMPT_VERSION, topicsBlock },
+                {
+                    assessments,
+                    customMeta,
+                    model: modelName,
+                    schemaVersion,
+                    customInvalid: customMetricsInvalid,
+                    promptVersion: PROMPT_VERSION,
+                    topicsBlock,
+                    diarizationSource: finalDiarizationSource,
+                },
             );
 
             const cdrCost = await this.cdrCostFields(totalCost);
@@ -981,7 +1138,13 @@ export class OperatorAnalyticsService {
         const schemaVersion = project?.currentSchemaVersion ?? null;
         await this.persistSchemaVersion(record, schemaVersion);
 
-        const sttResult = await this.transcribeWithFallback(
+        const {
+            sttResult,
+            billableSttDuration,
+            llmTranscription,
+            channelDiarizedJson,
+            diarizationSource,
+        } = await this.transcribePossiblyStereo(
             buffer,
             record.filename,
             record.language || 'auto',
@@ -999,17 +1162,18 @@ export class OperatorAnalyticsService {
         await this.saveQualityOnRecord(record, sttResult, sttQuality);
 
         await record.update({
-            transcription: sttResult.text,
+            transcription: channelDiarizedJson || sttResult.text,
             duration: sttResult.duration,
             sttProvider: sttResult.provider,
         });
 
-        const { metrics, customMetricsResult, usage, diarizedText, analysisConfidence, insufficientContent, assessments, customMeta, customMetricsInvalid, modelName } =
+        const { metrics, customMetricsResult, usage, diarizedText, analysisConfidence, insufficientContent, assessments, customMeta, customMetricsInvalid, modelName, topicTagIds } =
             await this.analyzeTranscription(
-                sttResult.text,
+                llmTranscription,
                 undefined,
                 project,
                 sttQuality.quality === 'low' ? sttQuality : undefined,
+                { channelDiarized: diarizationSource === 'channel' },
             );
 
         const finalQuality = combineTranscriptionQuality(sttQuality, {
@@ -1018,7 +1182,9 @@ export class OperatorAnalyticsService {
         });
         await this.saveQualityOnRecord(record, sttResult, finalQuality);
 
-        if (diarizedText) {
+        if (channelDiarizedJson) {
+            await record.update({ transcription: channelDiarizedJson });
+        } else if (diarizedText) {
             await record.update({ transcription: diarizedText });
         }
 
@@ -1027,20 +1193,30 @@ export class OperatorAnalyticsService {
         const { totalCost, llmCost, sttCost } = await this.chargeCost(
             record.userId,
             totalTokens,
-            sttResult.duration,
+            billableSttDuration,
             sttResult.provider,
         );
 
         await record.update({ status: AnalyticsStatus.COMPLETED });
 
-        const autoTagIds = project?.callTaxonomy?.length
-            ? spotTaxonomyTags(sttResult.text, project.callTaxonomy)
-            : [];
-        const topicsBlock = this.buildTopicsBlock(sttResult.text, project, manualTagIds);
+        const autoTagIds = topicTagIds;
+        const topicsBlock = this.buildTopicsBlock(sttResult.text, project, manualTagIds, autoTagIds);
+        const finalDiarizationSource: DiarizationSource | null = channelDiarizedJson
+            ? 'channel'
+            : (diarizedText ? 'llm' : null);
         const mergedMetrics = this.enrichStoredMetrics(
             customMetricsResult ? { ...metrics, custom_metrics: customMetricsResult } : metrics,
             finalQuality,
-            { assessments, customMeta, model: modelName, schemaVersion, customInvalid: customMetricsInvalid, promptVersion: PROMPT_VERSION, topicsBlock },
+            {
+                assessments,
+                customMeta,
+                model: modelName,
+                schemaVersion,
+                customInvalid: customMetricsInvalid,
+                promptVersion: PROMPT_VERSION,
+                topicsBlock,
+                diarizationSource: finalDiarizationSource,
+            },
         );
         const cdrCost = await this.cdrCostFields(totalCost);
         const billingFx = await this.billingFx.fieldsForUsdAmount(totalCost);
@@ -1151,35 +1327,50 @@ export class OperatorAnalyticsService {
         actorUserIds: Array<string | null | undefined> = [],
     ): Promise<AiCdr> {
         const idStr = String(id);
-        // channelId is usually operator_analytics.id; also accept aiCdr PK for legacy callers
-        const where: any = {
-            [Op.or]: [
-                { channelId: idStr },
-                { id },
-            ],
-        };
+        // Canonical key: ai_cdr.channelId = String(operator_analytics.id).
+        // Never OR with aiCdr PK in the same query — PK collision returns an unrelated
+        // assistant call (Asterisk uniqueid channelId, analytics: null) instead of the OA row.
+        const scope: Record<string, unknown> = {};
         if (!isAdmin) {
             const owners = Array.from(new Set(
                 [userId, ...actorUserIds]
                     .filter((v): v is string => v != null && String(v).length > 0)
                     .map(String),
             ));
-            if (owners.length === 1) {
-                where.userId = owners[0];
-            } else if (owners.length > 1) {
-                where.userId = { [Op.in]: owners };
+            // Hard fail: never run an unscoped lookup for a non-admin (IDOR).
+            if (owners.length === 0) {
+                throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
             }
+            scope.userId = owners.length === 1
+                ? owners[0]
+                : { [Op.in]: owners };
         }
         // Project-scoped API tokens may only read records of their project (least privilege)
-        if (projectId != null) where.projectId = projectId;
+        if (projectId != null) scope.projectId = projectId;
 
-        const record = await this.aiCdrRepository.findOne({
-            where,
-            include: [
-                { model: AiAnalytics, as: 'analytics' },
-                { model: BillingRecord, as: 'billingRecords' }
-            ]
+        const include = [
+            { model: AiAnalytics, as: 'analytics' },
+            { model: BillingRecord, as: 'billingRecords' },
+        ];
+
+        let record = await this.aiCdrRepository.findOne({
+            where: { ...scope, channelId: idStr },
+            include,
         });
+
+        // Legacy fallback: aiCdr PK only when no channelId hit, and only for OA-linked rows
+        // (channelId is a pure integer = operator_analytics.id). Rejects bot-call PKs whose
+        // channelId is an Asterisk uniqueid like "1746595347.126838".
+        if (!record) {
+            const byPk = await this.aiCdrRepository.findOne({
+                where: { ...scope, id },
+                include,
+            });
+            if (byPk && /^\d+$/.test(String(byPk.channelId ?? ''))) {
+                record = byPk;
+            }
+        }
+
         if (!record) {
             throw new HttpException('Analysis not found', HttpStatus.NOT_FOUND);
         }
@@ -1238,7 +1429,12 @@ export class OperatorAnalyticsService {
 
     private async assertRecordAccess(channelId: string, userId?: string, isAdmin?: boolean): Promise<AiCdr> {
         const where: any = { channelId: String(channelId) };
-        if (!isAdmin && userId) where.userId = String(userId);
+        if (!isAdmin) {
+            if (!userId) {
+                throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+            }
+            where.userId = String(userId);
+        }
         const record = await this.aiCdrRepository.findOne({ where });
         if (!record) {
             throw new HttpException('Analysis not found', HttpStatus.NOT_FOUND);
@@ -1598,7 +1794,7 @@ export class OperatorAnalyticsService {
 
     async getOperatorEvidence(
         query: {
-            operatorName: string;
+            operatorName?: string;
             userId?: string;
             startDate?: string;
             endDate?: string;
@@ -1610,7 +1806,7 @@ export class OperatorAnalyticsService {
         realUserId: string | null,
         actorUserId?: string,
     ) {
-        const operatorName = query.operatorName.trim();
+        const operatorName = query.operatorName?.trim() || '';
         const cap = resolveEvidenceMaxCalls(query.limit);
         const order = query.order ?? 'worst';
 
@@ -1619,7 +1815,7 @@ export class OperatorAnalyticsService {
             startDate: query.startDate,
             endDate: query.endDate,
             projectId: query.projectId,
-            operatorNameExact: operatorName,
+            ...(operatorName ? { operatorNameExact: operatorName } : {}),
         };
 
         const where = buildDashboardCdrWhere(
@@ -1649,13 +1845,13 @@ export class OperatorAnalyticsService {
 
         const sampleCapped = rows.length >= cap;
         const result = buildOperatorEvidence(eligibleRecords, {
-            operatorName,
+            operatorName: operatorName || 'all',
             order,
             customMetricIds,
             sampleCapped,
         });
 
-        this.logOperatorEvidenceAccess(actorUserId, operatorName, eligibleRecords.length);
+        this.logOperatorEvidenceAccess(actorUserId, operatorName || 'all', eligibleRecords.length);
 
         return result;
     }
@@ -1874,44 +2070,60 @@ export class OperatorAnalyticsService {
     }
 
     /**
-     * Scheduled anomaly detection across projects with `anomaly.detected` webhook.
-     * Compares the recent window vs the prior baseline window (CSAT drop / negativity spike).
+     * Compares recent vs baseline windows (CSAT drop / negativity spike).
+     * Product path: per-project alertConfig (Email/Telegram). Legacy: webhook + env defaults.
      */
     async checkAnomalies(): Promise<{ enabled: boolean; checked: number; alerted: number }> {
-        const enabled = this.readBooleanEnv('OPERATOR_ANOMALY_ENABLED', false);
-        if (!enabled) return { enabled: false, checked: 0, alerted: 0 };
-
-        const windowDays = this.readPositiveEnv('OPERATOR_ANOMALY_WINDOW_DAYS', 7);
-        const csatDropPct = this.readPositiveEnv('OPERATOR_ANOMALY_CSAT_DROP_PCT', 20);
-        const negativeSpikePct = this.readPositiveEnv('OPERATOR_ANOMALY_NEGATIVE_SPIKE_PCT', 15);
-        const minCalls = this.readPositiveEnv('OPERATOR_ANOMALY_MIN_CALLS', 5);
-
         const now = new Date();
-        const recentStart = new Date(now);
-        recentStart.setUTCDate(recentStart.getUTCDate() - windowDays);
-        const baselineEnd = new Date(recentStart);
-        const baselineStart = new Date(recentStart);
-        baselineStart.setUTCDate(baselineStart.getUTCDate() - windowDays);
-
-        const projects = await this.projectRepository.findAll({
-            where: { webhookUrl: { [Op.ne]: null } },
-        });
-
+        const projects = await this.projectRepository.findAll();
+        let checked = 0;
         let alerted = 0;
+
         for (const project of projects) {
-            if (!project.webhookEvents?.includes('anomaly.detected')) continue;
+            const alertConfig = normalizeAlertConfig(project.alertConfig);
+            const productEnabled = alertConfig.enabled
+                && (alertConfig.csatDrop.enabled || alertConfig.negativeSpike.enabled);
+            const wantWebhook = Boolean(project.webhookUrl)
+                && Boolean(project.webhookEvents?.includes('anomaly.detected'));
+            if (!productEnabled && !wantWebhook) continue;
+            checked++;
+
+            const csatRule = alertConfig.csatDrop;
+            const negRule = alertConfig.negativeSpike;
+            const evalCsat = productEnabled ? csatRule.enabled : true;
+            const evalNeg = productEnabled ? negRule.enabled : true;
+
+            const windowDays = Math.max(
+                evalCsat ? csatRule.windowDays : 0,
+                evalNeg ? negRule.windowDays : 0,
+            ) || this.readPositiveEnv('OPERATOR_ANOMALY_WINDOW_DAYS', 7);
+            const csatDropPct = csatRule.dropPct;
+            const negativeSpikePct = negRule.spikePp;
+            const minCalls = Math.min(
+                evalCsat ? csatRule.minCalls : Number.POSITIVE_INFINITY,
+                evalNeg ? negRule.minCalls : Number.POSITIVE_INFINITY,
+            );
+            const effectiveMinCalls = Number.isFinite(minCalls)
+                ? minCalls
+                : this.readPositiveEnv('OPERATOR_ANOMALY_MIN_CALLS', 5);
+
+            const recentStart = new Date(now);
+            recentStart.setUTCDate(recentStart.getUTCDate() - windowDays);
+            const baselineEnd = new Date(recentStart);
+            const baselineStart = new Date(recentStart);
+            baselineStart.setUTCDate(baselineStart.getUTCDate() - windowDays);
 
             const recent = await this.computeAnomalyWindowStats(project.id, recentStart, now);
             const baseline = await this.computeAnomalyWindowStats(project.id, baselineStart, baselineEnd);
-            if (recent.count < minCalls || baseline.count < minCalls) continue;
+            if (recent.count < effectiveMinCalls || baseline.count < effectiveMinCalls) continue;
 
             const csatDrop = baseline.avgCsat != null && recent.avgCsat != null
                 ? ((baseline.avgCsat - recent.avgCsat) / baseline.avgCsat) * 100
                 : null;
             const negativeSpike = recent.negativeRate - baseline.negativeRate;
 
-            const csatTriggered = csatDrop != null && csatDrop >= csatDropPct;
-            const negativeTriggered = negativeSpike >= negativeSpikePct;
+            const csatTriggered = evalCsat && csatDrop != null && csatDrop >= csatDropPct;
+            const negativeTriggered = evalNeg && negativeSpike >= negativeSpikePct;
             if (!csatTriggered && !negativeTriggered) continue;
 
             const last = project.anomalyLastAlertAt ? new Date(project.anomalyLastAlertAt) : null;
@@ -1920,9 +2132,7 @@ export class OperatorAnalyticsService {
             await project.update({ anomalyLastAlertAt: now });
             alerted++;
 
-            const payload = {
-                projectId: project.id,
-                projectName: project.name,
+            const anomalyPayload = {
                 windowDays,
                 recent,
                 baseline,
@@ -1930,12 +2140,41 @@ export class OperatorAnalyticsService {
                     csatDrop: csatTriggered ? parseFloat((csatDrop as number).toFixed(2)) : null,
                     negativeSpike: negativeTriggered ? parseFloat(negativeSpike.toFixed(2)) : null,
                 },
+                thresholds: {
+                    dropPct: csatDropPct,
+                    spikePp: negativeSpikePct,
+                },
             };
-            this.logger.warn(`Anomaly detected for project #${project.id}: ${JSON.stringify(payload.triggers)}`);
-            await this.callWebhook(project, 'anomaly.detected', payload).catch(() => { });
+            this.logger.warn(
+                `Anomaly detected for project #${project.id}: ${JSON.stringify(anomalyPayload.triggers)}`,
+            );
+
+            if (productEnabled) {
+                await this.alertService.sendCriticalAlert({
+                    type: 'anomaly',
+                    project,
+                    anomaly: anomalyPayload,
+                    allowEmpty: true,
+                }).catch((e) => {
+                    this.logger.warn(
+                        `Anomaly alert delivery failed for #${project.id}: ${(e as Error).message}`,
+                    );
+                });
+            }
+
+            if (wantWebhook) {
+                await this.callWebhook(project, 'anomaly.detected', {
+                    projectId: project.id,
+                    projectName: project.name,
+                    windowDays: anomalyPayload.windowDays,
+                    recent: anomalyPayload.recent,
+                    baseline: anomalyPayload.baseline,
+                    triggers: anomalyPayload.triggers,
+                }).catch(() => { });
+            }
         }
 
-        return { enabled: true, checked: projects.length, alerted };
+        return { enabled: true, checked, alerted };
     }
 
     private async computeAnomalyWindowStats(
@@ -2044,6 +2283,7 @@ export class OperatorAnalyticsService {
         transcription: string,
         project: OperatorProject | null,
         manualTagIds: string[],
+        llmTagIds: string[] = [],
     ): Record<string, unknown> | null {
         const block: Record<string, unknown> = {};
         const keywords = this.spotTopicKeywords(transcription);
@@ -2052,10 +2292,7 @@ export class OperatorAnalyticsService {
         }
 
         const taxonomy = project?.callTaxonomy ?? [];
-        const autoTagIds = taxonomy.length
-            ? spotTaxonomyTags(transcription, taxonomy)
-            : [];
-        const mergedTagIds = this.mergeTagIds(autoTagIds, manualTagIds);
+        const mergedTagIds = this.mergeTagIds(llmTagIds, manualTagIds);
         if (mergedTagIds.length) {
             block.tags = mergedTagIds;
             block.tag_names = this.buildTagNameSnapshot(mergedTagIds, taxonomy);
@@ -2170,6 +2407,8 @@ export class OperatorAnalyticsService {
             webhookHeaders?: Record<string, string>;
             monthlyBudgetUsd?: number | null;
             budgetAlertEmails?: string[] | null;
+            digestConfig?: DigestConfig | null;
+            alertConfig?: AlertConfig | null;
         },
     ): Promise<OperatorProject> {
         if (!data.name?.trim()) {
@@ -2208,6 +2447,21 @@ export class OperatorAnalyticsService {
         if (data.webhookHeaders !== undefined) createData.webhookHeaders = data.webhookHeaders;
         if (data.monthlyBudgetUsd !== undefined) createData.monthlyBudgetUsd = this.normalizeBudget(data.monthlyBudgetUsd);
         if (data.budgetAlertEmails !== undefined) createData.budgetAlertEmails = data.budgetAlertEmails;
+        if (data.digestConfig !== undefined && data.digestConfig !== null) {
+            const next = normalizeDigestConfig(data.digestConfig);
+            next.lastSentAt = null;
+            next.lastManualSentAt = null;
+            if (!next.emails.length && !next.telegramChatIds.length && next.enabled) {
+                throw new HttpException(
+                    'Digest requires at least one email or Telegram chat id when enabled',
+                    HttpStatus.BAD_REQUEST,
+                );
+            }
+            createData.digestConfig = next;
+        }
+        if (data.alertConfig !== undefined && data.alertConfig !== null) {
+            createData.alertConfig = this.prepareAlertConfigForSave(null, data.alertConfig);
+        }
 
         return this.projectRepository.create(createData);
     }
@@ -2227,6 +2481,8 @@ export class OperatorAnalyticsService {
             webhookHeaders?: Record<string, string>;
             monthlyBudgetUsd?: number | null;
             budgetAlertEmails?: string[] | null;
+            digestConfig?: DigestConfig | null;
+            alertConfig?: AlertConfig | null;
         },
     ): Promise<OperatorProject> {
         const project = await this.projectRepository.findOne({ where: { id, userId } });
@@ -2263,8 +2519,47 @@ export class OperatorAnalyticsService {
             project.monthlyBudgetUsd = next;
         }
         if (data.budgetAlertEmails !== undefined) project.budgetAlertEmails = data.budgetAlertEmails;
+        if (data.digestConfig !== undefined) {
+            if (data.digestConfig === null) {
+                project.digestConfig = null;
+            } else {
+                const prev = normalizeDigestConfig(project.digestConfig);
+                const next = normalizeDigestConfig(data.digestConfig);
+                // Preserve send timestamps — clients must not clear cron/manual dedupe.
+                next.lastSentAt = prev.lastSentAt ?? null;
+                next.lastManualSentAt = prev.lastManualSentAt ?? null;
+                if (!next.emails.length && !next.telegramChatIds.length && next.enabled) {
+                    throw new HttpException(
+                        'Digest requires at least one email or Telegram chat id when enabled',
+                        HttpStatus.BAD_REQUEST,
+                    );
+                }
+                project.digestConfig = next;
+            }
+        }
+        if (data.alertConfig !== undefined) {
+            if (data.alertConfig === null) {
+                project.alertConfig = null;
+            } else {
+                project.alertConfig = this.prepareAlertConfigForSave(project.alertConfig, data.alertConfig);
+            }
+        }
         await project.save();
         return project;
+    }
+
+    private prepareAlertConfigForSave(prevRaw: unknown, nextRaw: AlertConfig): AlertConfig {
+        const prev = normalizeAlertConfig(prevRaw);
+        const next = normalizeAlertConfig(nextRaw);
+        next.lastTestSentAt = prev.lastTestSentAt ?? null;
+        if (next.enabled && !next.inheritRecipientsFromDigest
+            && !next.emails.length && !next.telegramChatIds.length) {
+            throw new HttpException(
+                'Alerts require recipients or inherit from digest when enabled',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+        return next;
     }
 
     /** Coerce a budget input to a positive number, or null to disable. */
@@ -2750,15 +3045,35 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             await project.update({ budgetLastAlertAt: new Date() });
 
             const month = monthStart.toISOString().slice(0, 7);
+            const spentUsd = parseFloat(spent.toFixed(6));
             this.logger.warn(
                 `Project budget exceeded: project #${project.id} "${project.name}" ` +
                 `spent=${spent.toFixed(4)} USD >= budget=${budget} USD (month ${month}, user ${userId})`,
             );
+
+            const alertConfig = normalizeAlertConfig(project.alertConfig);
+            if (alertConfig.enabled && alertConfig.budgetExceeded.enabled) {
+                await this.alertService.sendCriticalAlert({
+                    type: 'budget_exceeded',
+                    project,
+                    budget: {
+                        month,
+                        monthlyBudgetUsd: budget,
+                        spentUsd,
+                    },
+                    allowEmpty: true,
+                }).catch((e) => {
+                    this.logger.warn(
+                        `Budget alert delivery failed for #${project.id}: ${(e as Error).message}`,
+                    );
+                });
+            }
+
             await this.callWebhook(project, 'budget.exceeded', {
                 projectId: project.id,
                 projectName: project.name,
                 monthlyBudgetUsd: budget,
-                spentUsd: parseFloat(spent.toFixed(6)),
+                spentUsd,
                 month,
                 alertEmails: project.budgetAlertEmails || [],
             }).catch(() => { });
@@ -3178,6 +3493,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             customInvalid?: string[] | null;
             promptVersion?: string | null;
             topicsBlock?: Record<string, unknown> | null;
+            diarizationSource?: DiarizationSource | null;
         },
     ) {
         return {
@@ -3193,6 +3509,9 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             ...(extras?.schemaVersion != null ? { _schema_version: extras.schemaVersion } : {}),
             ...(extras?.customInvalid && extras.customInvalid.length
                 ? { _custom_invalid: extras.customInvalid }
+                : {}),
+            ...(extras?.diarizationSource
+                ? { _diarization: { source: extras.diarizationSource } }
                 : {}),
             _quality: {
                 quality: assessment.quality,
@@ -3415,6 +3734,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         customMetricsDef?: CustomMetricDef[],
         project?: OperatorProject,
         qualityHint?: TranscriptionQualityAssessment,
+        options?: { channelDiarized?: boolean },
     ): Promise<{
         metrics: OperatorMetrics;
         customMetricsResult: any;
@@ -3426,12 +3746,14 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         customMeta?: Record<string, StoredMetricMeta> | null;
         customMetricsInvalid?: string[];
         modelName: string;
+        topicTagIds: string[];
     }> {
         const ctx = buildAnalysisContext(project, customMetricsDef);
         const jsonSchema = buildOpenAiJsonSchema(ctx);
         const prompt = buildAnalysisPrompt(transcription, ctx, {
             systemPrompt: project?.systemPrompt,
             qualityHintConfidence: qualityHint?.confidence,
+            channelDiarized: options?.channelDiarized,
         });
 
         const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -3494,6 +3816,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             customMeta: buildCustomMetricMeta(ctx),
             customMetricsInvalid: parsedResult.customMetricsInvalid,
             modelName: parsedResult.modelName,
+            topicTagIds: parsedResult.topicTagIds ?? [],
         };
     }
 
@@ -3562,7 +3885,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         'active_listening', 'objection_handling', 'product_knowledge',
         'problem_resolution', 'speech_clarity_pace', 'closing_quality',
         'customer_sentiment', 'summary', 'success', 'csat',
-    'custom_metrics', 'metrics', '_quality', '_evidence', '_assessments', '_custom_meta', '_model', '_schema_version', '_custom_invalid', '_topics',
+    'custom_metrics', 'metrics', '_quality', '_evidence', '_assessments', '_custom_meta', '_model', '_schema_version', '_custom_invalid', '_topics', '_diarization',
 ]);
 
     private extractCustomMetrics(metrics: Record<string, any> | null | undefined): Record<string, any> {

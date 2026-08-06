@@ -18,9 +18,9 @@ RUN npm run build
 # ============================================
 FROM node:22-slim AS production
 WORKDIR /app
-# Для sharp в рантайме
+# Для sharp + ffmpeg (stereo channel split / ffprobe) в рантайме
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libvips-dev && \
+    libvips-dev ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 # Production-зависимости
 COPY package.json package-lock.json ./

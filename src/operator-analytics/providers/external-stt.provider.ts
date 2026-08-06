@@ -98,6 +98,15 @@ export class ExternalSttProvider implements ITranscriptionProvider {
         this.logger.log(`[ExternalSTT] Transcription complete: ${text.length} chars, duration: ${duration}s`);
 
         const extra = typeof data === 'object' && data ? data : {};
+        const rawSegments = Array.isArray(extra.segments) ? extra.segments : [];
+        const segments = rawSegments
+            .map((seg: any) => ({
+                start: Number(seg.start) || 0,
+                end: Number(seg.end) || 0,
+                text: String(seg.text || '').trim(),
+            }))
+            .filter((seg: { text: string }) => seg.text.length > 0);
+
         return {
             text,
             duration,
@@ -106,8 +115,9 @@ export class ExternalSttProvider implements ITranscriptionProvider {
             avgLogprob: extra.avg_logprob ?? extra.avgLogprob,
             noSpeechProb: extra.no_speech_prob ?? extra.noSpeechProb,
             compressionRatio: extra.compression_ratio ?? extra.compressionRatio,
-            segmentsCount: Array.isArray(extra.segments) ? extra.segments.length : undefined,
+            segmentsCount: rawSegments.length || undefined,
             wordsCount: countTranscriptionWords(text),
+            ...(segments.length ? { segments } : {}),
         };
     }
 

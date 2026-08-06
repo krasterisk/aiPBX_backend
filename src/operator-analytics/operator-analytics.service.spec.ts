@@ -20,10 +20,12 @@ import { OpenAiTranscriptionProvider } from './providers/openai-transcription.pr
 import { ExternalSttProvider } from './providers/external-stt.provider';
 import { WhisperService } from '../whisper/whisper.service';
 import { InsightsCacheService } from './insights-cache.service';
+import { OperatorAlertService } from './operator-alert.service';
 import { Op } from 'sequelize';
 
 describe('OperatorAnalyticsService', () => {
     let service: OperatorAnalyticsService;
+    let mockAlertService: { sendCriticalAlert: jest.Mock };
 
     // ─── Mock repositories ───────────────────────────────────────────
     let mockAnalyticsRepo: any;
@@ -177,6 +179,10 @@ describe('OperatorAnalyticsService', () => {
             healthCheck: jest.fn().mockResolvedValue({ status: 'ok', url: 'http://whisper:9000/asr' }),
         };
 
+        mockAlertService = {
+            sendCriticalAlert: jest.fn().mockResolvedValue({ emailed: 0, telegram: 0 }),
+        };
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 OperatorAnalyticsService,
@@ -229,6 +235,7 @@ describe('OperatorAnalyticsService', () => {
                         set: jest.fn().mockResolvedValue(undefined),
                     },
                 },
+                { provide: OperatorAlertService, useValue: mockAlertService },
             ],
         }).compile();
 
@@ -1615,6 +1622,35 @@ describe('OperatorAnalyticsService', () => {
                 'budget.exceeded',
                 expect.objectContaining({ projectId: 7, monthlyBudgetUsd: 10, spentUsd: 12.5 }),
             );
+            expect(mockAlertService.sendCriticalAlert).not.toHaveBeenCalled();
+            spy.mockRestore();
+        });
+
+        it('fans out Email/Telegram when alertConfig.budgetExceeded is enabled', async () => {
+            const project = makeProject({
+                alertConfig: {
+                    enabled: true,
+                    inheritRecipientsFromDigest: false,
+                    emails: ['ops@example.com'],
+                    telegramChatIds: [],
+                    csatDrop: { enabled: true, dropPct: 20, windowDays: 7, minCalls: 5 },
+                    negativeSpike: { enabled: true, spikePp: 15, windowDays: 7, minCalls: 5 },
+                    budgetExceeded: { enabled: true },
+                },
+            });
+            mockAiCdrRepo.sum.mockResolvedValueOnce(12.5);
+            const spy = jest.spyOn(service, 'callWebhook').mockResolvedValue(undefined as any);
+
+            await (service as any).checkProjectBudget(project, '5');
+
+            expect(mockAlertService.sendCriticalAlert).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'budget_exceeded',
+                    project,
+                    budget: expect.objectContaining({ monthlyBudgetUsd: 10, spentUsd: 12.5 }),
+                }),
+            );
+            expect(spy).toHaveBeenCalled();
             spy.mockRestore();
         });
 
@@ -1725,13 +1761,14 @@ describe('OperatorAnalyticsService', () => {
     // ═════════════════════════════════════════════════════════════════
 
     describe('getById (project scoping)', () => {
-        it('applies projectId filter when provided', async () => {
+        it('looks up by channelId first (not OR with aiCdr PK)', async () => {
             mockAiCdrRepo.findOne.mockResolvedValue({ channelId: '7' });
             await service.getById(7, '1', 3);
 
             const call = mockAiCdrRepo.findOne.mock.calls[0][0];
-            expect(call.where).toMatchObject({ userId: '1', projectId: 3 });
-            expect(call.where[Op.or]).toEqual([{ channelId: '7' }, { id: 7 }]);
+            expect(call.where).toMatchObject({ channelId: '7', userId: '1', projectId: 3 });
+            expect(call.where[Op.or]).toBeUndefined();
+            expect(call.where.id).toBeUndefined();
         });
 
         it('does not add projectId filter when omitted', async () => {
@@ -1756,6 +1793,40 @@ describe('OperatorAnalyticsService', () => {
 
             const call = mockAiCdrRepo.findOne.mock.calls[0][0];
             expect(call.where.userId).toEqual({ [Op.in]: ['1006', '42'] });
+        });
+
+        it('always scopes non-admin lookups by tenant userId', async () => {
+            mockAiCdrRepo.findOne.mockResolvedValue({
+                channelId: '7',
+                userId: '42',
+                toJSON: () => ({ channelId: '7', userId: '42' }),
+            });
+            mockAnalyticsRepo.findByPk.mockResolvedValue(null);
+
+            await service.getById(7, '42', undefined, false);
+
+            const call = mockAiCdrRepo.findOne.mock.calls[0][0];
+            expect(call.where.userId).toBe('42');
+            expect(call.where.channelId).toBe('7');
+        });
+
+        it('rejects non-admin when no tenant identity is provided (no unscoped read)', async () => {
+            await expect(service.getById(7, null, undefined, false, []))
+                .rejects.toThrow('Unauthorized');
+            expect(mockAiCdrRepo.findOne).not.toHaveBeenCalled();
+        });
+
+        it('returns 404 when channel exists but belongs to another tenant', async () => {
+            // Sequelize returns null because where includes userId of the caller
+            mockAiCdrRepo.findOne.mockResolvedValue(null);
+
+            await expect(service.getById(7, '42', undefined, false))
+                .rejects.toThrow('Analysis not found');
+
+            expect(mockAiCdrRepo.findOne.mock.calls[0][0].where).toMatchObject({
+                channelId: '7',
+                userId: '42',
+            });
         });
 
         it('emits a structured audit log on transcript read', async () => {
@@ -1798,6 +1869,67 @@ describe('OperatorAnalyticsService', () => {
                 transcription: 'hello transcript',
             });
         });
+
+        it('prefers channelId match over colliding aiCdr PK (bot-call uniqueid)', async () => {
+            // OA row: channelId "3". Unrelated bot call also has aiCdr.id = 3.
+            // Old Op.or lookup could return the bot call (analytics: null, wrong callerId).
+            mockAiCdrRepo.findOne.mockResolvedValueOnce({
+                id: 99,
+                channelId: '3',
+                callerId: '+79991234567',
+                analytics: { metrics: { greeting_quality: 80 } },
+                toJSON: () => ({
+                    id: 99,
+                    channelId: '3',
+                    callerId: '+79991234567',
+                    analytics: { metrics: { greeting_quality: 80 } },
+                }),
+            });
+            mockAnalyticsRepo.findByPk.mockResolvedValue(null);
+
+            const result = await service.getById(3, '1', undefined, true);
+
+            expect(mockAiCdrRepo.findOne).toHaveBeenCalledTimes(1);
+            expect(mockAiCdrRepo.findOne.mock.calls[0][0].where).toMatchObject({ channelId: '3' });
+            expect(result).toMatchObject({ channelId: '3', callerId: '+79991234567' });
+        });
+
+        it('rejects aiCdr PK fallback when channelId is an Asterisk uniqueid', async () => {
+            mockAiCdrRepo.findOne
+                .mockResolvedValueOnce(null) // no channelId="3"
+                .mockResolvedValueOnce({
+                    id: 3,
+                    channelId: '1746595347.126838',
+                    callerId: '1001',
+                    analytics: null,
+                    toJSON: () => ({
+                        id: 3,
+                        channelId: '1746595347.126838',
+                        callerId: '1001',
+                        analytics: null,
+                    }),
+                });
+
+            await expect(service.getById(3, '1', undefined, true))
+                .rejects.toThrow('Analysis not found');
+        });
+
+        it('accepts aiCdr PK fallback only for OA-linked rows (numeric channelId)', async () => {
+            mockAiCdrRepo.findOne
+                .mockResolvedValueOnce(null) // no channelId="100"
+                .mockResolvedValueOnce({
+                    id: 100,
+                    channelId: '42',
+                    toJSON: () => ({ id: 100, channelId: '42' }),
+                });
+            mockAnalyticsRepo.findByPk.mockResolvedValue(null);
+
+            const result = await service.getById(100, '1', undefined, true);
+
+            expect(mockAiCdrRepo.findOne).toHaveBeenCalledTimes(2);
+            expect(mockAiCdrRepo.findOne.mock.calls[1][0].where).toMatchObject({ id: 100 });
+            expect(result).toMatchObject({ channelId: '42' });
+        });
     });
 
     // ═════════════════════════════════════════════════════════════════
@@ -1810,6 +1942,13 @@ describe('OperatorAnalyticsService', () => {
             await expect(
                 service.saveMetricOverrides('7', '999', false, [{ metricId: 'greeting_quality', numValue: 100 }]),
             ).rejects.toThrow('Analysis not found');
+        });
+
+        it('rejects override when non-admin has no tenant identity', async () => {
+            await expect(
+                service.saveMetricOverrides('7', '', false, [{ metricId: 'greeting_quality', numValue: 100 }]),
+            ).rejects.toThrow('Unauthorized');
+            expect(mockAiCdrRepo.findOne).not.toHaveBeenCalled();
         });
 
         it('creates a new override scoped to the record owner', async () => {
@@ -2070,15 +2209,31 @@ describe('OperatorAnalyticsService', () => {
             { id: 'returns', name: 'Возвраты', aliases: ['возврат'] },
         ];
 
-        it('buildTopicsBlock writes matched tag ids and name snapshot', () => {
+        it('buildTopicsBlock merges LLM auto tags with name snapshot', () => {
             const project = { callTaxonomy: taxonomy } as any;
-            const block = (service as any).buildTopicsBlock('Клиент просит счёт и возврат', project, []);
+            const block = (service as any).buildTopicsBlock(
+                'Клиент просит счёт и возврат',
+                project,
+                [],
+                ['billing', 'returns'],
+            );
             expect(block.tags).toEqual(['billing', 'returns']);
             expect(block.tag_names).toEqual({ billing: 'Счета', returns: 'Возвраты' });
         });
 
-        it('buildTopicsBlock returns null when no taxonomy and no compliance keywords', () => {
-            const block = (service as any).buildTopicsBlock('обычный текст', { callTaxonomy: [] }, []);
+        it('buildTopicsBlock does not keyword-match taxonomy without LLM tags', () => {
+            const project = { callTaxonomy: taxonomy } as any;
+            const block = (service as any).buildTopicsBlock(
+                'Клиент просит счёт и возврат',
+                project,
+                [],
+                [],
+            );
+            expect(block).toBeNull();
+        });
+
+        it('buildTopicsBlock returns null when no taxonomy tags and no compliance keywords', () => {
+            const block = (service as any).buildTopicsBlock('обычный текст', { callTaxonomy: [] }, [], []);
             expect(block).toBeNull();
         });
 
@@ -2251,12 +2406,13 @@ describe('OperatorAnalyticsService', () => {
             logSpy.mockRestore();
         });
 
-        it('re-analysis rebuild merges auto matches with surviving manual tags', () => {
+        it('re-analysis rebuild merges LLM auto tags with surviving manual tags', () => {
             const project = { callTaxonomy: taxonomy } as any;
             const block = (service as any).buildTopicsBlock(
                 'Клиент просит счёт',
                 project,
                 ['returns'],
+                ['billing'],
             );
             expect(block.tags).toEqual(['billing', 'returns']);
             expect(block.tag_names.returns).toBe('Возвраты');
@@ -2431,12 +2587,87 @@ describe('OperatorAnalyticsService', () => {
     });
 
     describe('checkAnomalies', () => {
-        it('is a no-op when OPERATOR_ANOMALY_ENABLED is false', async () => {
-            mockConfigService.get.mockImplementation((key: string) =>
-                key === 'OPERATOR_ANOMALY_ENABLED' ? 'false' : undefined);
+        it('skips projects without alertConfig or anomaly webhook', async () => {
+            mockProjectRepo.findAll.mockResolvedValueOnce([
+                { id: 1, name: 'A', alertConfig: null, webhookUrl: null, webhookEvents: [] },
+            ]);
             const result = await service.checkAnomalies();
-            expect(result).toEqual({ enabled: false, checked: 0, alerted: 0 });
-            expect(mockProjectRepo.findAll).not.toHaveBeenCalled();
+            expect(result).toEqual({ enabled: true, checked: 0, alerted: 0 });
+            expect(mockAlertService.sendCriticalAlert).not.toHaveBeenCalled();
+        });
+
+        it('alerts via product path when CSAT drops past threshold', async () => {
+            const project = {
+                id: 9,
+                name: 'Ops',
+                alertConfig: {
+                    enabled: true,
+                    inheritRecipientsFromDigest: true,
+                    emails: [],
+                    telegramChatIds: [],
+                    csatDrop: { enabled: true, dropPct: 20, windowDays: 7, minCalls: 2 },
+                    negativeSpike: { enabled: false, spikePp: 15, windowDays: 7, minCalls: 2 },
+                    budgetExceeded: { enabled: false },
+                },
+                webhookUrl: null,
+                webhookEvents: [],
+                anomalyLastAlertAt: null,
+                update: jest.fn().mockResolvedValue(undefined),
+            };
+            mockProjectRepo.findAll.mockResolvedValueOnce([project]);
+
+            const recent = Array.from({ length: 3 }, () => ({
+                analytics: { csat: 2, sentiment: 'neutral', metrics: {} },
+            }));
+            const baseline = Array.from({ length: 3 }, () => ({
+                analytics: { csat: 5, sentiment: 'neutral', metrics: {} },
+            }));
+            mockAiCdrRepo.findAll
+                .mockResolvedValueOnce(recent)
+                .mockResolvedValueOnce(baseline);
+
+            const result = await service.checkAnomalies();
+            expect(result.alerted).toBe(1);
+            expect(project.update).toHaveBeenCalledWith(
+                expect.objectContaining({ anomalyLastAlertAt: expect.any(Date) }),
+            );
+            expect(mockAlertService.sendCriticalAlert).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'anomaly',
+                    project,
+                    anomaly: expect.objectContaining({
+                        triggers: expect.objectContaining({ csatDrop: expect.any(Number) }),
+                    }),
+                }),
+            );
+        });
+
+        it('dedupes when anomalyLastAlertAt is inside the recent window', async () => {
+            const project = {
+                id: 9,
+                name: 'Ops',
+                alertConfig: {
+                    enabled: true,
+                    inheritRecipientsFromDigest: true,
+                    emails: [],
+                    telegramChatIds: [],
+                    csatDrop: { enabled: true, dropPct: 10, windowDays: 7, minCalls: 1 },
+                    negativeSpike: { enabled: false, spikePp: 15, windowDays: 7, minCalls: 1 },
+                    budgetExceeded: { enabled: false },
+                },
+                webhookUrl: null,
+                webhookEvents: [],
+                anomalyLastAlertAt: new Date(),
+                update: jest.fn().mockResolvedValue(undefined),
+            };
+            mockProjectRepo.findAll.mockResolvedValueOnce([project]);
+            mockAiCdrRepo.findAll
+                .mockResolvedValueOnce([{ analytics: { csat: 1, sentiment: 'neutral', metrics: {} } }])
+                .mockResolvedValueOnce([{ analytics: { csat: 5, sentiment: 'neutral', metrics: {} } }]);
+
+            const result = await service.checkAnomalies();
+            expect(result.alerted).toBe(0);
+            expect(mockAlertService.sendCriticalAlert).not.toHaveBeenCalled();
         });
     });
 

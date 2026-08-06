@@ -173,6 +173,12 @@ export interface ProjectTemplate {
 
 export type TranscriptionQualityLevel = 'ok' | 'low' | 'unusable';
 
+export interface TranscriptionSegment {
+    start: number;
+    end: number;
+    text: string;
+}
+
 export interface TranscriptionResult {
     text: string;
     duration: number; // seconds
@@ -183,6 +189,8 @@ export interface TranscriptionResult {
     compressionRatio?: number;
     wordsCount?: number;
     segmentsCount?: number;
+    /** Timed segments (Whisper verbose_json) — used for stereo channel merge. */
+    segments?: TranscriptionSegment[];
 }
 
 export interface ITranscriptionProvider {

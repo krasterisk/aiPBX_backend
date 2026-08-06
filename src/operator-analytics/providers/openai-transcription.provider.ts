@@ -37,10 +37,25 @@ export class OpenAiTranscriptionProvider implements ITranscriptionProvider {
 
         const text = typeof response === 'string' ? response : (response as any).text || '';
         const duration = (response as any).duration || 0;
+        const rawSegments = typeof response === 'object' && Array.isArray((response as any).segments)
+            ? (response as any).segments
+            : [];
+        const segments = rawSegments
+            .map((seg: any) => ({
+                start: Number(seg.start) || 0,
+                end: Number(seg.end) || 0,
+                text: String(seg.text || '').trim(),
+            }))
+            .filter((seg: { text: string }) => seg.text.length > 0);
 
         this.logger.log(`Transcription complete: ${text.length} chars, duration: ${duration}s`);
 
-        return { text, duration };
+        return {
+            text,
+            duration,
+            segmentsCount: segments.length || undefined,
+            ...(segments.length ? { segments } : {}),
+        };
     }
 
     private getMimeType(filename: string): string {

@@ -81,6 +81,30 @@ export class MailerService {
         }
     }
 
+    async sendAnalyticsDigestMail(
+        to: string,
+        subject: string,
+        html: string,
+        text: string,
+        attachments?: nodemailer.SendMailOptions['attachments'],
+    ) {
+        if (!to) return;
+        try {
+            await this.transporter.sendMail(this.withSenderMailboxCopy({
+                from: `"AI PBX Analytics" <${process.env.MAIL_USER}>`,
+                to,
+                subject,
+                text,
+                html,
+                attachments,
+            }));
+            this.logger.log(`Sent analytics digest to ${to}`);
+        } catch (e) {
+            this.logger.error('Error send analytics digest mail' + e);
+            throw new HttpException('Error sending email', HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
     async sendResetPasswordMail(to: string, link: string) {
         const resetPasswordLink = `${process.env.API_URL}/api/users/resetPassword/${link}`;
         const isRu = usesRussianMailLocale();

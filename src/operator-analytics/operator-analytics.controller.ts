@@ -6,15 +6,23 @@ import {
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { OperatorAnalyticsService } from './operator-analytics.service';
+import { OperatorDigestService } from './operator-digest.service';
+import { OperatorAlertService } from './operator-alert.service';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles-auth.decorator';
 import { ApiTokenGuard } from './guards/api-token.guard';
 import { AnalyticsSource } from './operator-analytics.model';
 import { CustomMetricDef, MetricDefinition } from './interfaces/operator-metrics.interface';
 import { GenerateSchemaDto, BulkMoveDto, CreateProjectDto, UpdateProjectDto } from './dto/project.dto';
+import { AnalyzeRequestDto } from './dto/analyze.dto';
 import { UpdateCallTagsDto } from './dto/call-tags.dto';
 import { OperatorInsightsResponseDto } from './dto/operator-insights-response.dto';
 import { OperatorEvidenceResponseDto } from './dto/operator-evidence.dto';
+import {
+    assertAudioFilename,
+    assertDecodedSize,
+    decodeBase64Audio,
+} from './lib/base64-audio';
 
 
 
@@ -36,7 +44,11 @@ const ALLOWED_MIMES = [
 @ApiTags('Operator Analytics')
 @Controller('operator-analytics')
 export class OperatorAnalyticsController {
-    constructor(private readonly service: OperatorAnalyticsService) { }
+    constructor(
+        private readonly service: OperatorAnalyticsService,
+        private readonly digestService: OperatorDigestService,
+        private readonly alertService: OperatorAlertService,
+    ) { }
 
     // ─── Batch Progress (JWT Auth) ───────────────────────────
 
@@ -204,6 +216,63 @@ export class OperatorAnalyticsController {
         }
 
         return this.startAsyncFileUpload(files, userId, AnalyticsSource.API, options, body.provider);
+    }
+
+    // ─── External API: Unified analyze (URL XOR Base64) ──────────────
+
+    @Post('analyze')
+    @UseGuards(ApiTokenGuard)
+    @ApiOperation({
+        summary: 'Analyze audio by URL or Base64 body (External API)',
+        description:
+            'Exactly one source type per request: url/urls OR file/files. ' +
+            'sync=true waits for a single item; multiple items are always async.',
+    })
+    @ApiResponse({ status: 200, description: 'Analysis result, processing stub, or batch status' })
+    @ApiResponse({ status: 400, description: 'Invalid source / Base64 / filename' })
+    @ApiResponse({ status: 413, description: 'Decoded file too large' })
+    async analyzeUnified(
+        @Req() req: RequestWithUser,
+        @Body() body: AnalyzeRequestDto,
+    ) {
+        const userId = req.vpbxUserId || req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+
+        const hasUrl = Boolean(body.url?.trim()) || Boolean(body.urls?.length);
+        const hasFile = Boolean(body.file?.trim()) || Boolean(body.files?.length);
+
+        if (!hasUrl && !hasFile) {
+            throw new HttpException(
+                'url or urls or file or files is required',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+        if (hasUrl && hasFile) {
+            throw new HttpException(
+                'Provide either URL (url/urls) or Base64 (file/files), not both',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        const projectId = body.projectId != null
+            ? +body.projectId
+            : (req as any).apiToken?.projectId ?? undefined;
+        const options = {
+            operatorName: body.operatorName,
+            clientPhone: body.clientPhone,
+            language: body.language,
+            customMetrics: body.customMetrics,
+            provider: body.provider,
+            projectId,
+            consentObtained: this.parseConsent(body.consentObtained),
+            consentSource: body.consentSource,
+        };
+        const sync = this.parseSync(body.sync);
+
+        if (hasUrl) {
+            return this.analyzeUnifiedFromUrls(userId, body, options, sync);
+        }
+        return this.analyzeUnifiedFromBase64(userId, body, options, sync);
     }
 
     // ─── External API: Analyze by URL (API Token Auth) ───────────────
@@ -435,6 +504,40 @@ export class OperatorAnalyticsController {
         return this.service.updateProject(+id, req.vpbxUserId || req.tokenUserId, body);
     }
 
+    @Post('projects/:id/digest/send')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Send analytics digest now (email + Telegram)' })
+    @ApiResponse({ status: 200, description: 'Digest delivery result' })
+    async sendProjectDigest(
+        @Req() req: RequestWithUser,
+        @Param('id') id: string,
+    ) {
+        return this.digestService.sendManual(
+            +id,
+            req.vpbxUserId || req.tokenUserId,
+            req.isAdmin ?? false,
+        );
+    }
+
+    @Post('projects/:id/alerts/test')
+    @ApiBearerAuth()
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Send a test critical alert (email + Telegram), does not stamp lastAlertAt' })
+    @ApiResponse({ status: 200, description: 'Test alert delivery result' })
+    async sendProjectAlertTest(
+        @Req() req: RequestWithUser,
+        @Param('id') id: string,
+    ) {
+        return this.alertService.sendTestAlert(
+            +id,
+            req.vpbxUserId || req.tokenUserId,
+            req.isAdmin ?? false,
+        );
+    }
+
     @Post('projects/:id/delete')
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
@@ -595,7 +698,7 @@ export class OperatorAnalyticsController {
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
-    @ApiOperation({ summary: 'Get aggregated per-metric evidence for one operator over the dashboard period' })
+    @ApiOperation({ summary: 'Get aggregated per-metric evidence for an operator or the whole filtered set' })
     @ApiResponse({ status: 200, type: OperatorEvidenceResponseDto, description: 'Per-metric quotes and rationales' })
     async getOperatorEvidence(
         @Req() req: RequestWithUser,
@@ -609,9 +712,6 @@ export class OperatorAnalyticsController {
             order?: string;
         },
     ) {
-        if (!query.operatorName?.trim()) {
-            throw new HttpException('operatorName is required', HttpStatus.BAD_REQUEST);
-        }
         const order = query.order ?? 'worst';
         if (order !== 'worst' && order !== 'best') {
             throw new HttpException('order must be worst or best', HttpStatus.BAD_REQUEST);
@@ -621,7 +721,7 @@ export class OperatorAnalyticsController {
         const realUserId = isAdmin ? null : authUserId;
         return this.service.getOperatorEvidence(
             {
-                operatorName: query.operatorName.trim(),
+                operatorName: query.operatorName?.trim() || undefined,
                 userId: query.userId,
                 startDate: query.startDate,
                 endDate: query.endDate,
@@ -723,17 +823,131 @@ export class OperatorAnalyticsController {
     ) {
         // Prefer vpbx id for tenancy, but also accept internal users.id — historical
         // aiCdr.userId rows may store either depending on when the analysis was created.
+        const isAdmin = req.isAdmin ?? false;
         const userId = req.vpbxUserId || req.tokenUserId || null;
+        if (!isAdmin && !userId) {
+            throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        }
         return this.service.getById(
             +id,
             userId,
             undefined,
-            req.isAdmin ?? false,
+            isAdmin,
             [req.tokenUserId, req.vpbxUserId],
         );
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────
+
+    private async analyzeUnifiedFromUrls(
+        userId: string,
+        body: AnalyzeRequestDto,
+        options: {
+            operatorName?: string;
+            clientPhone?: string;
+            language?: string;
+            customMetrics?: CustomMetricDef[];
+            provider?: string;
+            projectId?: number;
+            consentObtained?: boolean;
+            consentSource?: string;
+        },
+        sync: boolean,
+    ) {
+        const urlList = body.urls?.length
+            ? body.urls
+            : body.url
+                ? [body.url]
+                : [];
+        if (urlList.length === 0) {
+            throw new HttpException('url or urls is required', HttpStatus.BAD_REQUEST);
+        }
+
+        if (urlList.length === 1 && sync) {
+            return this.service.analyzeUrl(urlList[0], userId, options);
+        }
+
+        if (urlList.length === 1) {
+            const url = urlList[0];
+            const filename = url.split('/').pop()?.split('?')[0] || 'download.mp3';
+            const record = await this.service.createProcessingRecord(
+                filename, userId, AnalyticsSource.API, options,
+            );
+            await record.update({ recordUrl: url });
+            this.service.processUrlInBackground(record.id, url, body.provider);
+            return { id: record.id, filename, url, status: 'processing' };
+        }
+
+        const items = [];
+        for (const url of urlList) {
+            const filename = url.split('/').pop()?.split('?')[0] || 'download.mp3';
+            const record = await this.service.createProcessingRecord(
+                filename, userId, AnalyticsSource.API, options,
+            );
+            await record.update({ recordUrl: url });
+            items.push({ id: record.id, filename, url, status: 'processing' });
+            this.service.processUrlInBackground(record.id, url, body.provider);
+        }
+        return { items };
+    }
+
+    private async analyzeUnifiedFromBase64(
+        userId: string,
+        body: AnalyzeRequestDto,
+        options: {
+            operatorName?: string;
+            clientPhone?: string;
+            language?: string;
+            customMetrics?: CustomMetricDef[];
+            provider?: string;
+            projectId?: number;
+            consentObtained?: boolean;
+            consentSource?: string;
+        },
+        sync: boolean,
+    ) {
+        const items: { buffer: Buffer; filename: string }[] = [];
+
+        if (body.files?.length) {
+            for (const item of body.files) {
+                assertAudioFilename(item.filename);
+                const { buffer } = decodeBase64Audio(item.data);
+                assertDecodedSize(buffer);
+                items.push({ buffer, filename: item.filename.trim() });
+            }
+        } else if (body.file?.trim()) {
+            assertAudioFilename(body.filename || '');
+            const { buffer } = decodeBase64Audio(body.file);
+            assertDecodedSize(buffer);
+            items.push({ buffer, filename: body.filename!.trim() });
+        }
+
+        if (items.length === 0) {
+            throw new HttpException('file or files is required', HttpStatus.BAD_REQUEST);
+        }
+
+        if (items.length === 1 && sync) {
+            return this.service.analyzeFile(
+                items[0].buffer, items[0].filename, userId, AnalyticsSource.API, options,
+            );
+        }
+
+        const fakeFiles = items.map((i) => ({
+            buffer: i.buffer,
+            originalname: i.filename,
+            size: i.buffer.length,
+            mimetype: 'audio/mpeg',
+        }));
+        return this.startAsyncFileUpload(
+            fakeFiles, userId, AnalyticsSource.API, options, body.provider,
+        );
+    }
+
+    private parseSync(value?: string | boolean): boolean {
+        if (value === true) return true;
+        if (typeof value === 'string' && value.toLowerCase() === 'true') return true;
+        return false;
+    }
 
     private async startAsyncFileUpload(
         files: any[],

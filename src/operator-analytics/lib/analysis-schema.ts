@@ -131,7 +131,7 @@ const CLOSING_QUALITY_RUBRIC = buildCompactRubric(
  * specific prompt revision. Stored on each record (DB column + metrics._model).
  * Format: YYYY-MM-DD.N (date of change + same-day revision counter).
  */
-export const PROMPT_VERSION = '2026-06-19.3';
+export const PROMPT_VERSION = '2026-08-05.2';
 
 export interface MetricAssessment {
     rationale: string;
@@ -165,9 +165,42 @@ export interface AnalysisCustomMetric {
     polarity?: MetricPolarity;
 }
 
+/** Closed-set theme for LLM topic tagging (from project.callTaxonomy). */
+export interface AnalysisTaxonomyTag {
+    id: string;
+    name: string;
+    description?: string;
+    aliases?: string[];
+}
+
 export interface AnalysisBuildContext {
     visibleDefaultMetrics: DefaultMetricKey[];
     customMetrics: AnalysisCustomMetric[];
+    taxonomyTags: AnalysisTaxonomyTag[];
+}
+
+/** Max auto theme tags per call (aligned with operator_call_tags / PATCH cap). */
+export const MAX_TOPIC_TAGS = 10;
+
+/**
+ * Keep only known taxonomy ids, unique, capped.
+ * Unknown / hallucinated ids are dropped (do not fail the whole analysis).
+ */
+export function sanitizeTopicTagIds(
+    raw: unknown,
+    ctx: AnalysisBuildContext,
+): string[] {
+    if (!ctx.taxonomyTags.length) return [];
+    if (!Array.isArray(raw)) return [];
+    const allowed = new Set(ctx.taxonomyTags.map(t => t.id));
+    const hits: string[] = [];
+    for (const item of raw) {
+        const id = typeof item === 'string' ? item.trim() : '';
+        if (!id || !allowed.has(id) || hits.includes(id)) continue;
+        hits.push(id);
+        if (hits.length >= MAX_TOPIC_TAGS) break;
+    }
+    return hits;
 }
 
 /** Parse a numeric range hint like "от 0 до 10", "0-10", "1 to 5" from free text. */
@@ -311,9 +344,21 @@ export function buildAnalysisContext(
             description: m.description,
         }));
 
+    const taxonomyTags: AnalysisTaxonomyTag[] = (project?.callTaxonomy ?? [])
+        .filter(t => t?.id && t?.name)
+        .map(t => ({
+            id: t.id,
+            name: t.name,
+            description: t.description?.trim() || undefined,
+            aliases: Array.isArray(t.aliases)
+                ? t.aliases.map(a => a.trim()).filter(Boolean)
+                : [],
+        }));
+
     return {
         visibleDefaultMetrics: resolveVisibleDefaultMetrics(project),
         customMetrics,
+        taxonomyTags,
     };
 }
 
@@ -381,6 +426,12 @@ export function buildZodAnalysisSchema(ctx: AnalysisBuildContext) {
             customShape[metric.id] = customMetricValueSchema(metric);
         }
         shape.custom_metrics = z.object(customShape).partial();
+    }
+
+    if (ctx.taxonomyTags.length) {
+        // Structural only — membership/cap enforced by sanitizeTopicTagIds
+        // so a bad id never fails the whole analysis (Ollama / non-strict paths).
+        shape.topic_tag_ids = z.array(z.string());
     }
 
     return z.object(shape);
@@ -477,6 +528,16 @@ export function buildOpenAiJsonSchema(ctx: AnalysisBuildContext) {
         required.push('custom_metrics');
     }
 
+    if (ctx.taxonomyTags.length) {
+        const taxonomyIds = ctx.taxonomyTags.map(t => t.id);
+        properties.topic_tag_ids = {
+            type: 'array',
+            items: { type: 'string', enum: taxonomyIds },
+            description: 'Zero or more theme ids from the project taxonomy that fit this call',
+        };
+        required.push('topic_tag_ids');
+    }
+
     required.push(
         'customer_sentiment', 'csat', 'summary', 'success',
         'analysis_confidence', 'insufficient_content', 'diarized_text',
@@ -496,6 +557,8 @@ export function buildAnalysisPrompt(
     options?: {
         systemPrompt?: string | null;
         qualityHintConfidence?: number;
+        /** Speakers already labeled from stereo L/R channels — do not reassign. */
+        channelDiarized?: boolean;
     },
 ): string {
     const metricLines = ctx.visibleDefaultMetrics.map((key, index) => {
@@ -523,6 +586,25 @@ export function buildAnalysisPrompt(
         customMetricsPromptBlock = `\nCustom metrics (also in assessments + custom_metrics): ${customDefs}`;
     }
 
+    let taxonomyPromptBlock = '';
+    let taxonomyJsonLine = '';
+    if (ctx.taxonomyTags.length) {
+        const themeLines = ctx.taxonomyTags.map(t => {
+            const when = t.description?.trim()
+                || 'match by theme name / meaning in the transcript';
+            const hints = t.aliases?.length
+                ? ` hints: ${t.aliases.join(', ')}`
+                : '';
+            return `- \`${t.id}\` "${t.name}" — ${when}${hints}`;
+        }).join('\n');
+        taxonomyPromptBlock = [
+            '',
+            'Call themes (topic_tag_ids): assign zero or more ids that truly fit this call. Prefer precision over coverage; [] if none fit. Only use ids listed below.',
+            themeLines,
+        ].join('\n');
+        taxonomyJsonLine = ',\n  "topic_tag_ids": ["<id>", ...]';
+    }
+
     const businessContext = options?.systemPrompt
         ? `\nBUSINESS CONTEXT: ${options.systemPrompt}`
         : '';
@@ -530,6 +612,14 @@ export function buildAnalysisPrompt(
     const qualityHintBlock = options?.qualityHintConfidence != null
         ? `\nLOW STT CONFIDENCE (${options.qualityHintConfidence}): if unreliable, set insufficient_content=true, analysis_confidence<0.4; do not invent scores.`
         : '';
+
+    const channelDiarizedBlock = options?.channelDiarized
+        ? `\nCHANNEL DIARIZATION: transcript speakers are already labeled from stereo audio channels (operator/customer). Keep those speaker labels in diarized_text; do not reassign or invent speakers.`
+        : '';
+
+    const diarizedInstruction = options?.channelDiarized
+        ? 'diarized_text: copy the labeled turns from TRANSCRIPTION (speakers lowercase English operator|customer); do not change speaker roles.'
+        : 'diarized_text: preserve full original text; speakers lowercase English operator|customer.';
 
     const metricJsonLines = ctx.visibleDefaultMetrics
         .map(key => `  "${key}": <0|25|50|75|100>`)
@@ -545,7 +635,7 @@ export function buildAnalysisPrompt(
 
     return `
 QA analyst. Score operator call from transcript. JSON only.
-${businessContext}${qualityHintBlock}
+${businessContext}${qualityHintBlock}${channelDiarizedBlock}
 TRANSCRIPTION:
 ${transcription}
 
@@ -565,14 +655,15 @@ ${metricJsonLines}${metricJsonLines ? ',' : ''}
   "success": <boolean>,
   "analysis_confidence": <0-1>,
   "insufficient_content": <boolean>,
-  "diarized_text": [{ "speaker": "operator|customer", "text": "..." }]${ctx.customMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}
+  "diarized_text": [{ "speaker": "operator|customer", "text": "..." }]${ctx.customMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}${taxonomyJsonLine}
 }
 
 Metric checklists (4 items each unless noted):
 ${metricLines}
 ${customMetricsPromptBlock}
+${taxonomyPromptBlock}
 
-diarized_text: preserve full original text; speakers lowercase English operator|customer.
+${diarizedInstruction}
 Return ONLY JSON.
 `.trim();
 }
@@ -609,6 +700,7 @@ export function parseAndValidateAnalysisResponse(
     const data = result.data as Record<string, any>;
     const { values: customMetricsResult, invalid: customMetricsInvalid } =
         sanitizeCustomMetricValues(data.custom_metrics || null, ctx);
+    const topicTagIds = sanitizeTopicTagIds(data.topic_tag_ids, ctx);
     const assessments = (data.assessments || null) as Record<string, MetricAssessment> | null;
     const diarizedRaw = data.diarized_text || null;
     const analysisConfidence = data.analysis_confidence;
@@ -619,11 +711,13 @@ export function parseAndValidateAnalysisResponse(
     delete data.diarized_text;
     delete data.analysis_confidence;
     delete data.insufficient_content;
+    delete data.topic_tag_ids;
 
     return {
         metrics: data,
         customMetricsResult,
         customMetricsInvalid,
+        topicTagIds,
         assessments,
         diarizedRaw,
         analysisConfidence,

@@ -12,12 +12,15 @@ import { AiAnalyticsModule } from "../ai-analytics/ai-analytics.module";
 import { AiAnalytics } from "../ai-analytics/ai-analytics.model";
 import { BillingRecord } from "../billing/billing-record.model";
 import { OperatorAnalytics } from "../operator-analytics/operator-analytics.model";
+import { CallTag } from "../operator-analytics/operator-call-tag.model";
 
 @Module({
   controllers: [AiCdrController],
   providers: [AiCdrService],
   imports: [
-    SequelizeModule.forFeature([AiCdr, AiEvents, Assistant, SipAccounts, OperatorAnalytics, AiAnalytics, BillingRecord]),
+    SequelizeModule.forFeature([
+      AiCdr, AiEvents, Assistant, SipAccounts, OperatorAnalytics, AiAnalytics, BillingRecord, CallTag,
+    ]),
     forwardRef(() => AuthModule),
     forwardRef(() => AiAnalyticsModule),
     BillingModule

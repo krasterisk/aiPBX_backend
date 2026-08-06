@@ -133,13 +133,13 @@ export class WhisperService implements ITranscriptionProvider {
     }
 
     private extractSegmentSignals(parsed: any, text: string): Partial<TranscriptionResult> {
-        const segments = Array.isArray(parsed.segments) ? parsed.segments : [];
+        const rawSegments = Array.isArray(parsed.segments) ? parsed.segments : [];
         let totalWeight = 0;
         let avgLogprobSum = 0;
         let noSpeechSum = 0;
         let maxCompression = 0;
 
-        for (const seg of segments) {
+        for (const seg of rawSegments) {
             const weight = Math.max((seg.end ?? 0) - (seg.start ?? 0), 0.001);
             totalWeight += weight;
             if (typeof seg.avg_logprob === 'number') avgLogprobSum += seg.avg_logprob * weight;
@@ -149,14 +149,23 @@ export class WhisperService implements ITranscriptionProvider {
             }
         }
 
+        const segments = rawSegments
+            .map((seg: any) => ({
+                start: Number(seg.start) || 0,
+                end: Number(seg.end) || 0,
+                text: String(seg.text || '').trim(),
+            }))
+            .filter((seg: { text: string }) => seg.text.length > 0);
+
         return {
             language: parsed.language,
             languageProbability: parsed.language_probability ?? parsed.languageProbability,
             avgLogprob: totalWeight > 0 ? avgLogprobSum / totalWeight : undefined,
             noSpeechProb: totalWeight > 0 ? noSpeechSum / totalWeight : undefined,
             compressionRatio: maxCompression > 0 ? maxCompression : undefined,
-            segmentsCount: segments.length,
+            segmentsCount: rawSegments.length,
             wordsCount: countTranscriptionWords(text),
+            ...(segments.length ? { segments } : {}),
         };
     }
 

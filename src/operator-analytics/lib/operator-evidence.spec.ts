@@ -129,6 +129,51 @@ describe('operator-evidence', () => {
             });
         });
 
+        it('reads custom boolean values from custom_metrics and averages them as a rate', () => {
+            const records = [
+                baseRecord({
+                    channelId: '1',
+                    metrics: {
+                        custom_metrics: { service_booking: true },
+                        _custom_meta: {
+                            service_booking: { name: 'Запись на сервис', type: 'boolean' },
+                        },
+                        _assessments: {
+                            service_booking: {
+                                rationale: 'Запись клиента на услугу была оформлена.',
+                                quote: 'Завтра в 14 часов',
+                            },
+                        },
+                    },
+                }),
+                baseRecord({
+                    channelId: '2',
+                    createdAt: '2026-07-01T11:00:00.000Z',
+                    metrics: {
+                        custom_metrics: { service_booking: false },
+                        _assessments: {
+                            service_booking: {
+                                rationale: 'Запись клиента на сервис не была оформлена.',
+                            },
+                        },
+                    },
+                }),
+            ];
+
+            const result = buildOperatorEvidence(records, {
+                operatorName: 'all',
+                customMetricIds: ['service_booking'],
+            });
+            const metric = result.metrics.find(m => m.metricId === 'service_booking');
+            expect(metric).toMatchObject({
+                origin: 'custom',
+                sampleSize: 2,
+                average: 50,
+            });
+            expect(metric?.evidence).toHaveLength(2);
+            expect(metric?.evidence.map(e => e.value)).toEqual([false, true]);
+        });
+
         it('marks built-in keys as default origin', () => {
             const records = [baseRecord({
                 metrics: {

@@ -28,4 +28,9 @@ export class GetAiCdrDto {
     @IsOptional()
     @IsString()
     csat?: string
+
+    /** Filter by operator_call_tags.tagId (tenant-scoped). */
+    @IsOptional()
+    @IsString()
+    tagId?: string
 }

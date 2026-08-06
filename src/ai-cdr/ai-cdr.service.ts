@@ -15,6 +15,7 @@ import { BillingRecord } from "../billing/billing-record.model";
 import { AiAnalyticsService } from "../ai-analytics/ai-analytics.service";
 import { forwardRef } from "@nestjs/common";
 import { OperatorAnalytics } from "../operator-analytics/operator-analytics.model";
+import { CallTag } from "../operator-analytics/operator-call-tag.model";
 import { isOperatorAnalyticsSource } from "../operator-analytics/lib/analytics-source";
 import { isRubTenant } from '../shared/tenant/tenant-currency';
 import { buildCsatWhereCondition, parseCsatFilter } from './parse-csat-filter';
@@ -47,6 +48,7 @@ export class AiCdrService {
         @InjectModel(BillingRecord) private billingRecordRepository: typeof BillingRecord,
         @InjectModel(Assistant) private readonly assistantRepository: typeof Assistant,
         @InjectModel(OperatorAnalytics) private readonly operatorAnalyticsRepository: typeof OperatorAnalytics,
+        @InjectModel(CallTag) private readonly callTagRepository: typeof CallTag,
         private readonly billingService: BillingService,
         @Inject(forwardRef(() => AiAnalyticsService)) private readonly aiAnalyticsService: AiAnalyticsService
     ) {
@@ -418,6 +420,26 @@ export class AiCdrService {
                 whereClause.projectId = Number(query.projectId);
             }
 
+            const tagId = typeof query.tagId === 'string' ? query.tagId.trim() : '';
+            if (tagId) {
+                const tagWhere: Record<string, unknown> = { tagId };
+                if (userId !== undefined) {
+                    tagWhere.userId = String(userId);
+                }
+                if (query.projectId !== undefined && query.projectId !== '') {
+                    tagWhere.projectId = Number(query.projectId);
+                }
+                const tagRows = await this.callTagRepository.findAll({
+                    where: tagWhere,
+                    attributes: ['channelId'],
+                    limit: 5000,
+                });
+                const channelIds = tagRows.map(r => r.channelId);
+                whereClause.channelId = {
+                    [Op.in]: channelIds.length ? channelIds : ['__no_matching_tag__'],
+                };
+            }
+
             const sortField = query.sortField || 'createdAt';
             const sortOrder = query.sortOrder === 'ASC' ? 'ASC' : 'DESC';
             const directSortFields = new Set([
@@ -510,7 +532,7 @@ export class AiCdrService {
                 totalAmountCurrency = parseFloat((Number(sumClient) || 0).toFixed(2));
             }
 
-            // Enrich rows with transcription from OperatorAnalytics
+            // Enrich rows with transcription / recordUrl from OperatorAnalytics
             // For records created via operator-analytics, channelId = OperatorAnalytics.id
             const analyticsIds = rows
                 .filter(r => isOperatorAnalyticsSource(r.source))
@@ -518,17 +540,26 @@ export class AiCdrService {
                 .filter(id => !isNaN(id));
 
             let transcriptionMap = new Map<string, string>();
+            let recordUrlMap = new Map<string, string>();
             if (analyticsIds.length > 0) {
                 const oaRecords = await this.operatorAnalyticsRepository.findAll({
                     where: { id: { [Op.in]: analyticsIds } },
-                    attributes: ['id', 'transcription'],
+                    attributes: ['id', 'transcription', 'recordUrl'],
                 });
                 transcriptionMap = new Map(oaRecords.map(r => [String(r.id), r.transcription]));
+                recordUrlMap = new Map(
+                    oaRecords
+                        .filter(r => !!r.recordUrl)
+                        .map(r => [String(r.id), r.recordUrl]),
+                );
             }
 
             const enrichedRows = rows.map(row => {
                 const json = row.toJSON() as any;
                 json.transcription = transcriptionMap.get(row.channelId) || null;
+                if (!json.recordUrl) {
+                    json.recordUrl = recordUrlMap.get(row.channelId) || json.recordUrl;
+                }
                 this.applyBillingFxToCdrRow(json);
                 return json;
             });

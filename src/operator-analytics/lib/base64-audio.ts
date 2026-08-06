@@ -51,9 +51,26 @@ export function decodeBase64Audio(input: string): DecodedBase64Audio {
         throw new HttpException('Base64 payload is empty', HttpStatus.BAD_REQUEST);
     }
 
+    // Truncated Base64 often ends with length % 4 === 1 (invalid alphabet length)
+    if (b64.length % 4 === 1) {
+        throw new HttpException(
+            'Base64 payload appears truncated (invalid length)',
+            HttpStatus.BAD_REQUEST,
+        );
+    }
+
     const buffer = Buffer.from(b64, 'base64');
     if (buffer.length === 0) {
         throw new HttpException('Invalid Base64 audio payload', HttpStatus.BAD_REQUEST);
+    }
+
+    // Node ignores illegal Base64 chars; if many were dropped, payload was likely cut mid-transfer
+    const expectedMin = Math.floor(b64.length * 3 / 4) - 2;
+    if (buffer.length < expectedMin * 0.95) {
+        throw new HttpException(
+            'Base64 payload appears corrupted or truncated',
+            HttpStatus.BAD_REQUEST,
+        );
     }
 
     return { buffer, mime };

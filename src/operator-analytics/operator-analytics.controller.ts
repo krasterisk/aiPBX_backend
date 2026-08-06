@@ -1,7 +1,7 @@
 import {
     Controller, Get, Post, Patch, Delete, Body, Param, Query, Req,
     UseGuards, UseInterceptors, UploadedFiles,
-    HttpException, HttpStatus,
+    HttpException, HttpStatus, Logger,
 } from '@nestjs/common';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
@@ -44,6 +44,8 @@ const ALLOWED_MIMES = [
 @ApiTags('Operator Analytics')
 @Controller('operator-analytics')
 export class OperatorAnalyticsController {
+    private readonly logger = new Logger(OperatorAnalyticsController.name);
+
     constructor(
         private readonly service: OperatorAnalyticsService,
         private readonly digestService: OperatorDigestService,
@@ -913,12 +915,20 @@ export class OperatorAnalyticsController {
                 assertAudioFilename(item.filename);
                 const { buffer } = decodeBase64Audio(item.data);
                 assertDecodedSize(buffer);
+                this.logger.log(
+                    `Base64 decoded "${item.filename}": ${buffer.length} bytes ` +
+                    `(b64Chars=${item.data?.length ?? 0})`,
+                );
                 items.push({ buffer, filename: item.filename.trim() });
             }
         } else if (body.file?.trim()) {
             assertAudioFilename(body.filename || '');
             const { buffer } = decodeBase64Audio(body.file);
             assertDecodedSize(buffer);
+            this.logger.log(
+                `Base64 decoded "${body.filename}": ${buffer.length} bytes ` +
+                `(b64Chars=${body.file.length})`,
+            );
             items.push({ buffer, filename: body.filename!.trim() });
         }
 

@@ -1,10 +1,14 @@
 import { NestFactory } from "@nestjs/core";
+import { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { ValidationPipe } from "@nestjs/common";
 import helmet from 'helmet';
 import * as express from 'express';
 import * as Sentry from '@sentry/nestjs';
+
+/** 50 MB audio as Base64 ≈ 67 MB JSON + overhead; default Express limit is 100kb. */
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '70mb';
 
 async function start() {
     if (process.env.SENTRY_DSN) {
@@ -17,7 +21,10 @@ async function start() {
 
     console.log(`${process.env.NODE_ENV}`)
     const PORT = process.env.PORT
-    const app = await NestFactory.create(AppModule, { rawBody: true })
+    const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true })
+    // Must use useBodyParser (not app.use(express.json)) to keep rawBody working.
+    app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
+    app.useBodyParser('urlencoded', { limit: JSON_BODY_LIMIT, extended: true });
     app.setGlobalPrefix('api', { exclude: ['static/{*path}'] })
 
     const httpServer = app.getHttpAdapter().getInstance();

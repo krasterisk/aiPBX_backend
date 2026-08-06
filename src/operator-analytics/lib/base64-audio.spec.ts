@@ -49,6 +49,16 @@ describe('base64-audio', () => {
                 expect(e.status).toBe(HttpStatus.BAD_REQUEST);
             }
         });
+
+        it('rejects truncated Base64 (length % 4 === 1)', () => {
+            try {
+                decodeBase64Audio('AAAAA'); // 5 chars
+                fail('expected throw');
+            } catch (e: any) {
+                expect(e.status).toBe(HttpStatus.BAD_REQUEST);
+                expect(e.message).toMatch(/truncated/i);
+            }
+        });
     });
 
     describe('assertDecodedSize', () => {

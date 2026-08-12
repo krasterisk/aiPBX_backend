@@ -444,8 +444,17 @@ const openAiAdapter = new OpenAiAdapter();
 const qwenAdapter = new QwenAdapter();
 const yandexAdapter = new YandexAdapter();
 
-export function getModelAdapter(model: string): RealtimeModelAdapter {
-    if (model?.startsWith('yandex')) return yandexAdapter;
-    if (model?.startsWith('qwen')) return qwenAdapter;
+import {
+    inferVendorFromModelName,
+    isRealtimeVendor,
+} from './realtime-vendor.resolve';
+
+export function getModelAdapter(vendorOrModel: string): RealtimeModelAdapter {
+    const vendor = isRealtimeVendor(vendorOrModel)
+        ? vendorOrModel
+        : inferVendorFromModelName(vendorOrModel);
+
+    if (vendor === 'yandex') return yandexAdapter;
+    if (vendor === 'qwen') return qwenAdapter;
     return openAiAdapter;
 }

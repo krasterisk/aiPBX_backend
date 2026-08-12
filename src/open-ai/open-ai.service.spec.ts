@@ -10,12 +10,15 @@ import { UsersService } from '../users/users.service';
 import { AudioService } from '../audio/audio.service';
 import { ToolGatewayService } from '../mcp-client/services/tool-gateway.service';
 import { McpToolRegistryService } from '../mcp-client/services/mcp-tool-registry.service';
+import { AiModelsService } from '../ai-models/ai-models.service';
 
 // ─── Mock the OpenAiConnection class ────────────────────────────
 jest.mock('./open-ai.connection', () => ({
-    OpenAiConnection: jest.fn().mockImplementation(() => ({
+    OpenAiConnection: jest.fn().mockImplementation((_key, _ch, _ee, _assistant, options) => ({
         send: jest.fn(),
         close: jest.fn(),
+        vendor: options?.routing?.vendor || 'openai',
+        wireModelId: options?.routing?.wireModelId || 'gpt-4o-realtime-preview',
     })),
 }));
 
@@ -46,6 +49,7 @@ describe('OpenAiService', () => {
     let mockToolGateway: any;
     let mockMcpToolRegistry: any;
     let mockConfigService: any;
+    let mockAiModelsService: any;
 
     const mockAssistant: any = {
         id: 1,
@@ -104,6 +108,9 @@ describe('OpenAiService', () => {
         mockConfigService = {
             get: jest.fn().mockReturnValue('sk-test-key-1234567890'),
         };
+        mockAiModelsService = {
+            findByName: jest.fn().mockResolvedValue(null),
+        };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -118,6 +125,7 @@ describe('OpenAiService', () => {
                 { provide: AudioService, useValue: mockAudioService },
                 { provide: ToolGatewayService, useValue: mockToolGateway },
                 { provide: McpToolRegistryService, useValue: mockMcpToolRegistry },
+                { provide: AiModelsService, useValue: mockAiModelsService },
             ],
         }).compile();
 
@@ -152,6 +160,31 @@ describe('OpenAiService', () => {
             mockUsersService.getUserBalance.mockResolvedValue({ balance: 0, balanceUsd: 0, currency: 'USD', rate: 1 });
             await expect(service.createConnection('ch-2', mockAssistant))
                 .rejects.toThrow('Insufficient balance');
+        });
+
+        it('should cache realtimeVendor from ai-models catalog even when name has gpt prefix', async () => {
+            mockAiModelsService.findByName.mockResolvedValue({
+                name: 'gpt-looking-yandex',
+                realtimeVendor: 'yandex',
+                wireModelId: 'speech-realtime-deepseek-v4-flash/latest',
+            });
+            const assistant = { ...mockAssistant, model: 'gpt-looking-yandex' };
+            await service.createConnection('ch-catalog', assistant);
+            expect(service.getSessionRealtimeVendor('ch-catalog', assistant)).toBe('yandex');
+            const { OpenAiConnection } = jest.requireMock('./open-ai.connection');
+            expect(OpenAiConnection).toHaveBeenCalledWith(
+                expect.anything(),
+                'ch-catalog',
+                expect.anything(),
+                assistant,
+                expect.objectContaining({
+                    hasCatalogWireModelId: true,
+                    routing: expect.objectContaining({
+                        vendor: 'yandex',
+                        wireModelId: 'speech-realtime-deepseek-v4-flash/latest',
+                    }),
+                }),
+            );
         });
 
         it('should throw error when user balance is negative', async () => {
@@ -299,6 +332,21 @@ describe('OpenAiService', () => {
             const event = {
                 type: 'error',
                 error: { code: 'session_expired' },
+            };
+            await service.dataDecode(event, 'ch-1', '+123', mockAssistant);
+            expect(service.getConnection('ch-1')).toBeUndefined();
+            expect(mockEventEmitter.emit).toHaveBeenCalledWith('HangupCall.ch-1');
+        });
+
+        it('should hang up on fatal NOT_FOUND model errors (no reconnect storm)', async () => {
+            const event = {
+                type: 'error',
+                error: {
+                    message:
+                        'Runtime error: NOT_FOUND: Instance with model gpt://yandex-speech-realtime-260528/latest not found',
+                    type: 'server_error',
+                    code: null,
+                },
             };
             await service.dataDecode(event, 'ch-1', '+123', mockAssistant);
             expect(service.getConnection('ch-1')).toBeUndefined();

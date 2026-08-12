@@ -16,6 +16,7 @@ import { ApiKeyModule } from '../api-keys/api-key.module';
         forwardRef(() => AuthModule),
         ApiKeyModule,
     ],
+    exports: [AiModelsService, SequelizeModule],
 })
 export class AiModelsModule {}
 

@@ -10,6 +10,7 @@ import { UsersModule } from "../users/users.module";
 import { AudioModule } from "../audio/audio.module";
 import { BillingModule } from "../billing/billing.module";
 import { McpClientModule } from '../mcp-client/mcp-client.module';
+import { AiModelsModule } from '../ai-models/ai-models.module';
 
 @Module({
   controllers: [OpenAiController],
@@ -24,6 +25,7 @@ import { McpClientModule } from '../mcp-client/mcp-client.module';
     AudioModule,
     BillingModule,
     McpClientModule,
+    AiModelsModule,
   ],
   exports: [OpenAiService]
 })

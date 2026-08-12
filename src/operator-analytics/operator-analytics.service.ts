@@ -83,6 +83,7 @@ import {
     resolveEvidenceMaxCalls,
 } from './lib/operator-evidence';
 import { buildInsightsPrompt } from './lib/insights-prompt';
+import { extractLlmJsonContent } from './lib/llm-json';
 import { PROJECT_TEMPLATES } from './project-templates';
 import { OPERATOR_CDR_SOURCE } from './lib/analytics-source';
 import { Op, Sequelize } from 'sequelize';
@@ -245,8 +246,14 @@ export class OperatorAnalyticsService {
             };
 
             const completion = await this.ollamaClient.chat.completions.create(params);
-            const raw = completion.choices[0]?.message?.content || '{}';
-            const content = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            const raw = completion.choices[0]?.message?.content ?? '';
+            // gemma/qwen often wrap JSON in <think> or prose; strip-only left "" → "{}" → Zod all-undefined
+            const content = extractLlmJsonContent(raw);
+            if (!content) {
+                throw new Error(
+                    `Ollama returned no parseable JSON (raw length=${raw.length}, preview=${raw.slice(0, 200).replace(/\s+/g, ' ')})`,
+                );
+            }
 
             this.logger.log(`[Analytics LLM] Ollama fallback (${this.fallbackModel}) succeeded`);
             return { content, usage: completion.usage, model: this.fallbackModel };
@@ -3774,7 +3781,10 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             if (!(firstErr instanceof AnalysisSchemaValidationError)) {
                 throw firstErr;
             }
-            this.logger.warn(`[Analytics LLM] Invalid analysis JSON, retrying once: ${firstErr.message}`);
+            const preview = (firstErr.rawContent || '').slice(0, 300).replace(/\s+/g, ' ');
+            this.logger.warn(
+                `[Analytics LLM] Invalid analysis JSON, retrying once: ${firstErr.message}. Preview: ${preview}`,
+            );
             parsedResult = await requestValidated([
                 ...messages,
                 {
@@ -3841,14 +3851,8 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
     }
 
     private sanitizeJsonResponse(raw: string): string {
-        if (!raw) return '{}';
-        let cleaned = raw;
-        cleaned = cleaned.replace(/^\uFEFF/, '');
-        cleaned = cleaned.replace(/^```(?:json|JSON)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-        cleaned = cleaned.replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
-        cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
-        cleaned = cleaned.replace(/,\s*([\]}])/g, '$1');
-        return cleaned.trim();
+        const extracted = extractLlmJsonContent(raw);
+        return extracted || '{}';
     }
 
     /**

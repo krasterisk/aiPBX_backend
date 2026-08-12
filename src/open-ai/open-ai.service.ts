@@ -14,6 +14,13 @@ import { PbxServers } from "../pbx-servers/pbx-servers.model";
 import { ToolGatewayService } from "../mcp-client/services/tool-gateway.service";
 import { McpToolRegistryService } from "../mcp-client/services/mcp-tool-registry.service";
 import { getModelAdapter } from './realtime-model.adapter';
+import { AiModelsService } from '../ai-models/ai-models.service';
+import {
+    RealtimeVendor,
+    ResolvedRealtimeRouting,
+    resolveRealtimeRouting,
+} from './realtime-vendor.resolve';
+import { isFatalRealtimeError } from './realtime-fatal-error';
 
 export interface sessionData {
     channelId?: string
@@ -39,6 +46,10 @@ export interface sessionData {
     }>;
     _textBuffer?: string;         // Accumulates text deltas for tool-call detection
     _suppressAudio?: boolean;     // True when [TOOL_CALL_START] detected — suppresses audio output
+    /** Cached realtime vendor/routing for this session (from ai-models catalog). */
+    realtimeVendor?: RealtimeVendor;
+    realtimeWireModelId?: string;
+    realtimeRouting?: ResolvedRealtimeRouting;
 }
 
 @Injectable()
@@ -59,6 +70,7 @@ export class OpenAiService implements OnModuleInit {
         private readonly audioService: AudioService,
         @Inject(ToolGatewayService) private readonly toolGateway: ToolGatewayService,
         @Inject(McpToolRegistryService) private readonly mcpToolRegistry: McpToolRegistryService,
+        private readonly aiModelsService: AiModelsService,
     ) {
         this.API_KEY = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
         this.openAiClient = new OpenAI({
@@ -82,11 +94,21 @@ export class OpenAiService implements OnModuleInit {
             throw new Error(`Insufficient balance: ${ledgerUsd}`);
         }
 
+        const catalog = await this.aiModelsService.findByName(assistant.model).catch(() => null);
+        const hasCatalogWireModelId = Boolean(catalog?.wireModelId?.trim());
+        const routing = resolveRealtimeRouting(assistant.model, catalog);
+        if (catalog && !catalog.realtimeVendor) {
+            this.logger.warn(
+                `aiModel "${assistant.model}" has no realtimeVendor; inferred "${routing.vendor}" from name`,
+            );
+        }
+
         const connection = new OpenAiConnection(
             this.API_KEY,
             channelId,
             this.eventEmitter,
-            assistant
+            assistant,
+            { routing, hasCatalogWireModelId },
         );
 
         const newSession: sessionData = {
@@ -100,6 +122,9 @@ export class OpenAiService implements OnModuleInit {
             openAiConn: connection,
             assistant,
             lastEventAt: Date.now(),
+            realtimeVendor: routing.vendor,
+            realtimeWireModelId: routing.wireModelId,
+            realtimeRouting: routing,
         }
 
         this.sessions.set(channelId, newSession)
@@ -115,6 +140,18 @@ export class OpenAiService implements OnModuleInit {
         if (session?.openAiConn) {
             return session.openAiConn
         }
+    }
+
+    /** Session realtime vendor (catalog/cache) with prefix fallback. */
+    getSessionRealtimeVendor(channelId: string, assistant?: Assistant): RealtimeVendor {
+        const session = this.sessions.get(channelId);
+        if (session?.realtimeVendor) return session.realtimeVendor;
+        if (session?.openAiConn?.vendor) return session.openAiConn.vendor;
+        return resolveRealtimeRouting(assistant?.model || session?.assistant?.model).vendor;
+    }
+
+    private getAdapterForSession(channelId: string, assistant?: Assistant) {
+        return getModelAdapter(this.getSessionRealtimeVendor(channelId, assistant));
     }
 
     closeConnection(channelId: string) {
@@ -278,7 +315,7 @@ export class OpenAiService implements OnModuleInit {
 
         const serverEvent = typeof e === 'string' ? JSON.parse(e) : e;
         const currentSession = this.sessions.get(channelId)
-        const adapter = getModelAdapter(assistant?.model);
+        const adapter = this.getAdapterForSession(channelId, assistant);
 
         if (serverEvent.type !== "response.audio.delta" &&
             serverEvent.type !== "response.output_audio.delta" &&
@@ -371,6 +408,14 @@ export class OpenAiService implements OnModuleInit {
                 this.logger.warn(`[session_expired] ${channelId} — triggering hangup to clean up orphaned session`);
                 this.closeConnection(channelId);
                 this.eventEmitter.emit(`HangupCall.${channelId}`);
+            } else if (isFatalRealtimeError(serverEvent.error)) {
+                // Wrong model / NOT_FOUND / auth — reconnecting only storms logs.
+                this.logger.error(
+                    `[fatal] ${channelId}: ${serverEvent.error?.message || JSON.stringify(serverEvent.error)}`,
+                );
+                this.closeConnection(channelId);
+                this.eventEmitter.emit(`HangupCall.${channelId}`);
+                await this.loggingEvents(channelId, callerId, e, assistant);
             } else {
                 this.logger.error(JSON.stringify(serverEvent))
                 await this.loggingEvents(channelId, callerId, e, assistant)
@@ -586,7 +631,7 @@ export class OpenAiService implements OnModuleInit {
                 this.logger.warn(`Failed to load MCP tools for assistant ${assistant.id}: ${e.message}`);
             }
 
-            const adapter = getModelAdapter(assistant.model);
+            const adapter = this.getAdapterForSession(session.channelId, assistant);
             const initAudioSession = adapter.buildSessionUpdate(assistant, tools, instructions);
 
             this.logger.log(`Updating OpenAI session for ${session.channelId}: input=${assistant.input_audio_format}, output=${assistant.output_audio_format}`);

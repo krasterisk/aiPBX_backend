@@ -86,10 +86,14 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             if (currentSession && currentSession.init === 'false') {
                 const isNonRealtime = currentSession?.assistant?.pipelineMode === 'non-realtime';
                 const model = currentSession?.assistant?.model || 'unknown';
-                const isResample = (model.startsWith('qwen') || model.startsWith('yandex'))
+                const vendor = this.openAi.getSessionRealtimeVendor(
+                    currentSession.channelId || '',
+                    currentSession.assistant,
+                );
+                const needsResample = (vendor === 'qwen' || vendor === 'yandex')
                     && !currentSession.channelId.startsWith('playground-');
-                const inRate = model.startsWith('yandex') ? '24kHz' : '16kHz';
-                this.logger.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port} | model=${model} | pipeline=${isNonRealtime ? 'non-realtime' : 'realtime'} | audio=${isResample ? `PCM16 resample (alaw→${inRate})` : 'raw alaw passthrough'}`);
+                const inRate = vendor === 'yandex' ? '24kHz' : '16kHz';
+                this.logger.log(`Starting incoming stream from ${rinfo.address}:${rinfo.port} | model=${model} vendor=${vendor} | pipeline=${isNonRealtime ? 'non-realtime' : 'realtime'} | audio=${needsResample ? `PCM16 resample (alaw→${inRate})` : 'raw alaw passthrough'}`);
                 currentSession.init = 'true';
 
                 if (isNonRealtime) {
@@ -111,11 +115,15 @@ export class RtpUdpServerService implements OnModuleDestroy, OnModuleInit {
             try {
                 const audioChunk = this.audioService.removeRTPHeader(msg, false);
 
-                if ((currentSession?.assistant?.model?.startsWith('qwen')
-                    || currentSession?.assistant?.model?.startsWith('yandex'))
+                const vendor = this.openAi.getSessionRealtimeVendor(
+                    currentSession?.channelId || '',
+                    currentSession?.assistant,
+                );
+                if ((vendor === 'qwen' || vendor === 'yandex')
+                    && currentSession
                     && !currentSession.channelId.startsWith('playground-')) {
                     const pcm16_8k = this.audioService.alawToPcm16(audioChunk);
-                    const targetRate = currentSession.assistant.model.startsWith('yandex') ? 24000 : 16000;
+                    const targetRate = vendor === 'yandex' ? 24000 : 16000;
                     const pcm16_resampled = this.audioService.resampleLinear(pcm16_8k, 8000, targetRate);
                     this.server.emit('data', pcm16_resampled, currentSession.channelId);
                 } else {

@@ -203,8 +203,9 @@ export class PlaygroundService implements OnModuleInit {
     }
 
     async handleStop(socketId: string) {
-        await this.cleanupSession(socketId);
+        // Notify client first so it stops mic before session map entry is gone
         this.wsGateway.server.to(socketId).emit('playground.stopped');
+        await this.cleanupSession(socketId);
     }
 
     private registerOpenAiHandlers(session: PlaygroundSession) {

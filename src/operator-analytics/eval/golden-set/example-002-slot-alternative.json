@@ -1,0 +1,20 @@
+{
+    "id": "example-002-slot-alternative",
+    "description": "No same-day slot, but operator offers tomorrow after lunch — process metrics must credit alternatives (anti outcome-bias).",
+    "language": "ru",
+    "transcript": "Оператор: Добрый день, клиника Солнце, оператор Мария, чем могу помочь?\nКлиент: Здравствуйте, хочу записаться на сегодня к терапевту.\nОператор: Понимаю. К сожалению, все занято, нет свободных окошек на сегодня.\nКлиент: Совсем ничего?\nОператор: Могу на завтра вам предложить, если только после обеда. Есть 14:30 и 16:00.\nКлиент: Хорошо, давайте на 14:30.\nОператор: Записала вас на завтра на 14:30. Что-нибудь ещё?\nКлиент: Нет, спасибо.\nОператор: Пожалуйста, до свидания!",
+    "reference": {
+        "greeting_quality": 100,
+        "script_compliance": 75,
+        "politeness_empathy": 100,
+        "active_listening": 75,
+        "objection_handling": 75,
+        "product_knowledge": 75,
+        "problem_resolution": 75,
+        "speech_clarity_pace": 75,
+        "closing_quality": 100,
+        "csat": 4,
+        "customer_sentiment": "Neutral",
+        "success": true
+    }
+}

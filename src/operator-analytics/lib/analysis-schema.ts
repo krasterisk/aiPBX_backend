@@ -15,6 +15,16 @@ export const SCORE_ANCHOR_INSTRUCTION =
 export const FULL_SCORE_INSTRUCTION =
     'Give 100 when every checklist item is clearly present (synonyms OK, e.g. "Добрый день" = greeting). Below 100: name the missing item. Rationale: 1 short sentence in transcript language, paraphrase behavior; verbatim text only in quote. No boilerplate ("соответствует требованиям", "все элементы присутствуют", "уровень 75").';
 
+/**
+ * Anti-outcome-bias + evidence consistency. Keeps process metrics from collapsing into
+ * "customer did not get preferred outcome" and prevents quote↔rationale contradictions.
+ */
+export const PROCESS_VS_OUTCOME_INSTRUCTION =
+    'PROCESS vs OUTCOME: Score checklist/behavior, not whether the customer got their preferred outcome. ' +
+    'No slots/stock/capacity ≠ auto-fail for objection_handling/product_knowledge/problem_resolution when alts/next step offered. ' +
+    'success/csat = outcome. Score each metric independently (no shared failure story). ' +
+    'quote must support the rationale.';
+
 export const OUTPUT_LANGUAGE_INSTRUCTION =
     'LANGUAGE: ALL prose (summary, every rationale, quotes) MUST be in the transcript language — detect from TRANSCRIPTION above. ru/de/zh transcript → write ru/de/zh. Use English prose ONLY if the transcript is predominantly English. JSON keys and enums (Positive/Neutral/Negative) stay English.';
 
@@ -80,7 +90,7 @@ const OBJECTION_HANDLING_RUBRIC = buildCompactRubric(
         'stay calm/professional',
         'move toward resolution',
     ],
-    'no objection → score 100',
+    'no objection → score 100; offering alt after full/unavailable counts',
 );
 
 const PRODUCT_KNOWLEDGE_RUBRIC = buildCompactRubric(
@@ -91,6 +101,7 @@ const PRODUCT_KNOWLEDGE_RUBRIC = buildCompactRubric(
         'explain options/steps/pricing when needed',
         'if unsure: admit + lookup/escalate',
     ],
+    'naming available options/slots/times = item 3',
 );
 
 const PROBLEM_RESOLUTION_RUBRIC = buildCompactRubric(
@@ -101,6 +112,7 @@ const PROBLEM_RESOLUTION_RUBRIC = buildCompactRubric(
         'confirm outcome/next step',
         'resolved in-call OR clear next step agreed',
     ],
+    'agreed alt slot/time = item 4; unmet ideal wish ≠ auto-fail',
 );
 
 const SPEECH_CLARITY_PACE_RUBRIC = buildCompactRubric(
@@ -131,7 +143,7 @@ const CLOSING_QUALITY_RUBRIC = buildCompactRubric(
  * specific prompt revision. Stored on each record (DB column + metrics._model).
  * Format: YYYY-MM-DD.N (date of change + same-day revision counter).
  */
-export const PROMPT_VERSION = '2026-08-05.2';
+export const PROMPT_VERSION = '2026-08-12.1';
 
 export interface MetricAssessment {
     rationale: string;
@@ -631,6 +643,7 @@ export function buildAnalysisPrompt(
         CHECKLIST_SCORE_MAP,
         NA_AS_PRESENT_NOTE,
         FULL_SCORE_INSTRUCTION,
+        PROCESS_VS_OUTCOME_INSTRUCTION,
     ].join(' ');
 
     return `

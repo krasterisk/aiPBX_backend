@@ -60,13 +60,31 @@ describe('analysis-schema', () => {
         } as any);
         const prompt = buildAnalysisPrompt('Оператор: Добрый день, клиника X, меня зовут Татьяна, слушаю вас.', greetingCtx);
 
-        expect(PROMPT_VERSION).toBe('2026-08-05.2');
+        expect(PROMPT_VERSION).toBe('2026-08-12.1');
         expect(prompt).toContain('GLOBAL SCORING');
         expect(prompt).toContain('transcript language');
         expect(prompt).toContain('predominantly English');
         expect(prompt).toContain('Checklist map');
         expect(prompt).toContain('No boilerplate');
         expect(prompt).toContain('Добрый день');
+    });
+
+    it('guards against outcome bias and quote/rationale contradiction', () => {
+        const fullCtx = buildAnalysisContext({ visibleDefaultMetrics: [...ALL_DEFAULT_METRIC_KEYS] } as any);
+        const prompt = buildAnalysisPrompt('sample transcript', fullCtx);
+
+        expect(prompt).toContain('PROCESS vs OUTCOME');
+        expect(prompt).toContain('not whether the customer got their preferred outcome');
+        expect(prompt).toContain('success/csat');
+        expect(prompt).toContain('Score each metric independently');
+        expect(prompt).toContain('quote must support the rationale');
+    });
+
+    it('credits alternatives for objections, knowledge, and resolution', () => {
+        expect(METRIC_RUBRIC_DESCRIPTIONS.objection_handling).toMatch(/alt|alternative/i);
+        expect(METRIC_RUBRIC_DESCRIPTIONS.product_knowledge).toMatch(/option|slot|avail/i);
+        expect(METRIC_RUBRIC_DESCRIPTIONS.problem_resolution).toMatch(/next step|alt/i);
+        expect(METRIC_RUBRIC_DESCRIPTIONS.problem_resolution).toMatch(/unmet|ideal|wish|prefer/i);
     });
 
     it('adds channel-diarization instructions when channelDiarized is set', () => {
@@ -99,7 +117,7 @@ describe('analysis-schema', () => {
         const transcript = 'Оператор: Добрый день.\nКлиент: Здравствуйте.\n'.repeat(20);
         const prompt = buildAnalysisPrompt(transcript, fullCtx);
         const rubricsOnly = ALL_DEFAULT_METRIC_KEYS.map(k => METRIC_RUBRIC_DESCRIPTIONS[k]).join('\n');
-        expect(prompt.length).toBeLessThan(transcript.length + rubricsOnly.length + 2500);
+        expect(prompt.length).toBeLessThan(transcript.length + rubricsOnly.length + 2900);
         expect(rubricsOnly.length).toBeLessThan(2800);
     });
 

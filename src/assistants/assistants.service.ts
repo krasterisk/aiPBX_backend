@@ -12,6 +12,17 @@ import { BillingRecord } from "../billing/billing-record.model";
 import { BillingFxService } from "../billing/billing-fx.service";
 import { FilesService } from "../files/files.service";
 
+/** Empty string / 0 / NaN from the frontend must not become FK userId=0. */
+export function resolveCreateUserId(assistantUserId: unknown, tokenUserId: string): number {
+    if (assistantUserId !== undefined && assistantUserId !== null && assistantUserId !== '') {
+        const parsed = Number(assistantUserId);
+        if (Number.isFinite(parsed) && parsed > 0) {
+            return parsed;
+        }
+    }
+    return Number(tokenUserId);
+}
+
 @Injectable()
 export class AssistantsService {
     private readonly logger = new Logger(AssistantsService.name);
@@ -38,9 +49,7 @@ export class AssistantsService {
                 const creationAttrs = {
                     ...rest,
                     uniqueId,
-                    userId: assistant.userId !== undefined && assistant.userId !== null
-                        ? Number(assistant.userId)
-                        : Number(userId),
+                    userId: resolveCreateUserId(assistant.userId, userId),
                     projectId: (assistant as any).projectId !== undefined && (assistant as any).projectId !== null && (assistant as any).projectId !== ''
                         ? Number((assistant as any).projectId)
                         : null

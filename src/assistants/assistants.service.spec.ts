@@ -139,6 +139,18 @@ describe('AssistantsService', () => {
             );
         });
 
+        it('should fallback to token userId when assistant.userId is empty string', async () => {
+            await service.create(
+                [{ name: 'Bot', userId: '' } as any],
+                false,
+                '7',
+            );
+
+            expect(mockAssistantsRepo.create).toHaveBeenCalledWith(
+                expect.objectContaining({ userId: 7 }),
+            );
+        });
+
         it('should set tools when provided', async () => {
             const createdAssistant = {
                 ...mockAssistant,

@@ -1,7 +1,8 @@
-import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, Logger, HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ITranscriptionProvider, TranscriptionResult } from '../operator-analytics/interfaces/operator-metrics.interface';
 import { countTranscriptionWords } from '../operator-analytics/lib/assess-transcription-quality';
+import { buildWhisperAsrUrl, parseWhisperAsrResponse } from './lib/whisper-asr-response';
 import axios from 'axios';
 import FormData = require('form-data');
 
@@ -40,18 +41,10 @@ export class WhisperService implements ITranscriptionProvider {
             contentType: this.getMimeType(filename),
         });
 
-        // onerahmet/openai-whisper-asr-webservice accepts: txt | vtt | srt | tsv | json
-        // (NOT OpenAI's "verbose_json" — that causes 4xx/5xx on the container)
-        const params: Record<string, string> = {
-            task: 'transcribe',
-            output: 'json',
-            // Cleaner segment boundaries on each stereo channel (faster_whisper only).
-            vad_filter: 'true',
-        };
-
-        if (language && language !== 'auto') {
-            params.language = language;
-        }
+        // Force output=json on the URL. axios `params` can append a second output=
+        // after WHISPER_API_URL?output=txt — FastAPI then keeps the first (txt).
+        const asrUrl = buildWhisperAsrUrl(this.whisperUrl, { language, vadFilter: true });
+        this.logger.log(`[Whisper] ASR ${asrUrl.replace(/\?.*$/, '')}?output=json`);
 
         const headers: Record<string, string> = {
             ...form.getHeaders(),
@@ -59,9 +52,8 @@ export class WhisperService implements ITranscriptionProvider {
 
         let response;
         try {
-            response = await axios.post(this.whisperUrl, form, {
+            response = await axios.post(asrUrl, form, {
                 headers,
-                params,
                 responseType: 'text',  // Always get string, parse ourselves
                 timeout: 300_000, // 5 min
                 maxContentLength: Infinity,
@@ -84,41 +76,24 @@ export class WhisperService implements ITranscriptionProvider {
             throw new HttpException(`Whisper STT error: ${detail}`, status);
         }
 
-        let parsed: any = response.data;
-
-        // Whisper may return JSON with Content-Type: text/plain, so axios won't auto-parse
-        if (typeof parsed === 'string') {
-            try {
-                parsed = JSON.parse(parsed);
-                this.logger.debug(`[Whisper] Parsed string response as JSON, keys: ${Object.keys(parsed).join(', ')}`);
-            } catch {
-                // genuinely plain text — keep as-is
-                this.logger.debug(`[Whisper] Response is plain text (${parsed.length} chars)`);
-            }
+        const parsed = parseWhisperAsrResponse(response.data);
+        if (!parsed.structured) {
+            const preview = (parsed.text || '').slice(0, 80).replace(/\s+/g, ' ');
+            this.logger.warn(
+                `[Whisper] No JSON/VTT segments (${parsed.text.length} chars) preview="${preview}"`,
+            );
         } else {
-            this.logger.debug(`[Whisper] Response keys: ${typeof parsed === 'object' ? Object.keys(parsed).join(', ') : typeof parsed}`);
+            this.logger.debug(
+                `[Whisper] Parsed ASR: segs=${parsed.segments.length} lang=${parsed.language || '?'}`,
+            );
         }
 
-        let text: string;
-        let duration = 0;
+        const text = parsed.text;
+        let duration = parsed.duration || 0;
 
-        if (typeof parsed === 'string') {
-            text = parsed;
-        } else if (typeof parsed === 'object') {
-            text = parsed.text || '';
-            duration = parsed.duration || parsed.duration_seconds || 0;
-
-            // Fallback: calculate duration from segments if top-level duration is missing
-            if (!duration && Array.isArray(parsed.segments) && parsed.segments.length > 0) {
-                const lastSegment = parsed.segments[parsed.segments.length - 1];
-                duration = lastSegment.end || 0;
-                this.logger.log(`[Whisper] Duration extracted from segments: ${duration}s`);
-            }
-        } else {
-            throw new HttpException(
-                `Whisper returned unexpected response format: ${typeof parsed}`,
-                HttpStatus.BAD_GATEWAY,
-            );
+        if (!duration && parsed.segments.length > 0) {
+            duration = parsed.segments[parsed.segments.length - 1].end || 0;
+            this.logger.log(`[Whisper] Duration extracted from segments: ${duration}s`);
         }
 
         // Final fallback: estimate duration from audio buffer if still 0
@@ -129,17 +104,18 @@ export class WhisperService implements ITranscriptionProvider {
             }
         }
 
-        this.logger.log(`[Whisper] Transcription complete: ${text.length} chars, duration: ${duration}s`);
+        this.logger.log(
+            `[Whisper] Transcription complete: ${text.length} chars, duration: ${duration}s, segs=${parsed.segments.length}`,
+        );
 
-        const signals = typeof parsed === 'object' && parsed
-            ? this.extractSegmentSignals(parsed, text)
-            : { wordsCount: countTranscriptionWords(text) };
-
-        return { text, duration, ...signals };
+        return { text, duration, ...this.extractSegmentSignals(parsed, text) };
     }
 
-    private extractSegmentSignals(parsed: any, text: string): Partial<TranscriptionResult> {
-        const rawSegments = Array.isArray(parsed.segments) ? parsed.segments : [];
+    private extractSegmentSignals(
+        parsed: ReturnType<typeof parseWhisperAsrResponse>,
+        text: string,
+    ): Partial<TranscriptionResult> {
+        const rawSegments = parsed.segments;
         let totalWeight = 0;
         let avgLogprobSum = 0;
         let noSpeechSum = 0;
@@ -156,16 +132,16 @@ export class WhisperService implements ITranscriptionProvider {
         }
 
         const segments = rawSegments
-            .map((seg: any) => ({
+            .map(seg => ({
                 start: Number(seg.start) || 0,
                 end: Number(seg.end) || 0,
                 text: String(seg.text || '').trim(),
             }))
-            .filter((seg: { text: string }) => seg.text.length > 0);
+            .filter(seg => seg.text.length > 0);
 
         return {
             language: parsed.language,
-            languageProbability: parsed.language_probability ?? parsed.languageProbability,
+            languageProbability: parsed.languageProbability,
             avgLogprob: totalWeight > 0 ? avgLogprobSum / totalWeight : undefined,
             noSpeechProb: totalWeight > 0 ? noSpeechSum / totalWeight : undefined,
             compressionRatio: maxCompression > 0 ? maxCompression : undefined,

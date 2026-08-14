@@ -84,18 +84,141 @@ function extractFirstJsonValue(text: string): string | null {
         else if (ch === closeChar) {
             depth--;
             if (depth === 0) {
-                let slice = cleaned.slice(start, i + 1);
-                // Trailing commas common in local-model output
-                slice = slice.replace(/,\s*([\]}])/g, '$1');
-                try {
-                    JSON.parse(slice);
-                    return slice;
-                } catch {
-                    return null;
-                }
+                return tryParseJsonSlice(cleaned.slice(start, i + 1));
             }
         }
     }
 
+    // Local models often hit max tokens mid-object (unclosed string / braces).
+    return tryParseJsonSlice(cleaned.slice(start));
+}
+
+function tryParseJsonSlice(slice: string): string | null {
+    const candidates = [
+        slice.replace(/,\s*([\]}])/g, '$1'),
+        repairLlmJson(slice),
+    ];
+    for (const candidate of candidates) {
+        if (!candidate) continue;
+        try {
+            JSON.parse(candidate);
+            return candidate;
+        } catch {
+            /* next */
+        }
+    }
     return null;
+}
+
+/** Escape raw control chars in strings, then close a truncated object/array. */
+export function repairLlmJson(raw: string): string | null {
+    if (!raw.trim()) return null;
+    const escaped = escapeControlsInJsonStrings(raw.replace(/,\s*([\]}])/g, '$1'));
+    const closed = closeTruncatedJson(escaped);
+    try {
+        JSON.parse(closed);
+        return closed;
+    } catch {
+        return null;
+    }
+}
+
+function escapeControlsInJsonStrings(text: string): string {
+    let out = '';
+    let inString = false;
+    let escape = false;
+    for (const ch of text) {
+        if (inString) {
+            if (escape) {
+                out += ch;
+                escape = false;
+                continue;
+            }
+            if (ch === '\\') {
+                out += ch;
+                escape = true;
+                continue;
+            }
+            if (ch === '"') {
+                out += ch;
+                inString = false;
+                continue;
+            }
+            if (ch === '\n') { out += '\\n'; continue; }
+            if (ch === '\r') { out += '\\r'; continue; }
+            if (ch === '\t') { out += '\\t'; continue; }
+            if (ch.charCodeAt(0) < 0x20) continue;
+            out += ch;
+            continue;
+        }
+        if (ch === '"') inString = true;
+        out += ch;
+    }
+    return out;
+}
+
+function closeTruncatedJson(raw: string): string {
+    let inString = false;
+    let escape = false;
+    let stringStart = -1;
+    let lastSig = '';
+    const stack: Array<'{' | '['> = [];
+
+    for (let i = 0; i < raw.length; i++) {
+        const ch = raw[i];
+        if (inString) {
+            if (escape) { escape = false; continue; }
+            if (ch === '\\') { escape = true; continue; }
+            if (ch === '"') { inString = false; lastSig = '"'; }
+            continue;
+        }
+        if (ch === '"') { inString = true; stringStart = i; continue; }
+        if (ch === '{') { stack.push('{'); lastSig = '{'; continue; }
+        if (ch === '[') { stack.push('['); lastSig = '['; continue; }
+        if (ch === '}' || ch === ']') { stack.pop(); lastSig = ch; continue; }
+        if (ch === ':') { lastSig = ':'; continue; }
+        if (ch === ',') { lastSig = ','; continue; }
+        if (!/\s/.test(ch)) lastSig = ch;
+    }
+
+    let out = raw;
+    if (inString) {
+        if (lastSig === '{' || lastSig === '[' || lastSig === ',') {
+            out = out.slice(0, stringStart).replace(/,\s*$/, '');
+        } else {
+            if (out.endsWith('\\') && !out.endsWith('\\\\')) {
+                out = out.slice(0, -1);
+            }
+            out += '"';
+        }
+    } else if (lastSig === ':') {
+        out += 'null';
+    } else if (lastSig === ',') {
+        out = out.replace(/,\s*$/, '');
+    }
+
+    const remain = bracketStack(out);
+    for (let i = remain.length - 1; i >= 0; i--) {
+        out += remain[i] === '{' ? '}' : ']';
+    }
+    return out;
+}
+
+function bracketStack(text: string): Array<'{' | '['> {
+    const stack: Array<'{' | '['> = [];
+    let inString = false;
+    let escape = false;
+    for (const ch of text) {
+        if (inString) {
+            if (escape) { escape = false; continue; }
+            if (ch === '\\') { escape = true; continue; }
+            if (ch === '"') inString = false;
+            continue;
+        }
+        if (ch === '"') { inString = true; continue; }
+        if (ch === '{') stack.push('{');
+        else if (ch === '[') stack.push('[');
+        else if (ch === '}' || ch === ']') stack.pop();
+    }
+    return stack;
 }

@@ -247,10 +247,18 @@ export class OperatorAnalyticsService {
                 model: this.fallbackModel,
                 temperature,
                 response_format: { type: 'json_object' },
+                // Default Ollama num_predict is too small for assessments + diarized_text.
+                max_tokens: Number(process.env.ANALYTICS_OLLAMA_MAX_TOKENS) || 8192,
             };
 
             const completion = await this.ollamaClient.chat.completions.create(params);
             const raw = completion.choices[0]?.message?.content ?? '';
+            const finish = completion.choices[0]?.finish_reason;
+            if (finish === 'length') {
+                this.logger.warn(
+                    `[Analytics LLM] Ollama output truncated (finish_reason=length, ${raw.length} chars) — repairing JSON`,
+                );
+            }
             // gemma/qwen often wrap JSON in <think> or prose; strip-only left "" → "{}" → Zod all-undefined
             const content = extractLlmJsonContent(raw);
             if (!content) {

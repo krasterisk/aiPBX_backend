@@ -189,7 +189,7 @@ export interface TranscriptionResult {
     compressionRatio?: number;
     wordsCount?: number;
     segmentsCount?: number;
-    /** Timed segments (Whisper verbose_json) — used for stereo channel merge. */
+    /** Timed segments (Whisper ASR `output=json`) — used for stereo channel merge. */
     segments?: TranscriptionSegment[];
 }
 

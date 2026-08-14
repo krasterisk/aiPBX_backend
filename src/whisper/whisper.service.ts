@@ -40,18 +40,17 @@ export class WhisperService implements ITranscriptionProvider {
             contentType: this.getMimeType(filename),
         });
 
-        // Whisper ASR webservice query params
+        // onerahmet/openai-whisper-asr-webservice accepts: txt | vtt | srt | tsv | json
+        // (NOT OpenAI's "verbose_json" — that causes 4xx/5xx on the container)
         const params: Record<string, string> = {
             task: 'transcribe',
-            output: 'verbose_json',
+            output: 'json',
+            // Cleaner segment boundaries on each stereo channel (faster_whisper only).
+            vad_filter: 'true',
         };
-
-        // Some versions of the Whisper container expect output as a form field
-        form.append('output', 'verbose_json');
 
         if (language && language !== 'auto') {
             params.language = language;
-            form.append('language', language);
         }
 
         const headers: Record<string, string> = {
@@ -71,11 +70,18 @@ export class WhisperService implements ITranscriptionProvider {
         } catch (err) {
             const status = err.response?.status || 502;
             const body = err.response?.data;
-            const msg = typeof body === 'object'
-                ? (body.error || body.message || JSON.stringify(body))
-                : (body || err.message);
-            this.logger.error(`[Whisper] Transcription failed: ${msg}`);
-            throw new HttpException(`Whisper STT error: ${msg}`, status);
+            let detail: string;
+            if (typeof body === 'object' && body != null) {
+                detail = body.detail
+                    ? (typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail))
+                    : (body.error || body.message || JSON.stringify(body));
+            } else if (typeof body === 'string' && body.trim()) {
+                detail = body.length > 500 ? `${body.slice(0, 500)}…` : body;
+            } else {
+                detail = err.message || 'unknown error';
+            }
+            this.logger.error(`[Whisper] Transcription failed (${status}): ${detail}`);
+            throw new HttpException(`Whisper STT error: ${detail}`, status);
         }
 
         let parsed: any = response.data;

@@ -93,8 +93,8 @@ describe('analysis-schema', () => {
             buildAnalysisContext({ visibleDefaultMetrics: ['greeting_quality'] } as any),
             { channelDiarized: true },
         );
-        expect(prompt).toContain('CHANNEL DIARIZATION');
-        expect(prompt).toContain('do not change speaker roles');
+        expect(prompt).toContain('CHANNEL STEREO');
+        expect(prompt).toContain('interleave chronologically');
     });
 
     it('includes compact checklist rubrics for every default metric', () => {

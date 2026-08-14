@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile);
 
 export type DiarizationSpeaker = 'operator' | 'customer';
 export type StereoSide = 'left' | 'right';
-export type DiarizationSource = 'channel' | 'llm';
+export type DiarizationSource = 'channel' | 'channel_llm' | 'llm';
 
 export interface StereoChannelMap {
     left: DiarizationSpeaker;
@@ -33,6 +33,8 @@ export interface ChannelSplitResult {
 }
 
 const DEFAULT_MAP: StereoChannelMap = { left: 'operator', right: 'customer' };
+/** Merge same-speaker segments only when pause between them is ≤ this (seconds). */
+const DEFAULT_COALESCE_GAP_SEC = 0.75;
 
 /**
  * Parse OPERATOR_STEREO_CHANNEL_MAP env.
@@ -177,12 +179,17 @@ function wrapPcm16MonoWav(pcm: Buffer, sampleRate: number): Buffer {
  * Merge per-channel STT results into ordered speaker turns.
  * Uses segment timestamps when available; otherwise emits one turn per channel
  * ordered operator-then-customer (or by map) without timestamps.
+ *
+ * Same-speaker segments are coalesced only when the pause between them is short
+ * (keeps conversation turn-taking instead of one giant operator/customer blob).
  */
 export function mergeChannelTranscripts(
     left: TranscriptionResult,
     right: TranscriptionResult,
     channelMap: StereoChannelMap = DEFAULT_MAP,
+    options?: { coalesceGapSec?: number },
 ): DiarizedTurn[] {
+    const coalesceGapSec = options?.coalesceGapSec ?? DEFAULT_COALESCE_GAP_SEC;
     const leftSegs = normalizeSegments(left);
     const rightSegs = normalizeSegments(right);
 
@@ -195,12 +202,12 @@ export function mergeChannelTranscripts(
         return [];
     }
 
-    const hasTimestamps = timed.some(t => t.start != null);
-    if (hasTimestamps) {
-        timed.sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
+    const hasRealTimestamps = timed.some(t => (t.start ?? 0) > 0 || (t.end ?? 0) > 0);
+    if (hasRealTimestamps) {
+        timed.sort((a, b) => (a.start ?? 0) - (b.start ?? 0) || (a.end ?? 0) - (b.end ?? 0));
     }
 
-    return coalesceAdjacentTurns(timed);
+    return coalesceAdjacentTurns(timed, coalesceGapSec);
 }
 
 function normalizeSegments(result: TranscriptionResult): TranscriptionSegment[] {
@@ -215,16 +222,32 @@ function normalizeSegments(result: TranscriptionResult): TranscriptionSegment[] 
     }
     const text = (result.text || '').trim();
     if (!text) return [];
+    // No timed segments — keep as a single channel blob (cannot interleave chronologically).
     return [{ start: 0, end: result.duration || 0, text }];
 }
 
-export function coalesceAdjacentTurns(turns: DiarizedTurn[]): DiarizedTurn[] {
+/**
+ * Merge consecutive same-speaker turns only when the pause between them is ≤ gapSec.
+ * Large gaps stay as separate turns so the dialog keeps chronology.
+ */
+export function coalesceAdjacentTurns(
+    turns: DiarizedTurn[],
+    gapSec: number = DEFAULT_COALESCE_GAP_SEC,
+): DiarizedTurn[] {
     const out: DiarizedTurn[] = [];
     for (const turn of turns) {
         const text = turn.text.trim();
         if (!text) continue;
         const prev = out[out.length - 1];
-        if (prev && prev.speaker === turn.speaker) {
+        const gap = prev?.end != null && turn.start != null
+            ? turn.start - prev.end
+            : 0;
+        const canMerge = Boolean(
+            prev
+            && prev.speaker === turn.speaker
+            && gap <= gapSec,
+        );
+        if (canMerge && prev) {
             prev.text = `${prev.text} ${text}`.replace(/\s+/g, ' ').trim();
             if (turn.end != null) prev.end = turn.end;
         } else {
@@ -239,14 +262,91 @@ export function coalesceAdjacentTurns(turns: DiarizedTurn[]): DiarizedTurn[] {
     return out;
 }
 
-/** Canonical storage / UI shape (no timestamps — matches existing LLM output). */
+/** Canonical storage / UI shape — keep timestamps for chronological display. */
 export function diarizedTurnsToStorageJson(turns: DiarizedTurn[]): string {
-    return JSON.stringify(turns.map(t => ({ speaker: t.speaker, text: t.text })));
+    return JSON.stringify(turns.map(t => ({
+        speaker: t.speaker,
+        text: t.text,
+        ...(t.start != null ? { start: roundTs(t.start) } : {}),
+        ...(t.end != null ? { end: roundTs(t.end) } : {}),
+    })));
 }
 
-/** Human-readable labeled transcript for the analysis LLM. */
+/** Human-readable labeled transcript for the analysis LLM (chronological). */
 export function formatDiarizedTranscriptForLlm(turns: DiarizedTurn[]): string {
-    return turns.map(t => `${t.speaker}: ${t.text}`).join('\n');
+    return turns.map(t => {
+        const ts = t.start != null ? `[${formatTs(t.start)}] ` : '';
+        return `${ts}${t.speaker}: ${t.text}`;
+    }).join('\n');
+}
+
+/**
+ * Prompt payload when speakers are known from stereo channels but turn order
+ * should be reconstructed by the LLM (no reliable Whisper timestamps).
+ */
+export function formatStereoChannelsForLlm(
+    left: TranscriptionResult,
+    right: TranscriptionResult,
+    channelMap: StereoChannelMap = DEFAULT_MAP,
+): string {
+    const bySpeaker: Record<DiarizationSpeaker, string> = {
+        operator: '',
+        customer: '',
+    };
+    bySpeaker[channelMap.left] = (left.text || '').trim();
+    bySpeaker[channelMap.right] = (right.text || '').trim();
+
+    return [
+        'STEREO CHANNELS (speaker identity is ground truth from audio channels — do NOT reassign speakers):',
+        '',
+        '=== operator channel ===',
+        bySpeaker.operator || '(silence)',
+        '',
+        '=== customer channel ===',
+        bySpeaker.customer || '(silence)',
+        '',
+        'Reconstruct the call as chronological diarized_text turns.',
+        'Split each channel into natural utterances and interleave them as a real conversation (Q&A order).',
+        'Use only words that appear in that speaker\'s channel text; do not invent content.',
+        'Do NOT dump all operator lines into one block and all customer lines into another.',
+    ].join('\n');
+}
+
+/**
+ * True when timestamp merge produced a usable chronological dialog
+ * (not just two full-channel blobs).
+ */
+export function isTimestampMergeReliable(
+    turns: DiarizedTurn[],
+    left: TranscriptionResult,
+    right: TranscriptionResult,
+): boolean {
+    const leftSegs = left.segments?.length ?? 0;
+    const rightSegs = right.segments?.length ?? 0;
+    if (leftSegs === 0 && rightSegs === 0) return false;
+    if (turns.length >= 3) return true;
+    if (turns.length === 2) {
+        const leftText = (left.text || '').trim();
+        const rightText = (right.text || '').trim();
+        const blobs = turns.filter(t => {
+            const text = t.text.trim();
+            return text === leftText || text === rightText;
+        });
+        // Both turns are raw channel dumps → not chronological.
+        return blobs.length < 2;
+    }
+    return turns.length === 1;
+}
+
+function roundTs(sec: number): number {
+    return Math.round(sec * 100) / 100;
+}
+
+export function formatTs(sec: number): string {
+    const s = Math.max(0, Math.floor(sec));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${r.toString().padStart(2, '0')}`;
 }
 
 /** Combined plain text for quality / keyword helpers. */
@@ -273,4 +373,9 @@ export function billableStereoDuration(left: TranscriptionResult, right: Transcr
 
 export function maxChannelDuration(left: TranscriptionResult, right: TranscriptionResult): number {
     return Math.max(Number(left.duration) || 0, Number(right.duration) || 0);
+}
+
+/** True when merge can produce chronological interleaving (not just 2 channel blobs). */
+export function hasTimedSegments(result: TranscriptionResult): boolean {
+    return Array.isArray(result.segments) && result.segments.length > 0;
 }

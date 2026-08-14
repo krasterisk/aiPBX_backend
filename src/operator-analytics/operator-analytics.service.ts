@@ -15,7 +15,9 @@ import {
     combinedPlainText,
     diarizedTurnsToStorageJson,
     formatDiarizedTranscriptForLlm,
+    formatStereoChannelsForLlm,
     isChannelDiarizationViable,
+    isTimestampMergeReliable,
     maxChannelDuration,
     mergeChannelTranscripts,
     parseStereoChannelMap,
@@ -407,10 +409,30 @@ export class OperatorAnalyticsService {
                         || process.env.OPERATOR_STEREO_CHANNEL_MAP,
                     );
                     const turns = mergeChannelTranscripts(leftResult, rightResult, channelMap);
-                    const channelDiarizedJson = diarizedTurnsToStorageJson(turns);
                     const plain = combinedPlainText(leftResult, rightResult);
                     const callDuration = maxChannelDuration(leftResult, rightResult);
                     const billableSttDuration = billableStereoDuration(leftResult, rightResult);
+                    const timedOk = isTimestampMergeReliable(turns, leftResult, rightResult);
+
+                    this.logger.log(
+                        `[STT] Channel merge: leftSegs=${leftResult.segments?.length ?? 0} ` +
+                        `rightSegs=${rightResult.segments?.length ?? 0} turns=${turns.length} ` +
+                        `timedOk=${timedOk}`,
+                    );
+
+                    // Prefer deterministic timestamp merge when Whisper segments interleave.
+                    // Otherwise pass raw channel texts to the LLM — speakers are fixed by
+                    // channel; LLM only reconstructs chronological turn order.
+                    const channelDiarizedJson = timedOk ? diarizedTurnsToStorageJson(turns) : null;
+                    const llmTranscription = timedOk
+                        ? formatDiarizedTranscriptForLlm(turns)
+                        : formatStereoChannelsForLlm(leftResult, rightResult, channelMap);
+
+                    if (!timedOk) {
+                        this.logger.log(
+                            '[STT] No reliable timestamps — LLM will reconstruct chronology from stereo channels',
+                        );
+                    }
 
                     // Prefer quality signals from the louder/longer channel
                     const primary = (leftResult.duration || 0) >= (rightResult.duration || 0)
@@ -428,7 +450,7 @@ export class OperatorAnalyticsService {
                         },
                         callDuration,
                         billableSttDuration,
-                        llmTranscription: formatDiarizedTranscriptForLlm(turns),
+                        llmTranscription,
                         channelDiarizedJson,
                         diarizationSource: 'channel',
                     };
@@ -590,9 +612,11 @@ export class OperatorAnalyticsService {
             const assistantName = options.operatorName || 'Unknown Operator';
             const autoTagIds = topicTagIds;
             const topicsBlock = this.buildTopicsBlock(sttResult.text, project, [], autoTagIds);
-            const finalDiarizationSource: DiarizationSource | null = channelDiarizedJson
-                ? 'channel'
-                : (diarizedText ? 'llm' : null);
+            const finalDiarizationSource = this.resolveDiarizationSource(
+                channelDiarizedJson,
+                diarizedText,
+                diarizationSource,
+            );
             const mergedMetrics = this.enrichStoredMetrics(
                 customMetricsResult ? { ...metrics, custom_metrics: customMetricsResult } : metrics,
                 finalQuality,
@@ -990,9 +1014,11 @@ export class OperatorAnalyticsService {
             const assistantName = record.operatorName || 'Unknown Operator';
             const autoTagIds = topicTagIds;
             const topicsBlock = this.buildTopicsBlock(sttResult.text, project, [], autoTagIds);
-            const finalDiarizationSource: DiarizationSource | null = channelDiarizedJson
-                ? 'channel'
-                : (diarizedText ? 'llm' : null);
+            const finalDiarizationSource = this.resolveDiarizationSource(
+                channelDiarizedJson,
+                diarizedText,
+                diarizationSource,
+            );
             const mergedMetrics = this.enrichStoredMetrics(
                 customMetricsResult ? { ...metrics, custom_metrics: customMetricsResult } : metrics,
                 finalQuality,
@@ -1198,9 +1224,11 @@ export class OperatorAnalyticsService {
 
         const autoTagIds = topicTagIds;
         const topicsBlock = this.buildTopicsBlock(sttResult.text, project, manualTagIds, autoTagIds);
-        const finalDiarizationSource: DiarizationSource | null = channelDiarizedJson
-            ? 'channel'
-            : (diarizedText ? 'llm' : null);
+        const finalDiarizationSource = this.resolveDiarizationSource(
+            channelDiarizedJson,
+            diarizedText,
+            diarizationSource,
+        );
         const mergedMetrics = this.enrichStoredMetrics(
             customMetricsResult ? { ...metrics, custom_metrics: customMetricsResult } : metrics,
             finalQuality,
@@ -3680,6 +3708,18 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             inTokens: typeof inTokens === 'number' ? inTokens : null,
             outTokens: typeof outTokens === 'number' ? outTokens : null,
         };
+    }
+
+    private resolveDiarizationSource(
+        channelDiarizedJson: string | null,
+        diarizedText: string | null,
+        sttDiarizationSource: DiarizationSource | null,
+    ): DiarizationSource | null {
+        if (channelDiarizedJson) return 'channel';
+        // Stereo channels fixed speakers; LLM only ordered the turns.
+        if (sttDiarizationSource === 'channel' && diarizedText) return 'channel_llm';
+        if (diarizedText) return 'llm';
+        return null;
     }
 
     private async chargeCost(

@@ -4,7 +4,9 @@ import {
     combinedPlainText,
     diarizedTurnsToStorageJson,
     formatDiarizedTranscriptForLlm,
+    formatStereoChannelsForLlm,
     isChannelDiarizationViable,
+    isTimestampMergeReliable,
     maxChannelDuration,
     mergeChannelTranscripts,
     parseStereoChannelMap,
@@ -86,7 +88,7 @@ describe('channel-diarize', () => {
     });
 
     describe('mergeChannelTranscripts', () => {
-        it('merges timed segments by start and coalesces adjacent speakers', () => {
+        it('merges timed segments by start and coalesces only short gaps', () => {
             const turns = mergeChannelTranscripts(
                 {
                     text: 'Hello there',
@@ -113,6 +115,46 @@ describe('channel-diarize', () => {
             ]);
         });
 
+        it('keeps same-speaker turns separate when pause is long', () => {
+            const turns = mergeChannelTranscripts(
+                {
+                    text: 'A B',
+                    duration: 10,
+                    segments: [
+                        { start: 0, end: 1, text: 'A' },
+                        { start: 5, end: 6, text: 'B' },
+                    ],
+                },
+                {
+                    text: 'mid',
+                    duration: 10,
+                    segments: [{ start: 2, end: 3, text: 'mid' }],
+                },
+            );
+            expect(turns.map(t => `${t.speaker}:${t.text}`)).toEqual([
+                'operator:A',
+                'customer:mid',
+                'operator:B',
+            ]);
+        });
+
+        it('coalesces rapid same-speaker back-to-back segments', () => {
+            const turns = mergeChannelTranscripts(
+                {
+                    text: 'Hello world',
+                    duration: 3,
+                    segments: [
+                        { start: 0, end: 0.8, text: 'Hello' },
+                        { start: 0.9, end: 1.5, text: 'world' },
+                    ],
+                },
+                { text: '', duration: 3, segments: [] },
+            );
+            expect(turns).toEqual([
+                expect.objectContaining({ speaker: 'operator', text: 'Hello world' }),
+            ]);
+        });
+
         it('falls back to whole-channel turns without segments', () => {
             const turns = mergeChannelTranscripts(
                 { text: 'Operator line', duration: 3 },
@@ -136,27 +178,37 @@ describe('channel-diarize', () => {
     });
 
     describe('helpers', () => {
-        it('coalesceAdjacentTurns merges same-speaker neighbors', () => {
+        it('coalesceAdjacentTurns merges only within gap', () => {
             expect(coalesceAdjacentTurns([
-                { speaker: 'operator', text: 'A' },
-                { speaker: 'operator', text: 'B' },
-                { speaker: 'customer', text: 'C' },
-            ])).toEqual([
-                { speaker: 'operator', text: 'A B' },
-                { speaker: 'customer', text: 'C' },
+                { speaker: 'operator', text: 'A', start: 0, end: 1 },
+                { speaker: 'operator', text: 'B', start: 1.2, end: 2 },
+                { speaker: 'customer', text: 'C', start: 2.5, end: 3 },
+            ], 0.75)).toEqual([
+                { speaker: 'operator', text: 'A B', start: 0, end: 2 },
+                { speaker: 'customer', text: 'C', start: 2.5, end: 3 },
+            ]);
+
+            expect(coalesceAdjacentTurns([
+                { speaker: 'operator', text: 'A', start: 0, end: 1 },
+                { speaker: 'operator', text: 'B', start: 3, end: 4 },
+            ], 0.75)).toEqual([
+                { speaker: 'operator', text: 'A', start: 0, end: 1 },
+                { speaker: 'operator', text: 'B', start: 3, end: 4 },
             ]);
         });
 
-        it('formats storage JSON and LLM transcript', () => {
+        it('formats storage JSON and LLM transcript with timestamps', () => {
             const turns = [
-                { speaker: 'operator' as const, text: 'Hi' },
-                { speaker: 'customer' as const, text: 'Hello' },
+                { speaker: 'operator' as const, text: 'Hi', start: 1.5, end: 2 },
+                { speaker: 'customer' as const, text: 'Hello', start: 2.2, end: 3 },
             ];
             expect(JSON.parse(diarizedTurnsToStorageJson(turns))).toEqual([
-                { speaker: 'operator', text: 'Hi' },
-                { speaker: 'customer', text: 'Hello' },
+                { speaker: 'operator', text: 'Hi', start: 1.5, end: 2 },
+                { speaker: 'customer', text: 'Hello', start: 2.2, end: 3 },
             ]);
-            expect(formatDiarizedTranscriptForLlm(turns)).toBe('operator: Hi\ncustomer: Hello');
+            expect(formatDiarizedTranscriptForLlm(turns)).toBe(
+                '[0:01] operator: Hi\n[0:02] customer: Hello',
+            );
         });
 
         it('viability and duration helpers', () => {
@@ -180,6 +232,44 @@ describe('channel-diarize', () => {
                 { text: '', duration: 10 },
                 { text: '', duration: 12 },
             )).toBe(12);
+        });
+
+        it('formatStereoChannelsForLlm locks speakers by channel', () => {
+            const text = formatStereoChannelsForLlm(
+                { text: 'Здравствуйте', duration: 1 },
+                { text: 'Добрый день', duration: 1 },
+            );
+            expect(text).toContain('=== operator channel ===');
+            expect(text).toContain('Здравствуйте');
+            expect(text).toContain('=== customer channel ===');
+            expect(text).toContain('Добрый день');
+            expect(text).toContain('ground truth');
+        });
+
+        it('isTimestampMergeReliable rejects full-channel blobs', () => {
+            const left = { text: 'A B C', duration: 5 };
+            const right = { text: 'X Y', duration: 5 };
+            const blobTurns = [
+                { speaker: 'operator' as const, text: 'A B C' },
+                { speaker: 'customer' as const, text: 'X Y' },
+            ];
+            expect(isTimestampMergeReliable(blobTurns, left, right)).toBe(false);
+
+            const timed = {
+                text: 'A B',
+                duration: 5,
+                segments: [
+                    { start: 0, end: 1, text: 'A' },
+                    { start: 3, end: 4, text: 'B' },
+                ],
+            };
+            const rightTimed = {
+                text: 'X',
+                duration: 5,
+                segments: [{ start: 1.5, end: 2, text: 'X' }],
+            };
+            const turns = mergeChannelTranscripts(timed, rightTimed);
+            expect(isTimestampMergeReliable(turns, timed, rightTimed)).toBe(true);
         });
     });
 });

@@ -626,11 +626,11 @@ export function buildAnalysisPrompt(
         : '';
 
     const channelDiarizedBlock = options?.channelDiarized
-        ? `\nCHANNEL DIARIZATION: transcript speakers are already labeled from stereo audio channels (operator/customer). Keep those speaker labels in diarized_text; do not reassign or invent speakers.`
+        ? `\nCHANNEL STEREO: TRANSCRIPTION lists operator/customer channel texts (speakers are ground truth from audio L/R). In diarized_text: split into short utterances and interleave chronologically as a real call. Never reassign speakers. Never dump all operator text into one item and all customer text into another.`
         : '';
 
     const diarizedInstruction = options?.channelDiarized
-        ? 'diarized_text: copy the labeled turns from TRANSCRIPTION (speakers lowercase English operator|customer); do not change speaker roles.'
+        ? 'diarized_text: chronological turns from the stereo channels (speakers lowercase English operator|customer only); alternate speakers as in a real conversation; keep wording from the matching channel.'
         : 'diarized_text: preserve full original text; speakers lowercase English operator|customer.';
 
     const metricJsonLines = ctx.visibleDefaultMetrics

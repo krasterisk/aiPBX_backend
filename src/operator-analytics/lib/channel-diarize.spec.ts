@@ -7,9 +7,12 @@ import {
     formatStereoChannelsForLlm,
     isChannelDiarizationViable,
     isTimestampMergeReliable,
+    labelSegmentsByChannelEnergy,
     maxChannelDuration,
     mergeChannelTranscripts,
     parseStereoChannelMap,
+    parseStereoDiarizeMode,
+    pcm16MonoRms,
     splitWavPcmStereo,
 } from './channel-diarize';
 import { probeWavHeader } from './audio-probe';
@@ -38,6 +41,28 @@ function makeStereoWav(leftSamples: number[], rightSamples: number[], sampleRate
     return buf;
 }
 
+function makeMonoWav(samples: number[], sampleRate = 8000): Buffer {
+    const dataSize = samples.length * 2;
+    const buf = Buffer.alloc(44 + dataSize);
+    buf.write('RIFF', 0);
+    buf.writeUInt32LE(36 + dataSize, 4);
+    buf.write('WAVE', 8);
+    buf.write('fmt ', 12);
+    buf.writeUInt32LE(16, 16);
+    buf.writeUInt16LE(1, 20);
+    buf.writeUInt16LE(1, 22);
+    buf.writeUInt32LE(sampleRate, 24);
+    buf.writeUInt32LE(sampleRate * 2, 28);
+    buf.writeUInt16LE(2, 32);
+    buf.writeUInt16LE(16, 34);
+    buf.write('data', 36);
+    buf.writeUInt32LE(dataSize, 40);
+    for (let i = 0; i < samples.length; i++) {
+        buf.writeInt16LE(samples[i], 44 + i * 2);
+    }
+    return buf;
+}
+
 describe('channel-diarize', () => {
     describe('parseStereoChannelMap', () => {
         it('defaults to left=operator, right=customer', () => {
@@ -57,6 +82,52 @@ describe('channel-diarize', () => {
                 left: 'customer',
                 right: 'operator',
             });
+        });
+    });
+
+    describe('parseStereoDiarizeMode', () => {
+        it('defaults to energy', () => {
+            expect(parseStereoDiarizeMode()).toBe('energy');
+            expect(parseStereoDiarizeMode('')).toBe('energy');
+            expect(parseStereoDiarizeMode('ENERGY')).toBe('energy');
+        });
+
+        it('parses off and dual-stt aliases', () => {
+            expect(parseStereoDiarizeMode('off')).toBe('off');
+            expect(parseStereoDiarizeMode('0')).toBe('off');
+            expect(parseStereoDiarizeMode('dual')).toBe('dual-stt');
+            expect(parseStereoDiarizeMode('dual_stt')).toBe('dual-stt');
+        });
+    });
+
+    describe('labelSegmentsByChannelEnergy', () => {
+        it('assigns speaker by louder channel in each segment window', () => {
+            const sr = 8000;
+            // 0–1s left loud, 1–2s right loud
+            const left = [
+                ...Array.from({ length: sr }, () => 8000),
+                ...Array.from({ length: sr }, () => 100),
+            ];
+            const right = [
+                ...Array.from({ length: sr }, () => 100),
+                ...Array.from({ length: sr }, () => 8000),
+            ];
+            const turns = labelSegmentsByChannelEnergy(
+                [
+                    { start: 0.1, end: 0.9, text: 'Hello' },
+                    { start: 1.1, end: 1.9, text: 'Hi there' },
+                ],
+                makeMonoWav(left, sr),
+                makeMonoWav(right, sr),
+            );
+            expect(turns.map(t => t.speaker)).toEqual(['operator', 'customer']);
+            expect(turns.map(t => t.text)).toEqual(['Hello', 'Hi there']);
+        });
+
+        it('pcm16MonoRms is higher on louder window', () => {
+            const loud = makeMonoWav(Array.from({ length: 8000 }, () => 10000));
+            const quiet = makeMonoWav(Array.from({ length: 8000 }, () => 50));
+            expect(pcm16MonoRms(loud, 0, 1)).toBeGreaterThan(pcm16MonoRms(quiet, 0, 1) * 10);
         });
     });
 

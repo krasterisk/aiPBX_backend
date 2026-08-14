@@ -10,7 +10,17 @@ const execFileAsync = promisify(execFile);
 
 export type DiarizationSpeaker = 'operator' | 'customer';
 export type StereoSide = 'left' | 'right';
-export type DiarizationSource = 'channel' | 'channel_llm' | 'llm';
+export type DiarizationSource = 'channel' | 'channel_energy' | 'channel_llm' | 'llm';
+
+/** Stereo diarization strategy (OPERATOR_STEREO_MODE). */
+export type StereoDiarizeMode = 'energy' | 'off' | 'dual-stt';
+
+export function parseStereoDiarizeMode(raw?: string | null): StereoDiarizeMode {
+    const v = (raw || 'energy').trim().toLowerCase();
+    if (v === 'off' || v === 'false' || v === '0') return 'off';
+    if (v === 'dual-stt' || v === 'dual' || v === 'dual_stt') return 'dual-stt';
+    return 'energy';
+}
 
 export interface StereoChannelMap {
     left: DiarizationSpeaker;
@@ -347,6 +357,78 @@ export function formatTs(sec: number): string {
     const m = Math.floor(s / 60);
     const r = s % 60;
     return `${m}:${r.toString().padStart(2, '0')}`;
+}
+
+/**
+ * RMS of a mono PCM16 WAV in [startSec, endSec].
+ */
+export function pcm16MonoRms(wav: Buffer, startSec: number, endSec: number): number {
+    const header = probeWavHeader(wav);
+    if (!header || header.channels !== 1 || header.bitsPerSample !== 16) return 0;
+    if (!header.sampleRate || header.dataSize < 2) return 0;
+
+    const startSample = Math.max(0, Math.floor(startSec * header.sampleRate));
+    const endSample = Math.min(
+        Math.floor(header.dataSize / 2),
+        Math.ceil(Math.max(endSec, startSec + 0.02) * header.sampleRate),
+    );
+    if (endSample <= startSample) return 0;
+
+    let sumSq = 0;
+    let n = 0;
+    // Subsample long windows for speed
+    const step = Math.max(1, Math.floor((endSample - startSample) / 8000));
+    for (let i = startSample; i < endSample; i += step) {
+        const sample = wav.readInt16LE(header.dataOffset + i * 2);
+        sumSq += sample * sample;
+        n += 1;
+    }
+    return n > 0 ? Math.sqrt(sumSq / n) : 0;
+}
+
+/**
+ * Label mono-STT segments by which stereo channel is louder in each time window.
+ * Keeps Whisper chronology + mono recognition quality; speakers come from L/R energy.
+ */
+export function labelSegmentsByChannelEnergy(
+    segments: TranscriptionSegment[],
+    leftWav: Buffer,
+    rightWav: Buffer,
+    channelMap: StereoChannelMap = DEFAULT_MAP,
+    options?: { minRatio?: number },
+): DiarizedTurn[] {
+    const minRatio = options?.minRatio ?? 1.15;
+    const turns: DiarizedTurn[] = [];
+
+    for (const seg of segments) {
+        const text = String(seg.text || '').trim();
+        if (!text) continue;
+        const start = Number(seg.start) || 0;
+        const end = Math.max(Number(seg.end) || start + 0.05, start + 0.05);
+        const leftRms = pcm16MonoRms(leftWav, start, end);
+        const rightRms = pcm16MonoRms(rightWav, start, end);
+
+        let side: StereoSide;
+        if (leftRms <= 0 && rightRms <= 0) {
+            side = 'left'; // default; rare silence segment
+        } else if (leftRms >= rightRms * minRatio) {
+            side = 'left';
+        } else if (rightRms >= leftRms * minRatio) {
+            side = 'right';
+        } else {
+            // Close energies (crosstalk) — pick louder
+            side = leftRms >= rightRms ? 'left' : 'right';
+        }
+
+        turns.push({
+            speaker: channelMap[side],
+            text,
+            start,
+            end,
+        });
+    }
+
+    return coalesceAdjacentTurns(turns);
 }
 
 /** Combined plain text for quality / keyword helpers. */

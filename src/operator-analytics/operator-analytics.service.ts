@@ -18,9 +18,11 @@ import {
     formatStereoChannelsForLlm,
     isChannelDiarizationViable,
     isTimestampMergeReliable,
+    labelSegmentsByChannelEnergy,
     maxChannelDuration,
     mergeChannelTranscripts,
     parseStereoChannelMap,
+    parseStereoDiarizeMode,
     splitStereoChannels,
     type DiarizationSource,
 } from './lib/channel-diarize';
@@ -366,8 +368,10 @@ export class OperatorAnalyticsService {
     }
 
     /**
-     * Probe audio; if true stereo, split channels → dual STT → merge speakers.
-     * Mono / fake-stereo / split failure → single-file STT (LLM diarization later).
+     * Stereo strategy (OPERATOR_STEREO_MODE):
+     * - energy (default): 1× STT on original file + L/R RMS speaker labels (best quality)
+     * - off: always mono STT + LLM diarization
+     * - dual-stt: legacy dual-channel STT (usually worse quality)
      */
     private async transcribePossiblyStereo(
         buffer: Buffer,
@@ -387,16 +391,75 @@ export class OperatorAnalyticsService {
         diarizationSource: DiarizationSource | null;
     }> {
         const probe = await probeAudio(buffer, filename);
+        const stereoMode = parseStereoDiarizeMode(
+            this.configService.get<string>('OPERATOR_STEREO_MODE')
+            || process.env.OPERATOR_STEREO_MODE,
+        );
         this.logger.log(
             `[STT] Audio probe: channels=${probe.channels} format=${probe.format} ` +
-            `stereoCandidate=${probe.isStereoCandidate} source=${probe.probeSource}` +
+            `stereoCandidate=${probe.isStereoCandidate} source=${probe.probeSource} ` +
+            `mode=${stereoMode}` +
             (probe.fakeStereo != null ? ` fakeStereo=${probe.fakeStereo}` : ''),
         );
 
-        if (probe.isStereoCandidate) {
+        // Default / recommended: one STT pass (mono quality) + energy-based speakers.
+        if (probe.isStereoCandidate && stereoMode === 'energy') {
+            try {
+                const [sttResult, split] = await Promise.all([
+                    this.transcribeWithFallback(buffer, filename, language, preferredProvider),
+                    splitStereoChannels(buffer, filename),
+                ]);
+
+                const segments = sttResult.segments ?? [];
+                if (segments.length > 0) {
+                    const channelMap = parseStereoChannelMap(
+                        this.configService.get<string>('OPERATOR_STEREO_CHANNEL_MAP')
+                        || process.env.OPERATOR_STEREO_CHANNEL_MAP,
+                    );
+                    const turns = labelSegmentsByChannelEnergy(
+                        segments,
+                        split.left,
+                        split.right,
+                        channelMap,
+                    );
+                    if (turns.length > 0) {
+                        this.logger.log(
+                            `[STT] Energy diarization: segs=${segments.length} turns=${turns.length} split=${split.method}`,
+                        );
+                        return {
+                            sttResult,
+                            callDuration: sttResult.duration,
+                            billableSttDuration: sttResult.duration,
+                            llmTranscription: formatDiarizedTranscriptForLlm(turns),
+                            channelDiarizedJson: diarizedTurnsToStorageJson(turns),
+                            diarizationSource: 'channel_energy',
+                        };
+                    }
+                }
+
+                this.logger.warn(
+                    '[STT] Energy diarization skipped (no segments/turns) — mono + LLM diarization',
+                );
+                return {
+                    sttResult,
+                    callDuration: sttResult.duration,
+                    billableSttDuration: sttResult.duration,
+                    llmTranscription: sttResult.text,
+                    channelDiarizedJson: null,
+                    diarizationSource: null,
+                };
+            } catch (err) {
+                this.logger.warn(
+                    `[STT] Energy diarization failed, falling back to mono: ${(err as Error).message}`,
+                );
+            }
+        }
+
+        // Legacy / experimental: dual-channel STT (often worse recognition).
+        if (probe.isStereoCandidate && stereoMode === 'dual-stt') {
             try {
                 const split = await splitStereoChannels(buffer, filename);
-                this.logger.log(`[STT] Stereo split via ${split.method}`);
+                this.logger.log(`[STT] Stereo split via ${split.method} (dual-stt mode)`);
 
                 const [leftResult, rightResult] = await Promise.all([
                     this.transcribeWithFallback(split.left, split.leftFilename, language, preferredProvider),
@@ -415,26 +478,15 @@ export class OperatorAnalyticsService {
                     const timedOk = isTimestampMergeReliable(turns, leftResult, rightResult);
 
                     this.logger.log(
-                        `[STT] Channel merge: leftSegs=${leftResult.segments?.length ?? 0} ` +
-                        `rightSegs=${rightResult.segments?.length ?? 0} turns=${turns.length} ` +
-                        `timedOk=${timedOk}`,
+                        `[STT] Dual-STT merge: leftSegs=${leftResult.segments?.length ?? 0} ` +
+                        `rightSegs=${rightResult.segments?.length ?? 0} turns=${turns.length} timedOk=${timedOk}`,
                     );
 
-                    // Prefer deterministic timestamp merge when Whisper segments interleave.
-                    // Otherwise pass raw channel texts to the LLM — speakers are fixed by
-                    // channel; LLM only reconstructs chronological turn order.
                     const channelDiarizedJson = timedOk ? diarizedTurnsToStorageJson(turns) : null;
                     const llmTranscription = timedOk
                         ? formatDiarizedTranscriptForLlm(turns)
                         : formatStereoChannelsForLlm(leftResult, rightResult, channelMap);
 
-                    if (!timedOk) {
-                        this.logger.log(
-                            '[STT] No reliable timestamps — LLM will reconstruct chronology from stereo channels',
-                        );
-                    }
-
-                    // Prefer quality signals from the louder/longer channel
                     const primary = (leftResult.duration || 0) >= (rightResult.duration || 0)
                         ? leftResult
                         : rightResult;
@@ -455,11 +507,9 @@ export class OperatorAnalyticsService {
                         diarizationSource: 'channel',
                     };
                 }
-
-                this.logger.warn('[STT] Stereo channels empty after STT — falling back to mono path');
             } catch (err) {
                 this.logger.warn(
-                    `[STT] Channel diarization failed, falling back to mono: ${(err as Error).message}`,
+                    `[STT] Dual-STT diarization failed, falling back to mono: ${(err as Error).message}`,
                 );
             }
         }
@@ -576,7 +626,7 @@ export class OperatorAnalyticsService {
                     options.customMetrics,
                     project,
                     sttQuality.quality === 'low' ? sttQuality : undefined,
-                    { channelDiarized: diarizationSource === 'channel' },
+                    { stereoDiarization: this.stereoDiarizationPromptMode(diarizationSource) },
                 );
 
             const finalQuality = combineTranscriptionQuality(sttQuality, {
@@ -980,7 +1030,7 @@ export class OperatorAnalyticsService {
                     undefined,
                     project,
                     sttQuality.quality === 'low' ? sttQuality : undefined,
-                    { channelDiarized: diarizationSource === 'channel' },
+                    { stereoDiarization: this.stereoDiarizationPromptMode(diarizationSource) },
                 );
 
             const finalQuality = combineTranscriptionQuality(sttQuality, {
@@ -1196,7 +1246,7 @@ export class OperatorAnalyticsService {
                 undefined,
                 project,
                 sttQuality.quality === 'low' ? sttQuality : undefined,
-                { channelDiarized: diarizationSource === 'channel' },
+                { stereoDiarization: this.stereoDiarizationPromptMode(diarizationSource) },
             );
 
         const finalQuality = combineTranscriptionQuality(sttQuality, {
@@ -3715,11 +3765,21 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         diarizedText: string | null,
         sttDiarizationSource: DiarizationSource | null,
     ): DiarizationSource | null {
-        if (channelDiarizedJson) return 'channel';
-        // Stereo channels fixed speakers; LLM only ordered the turns.
+        if (channelDiarizedJson) {
+            return sttDiarizationSource === 'channel_energy' ? 'channel_energy' : 'channel';
+        }
+        // Stereo channels fixed speakers; LLM only ordered the turns (legacy dual-stt).
         if (sttDiarizationSource === 'channel' && diarizedText) return 'channel_llm';
         if (diarizedText) return 'llm';
         return null;
+    }
+
+    private stereoDiarizationPromptMode(
+        source: DiarizationSource | null,
+    ): 'energy' | 'channels' | undefined {
+        if (source === 'channel_energy') return 'energy';
+        if (source === 'channel') return 'channels';
+        return undefined;
     }
 
     private async chargeCost(
@@ -3771,7 +3831,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         customMetricsDef?: CustomMetricDef[],
         project?: OperatorProject,
         qualityHint?: TranscriptionQualityAssessment,
-        options?: { channelDiarized?: boolean },
+        options?: { stereoDiarization?: 'energy' | 'channels'; channelDiarized?: boolean },
     ): Promise<{
         metrics: OperatorMetrics;
         customMetricsResult: any;
@@ -3790,6 +3850,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         const prompt = buildAnalysisPrompt(transcription, ctx, {
             systemPrompt: project?.systemPrompt,
             qualityHintConfidence: qualityHint?.confidence,
+            stereoDiarization: options?.stereoDiarization,
             channelDiarized: options?.channelDiarized,
         });
 

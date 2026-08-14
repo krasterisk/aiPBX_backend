@@ -569,7 +569,13 @@ export function buildAnalysisPrompt(
     options?: {
         systemPrompt?: string | null;
         qualityHintConfidence?: number;
-        /** Speakers already labeled from stereo L/R channels — do not reassign. */
+        /**
+         * Speakers from stereo L/R:
+         * - energy: transcript already chronological with correct speakers — preserve
+         * - channels: channel blobs — LLM may only reorder turns, never reassign speakers
+         */
+        stereoDiarization?: 'energy' | 'channels';
+        /** @deprecated use stereoDiarization: 'channels' */
         channelDiarized?: boolean;
     },
 ): string {
@@ -625,13 +631,20 @@ export function buildAnalysisPrompt(
         ? `\nLOW STT CONFIDENCE (${options.qualityHintConfidence}): if unreliable, set insufficient_content=true, analysis_confidence<0.4; do not invent scores.`
         : '';
 
-    const channelDiarizedBlock = options?.channelDiarized
-        ? `\nCHANNEL STEREO: TRANSCRIPTION lists operator/customer channel texts (speakers are ground truth from audio L/R). In diarized_text: split into short utterances and interleave chronologically as a real call. Never reassign speakers. Never dump all operator text into one item and all customer text into another.`
-        : '';
+    const stereoMode = options?.stereoDiarization
+        || (options?.channelDiarized ? 'channels' : undefined);
 
-    const diarizedInstruction = options?.channelDiarized
-        ? 'diarized_text: chronological turns from the stereo channels (speakers lowercase English operator|customer only); alternate speakers as in a real conversation; keep wording from the matching channel.'
-        : 'diarized_text: preserve full original text; speakers lowercase English operator|customer.';
+    const channelDiarizedBlock = stereoMode === 'energy'
+        ? `\nCHANNEL ENERGY: TRANSCRIPTION is already chronological with speakers from stereo L/R energy. In diarized_text: keep the same turn order and speakers. Never reassign speakers. Never reorder turns.`
+        : stereoMode === 'channels'
+            ? `\nCHANNEL STEREO: TRANSCRIPTION lists operator/customer channel texts (speakers are ground truth from audio L/R). In diarized_text: split into short utterances and interleave chronologically as a real call. Never reassign speakers. Never dump all operator text into one item and all customer text into another.`
+            : '';
+
+    const diarizedInstruction = stereoMode === 'energy'
+        ? 'diarized_text: copy TRANSCRIPTION turn order and speakers (lowercase English operator|customer only); do not reorder or reassign.'
+        : stereoMode === 'channels'
+            ? 'diarized_text: chronological turns from the stereo channels (speakers lowercase English operator|customer only); alternate speakers as in a real conversation; keep wording from the matching channel.'
+            : 'diarized_text: preserve full original text; speakers lowercase English operator|customer.';
 
     const metricJsonLines = ctx.visibleDefaultMetrics
         .map(key => `  "${key}": <0|25|50|75|100>`)

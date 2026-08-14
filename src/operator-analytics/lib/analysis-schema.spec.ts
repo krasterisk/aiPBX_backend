@@ -97,6 +97,17 @@ describe('analysis-schema', () => {
         expect(prompt).toContain('interleave chronologically');
     });
 
+    it('adds energy-preserve instructions for stereoDiarization=energy', () => {
+        const prompt = buildAnalysisPrompt(
+            '[0:01] operator: Hello\n[0:02] customer: Hi',
+            buildAnalysisContext({ visibleDefaultMetrics: ['greeting_quality'] } as any),
+            { stereoDiarization: 'energy' },
+        );
+        expect(prompt).toContain('CHANNEL ENERGY');
+        expect(prompt).toContain('Never reorder turns');
+        expect(prompt).not.toContain('interleave chronologically');
+    });
+
     it('includes compact checklist rubrics for every default metric', () => {
         for (const key of ALL_DEFAULT_METRIC_KEYS) {
             expect(METRIC_RUBRIC_DESCRIPTIONS[key]).toMatch(/1\)/);

@@ -647,6 +647,7 @@ export class OperatorAnalyticsService {
             if (channelDiarizedJson) {
                 await record.update({ transcription: channelDiarizedJson });
             } else if (diarizedText) {
+                this.warnOnDiarizationLoss(record.id, sttResult.text, diarizedText);
                 await record.update({ transcription: diarizedText });
             }
 
@@ -1050,6 +1051,7 @@ export class OperatorAnalyticsService {
             if (channelDiarizedJson) {
                 await record.update({ transcription: channelDiarizedJson });
             } else if (diarizedText) {
+                this.warnOnDiarizationLoss(record.id, sttResult.text, diarizedText);
                 await record.update({ transcription: diarizedText });
             }
 
@@ -1266,6 +1268,7 @@ export class OperatorAnalyticsService {
         if (channelDiarizedJson) {
             await record.update({ transcription: channelDiarizedJson });
         } else if (diarizedText) {
+            this.warnOnDiarizationLoss(record.id, sttResult.text, diarizedText);
             await record.update({ transcription: diarizedText });
         }
 
@@ -3780,6 +3783,37 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         if (sttDiarizationSource === 'channel' && diarizedText) return 'channel_llm';
         if (diarizedText) return 'llm';
         return null;
+    }
+
+    /**
+     * LLM diarization replaces the stored transcript, so anything the model skips
+     * (typically the opening greeting) is lost for the user.
+     */
+    private warnOnDiarizationLoss(recordId: number, sttText: string, diarizedText: string): void {
+        const sttLen = (sttText || '').replace(/\s+/g, '').length;
+        if (sttLen < 50) return;
+
+        let diarizedLen = 0;
+        try {
+            const turns = JSON.parse(diarizedText);
+            if (Array.isArray(turns)) {
+                diarizedLen = turns
+                    .map((t: any) => String(t?.text || ''))
+                    .join('')
+                    .replace(/\s+/g, '')
+                    .length;
+            }
+        } catch {
+            diarizedLen = diarizedText.replace(/\s+/g, '').length;
+        }
+
+        const kept = diarizedLen / sttLen;
+        if (kept < 0.85) {
+            this.logger.warn(
+                `[Diarization] Record #${recordId}: LLM kept ${Math.round(kept * 100)}% of the STT text ` +
+                `(${diarizedLen}/${sttLen} chars) — opening turns may be missing`,
+            );
+        }
     }
 
     private stereoDiarizationPromptMode(

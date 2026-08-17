@@ -9,6 +9,7 @@ describe('whisper-asr-response', () => {
         it('forces output=json and replaces an existing output=txt', () => {
             const url = buildWhisperAsrUrl('http://whisper:9000/asr?output=txt&task=transcribe', {
                 language: 'ru',
+                vadFilter: true,
             });
             const parsed = new URL(url);
             expect(parsed.searchParams.get('output')).toBe('json');
@@ -16,6 +17,14 @@ describe('whisper-asr-response', () => {
             expect(parsed.searchParams.get('task')).toBe('transcribe');
             expect(parsed.searchParams.get('language')).toBe('ru');
             expect(parsed.searchParams.get('vad_filter')).toBe('true');
+        });
+
+        it('omits vad_filter when disabled', () => {
+            const url = new URL(buildWhisperAsrUrl('http://whisper:9000/asr', {
+                language: 'ru',
+                vadFilter: false,
+            }));
+            expect(url.searchParams.get('vad_filter')).toBeNull();
         });
 
         it('skips language=auto', () => {

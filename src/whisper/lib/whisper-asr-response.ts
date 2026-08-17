@@ -30,7 +30,8 @@ export function buildWhisperAsrUrl(
     // Replace — WHISPER_API_URL may already contain output=txt (FastAPI keeps the first value).
     url.searchParams.set('task', 'transcribe');
     url.searchParams.set('output', 'json');
-    if (options?.vadFilter !== false) {
+    // Opt-in: Silero VAD can swallow a short greeting at the very start of a call.
+    if (options?.vadFilter === true) {
         url.searchParams.set('vad_filter', 'true');
     }
     if (options?.language && options.language !== 'auto') {

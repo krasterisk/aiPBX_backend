@@ -18,6 +18,11 @@ import FormData = require('form-data');
 export class WhisperService implements ITranscriptionProvider {
     private readonly logger = new Logger(WhisperService.name);
     private readonly whisperUrl: string;
+    /**
+     * Silero VAD drops short leading speech — telephony greetings that start at
+     * t≈0 right after a beep get cut. Off by default; enable per-install only.
+     */
+    private readonly vadFilter: boolean;
 
     constructor(private readonly configService: ConfigService) {
         this.whisperUrl =
@@ -25,7 +30,14 @@ export class WhisperService implements ITranscriptionProvider {
             || process.env.WHISPER_API_URL
             || 'http://whisper:9000/asr';
 
-        this.logger.log(`Whisper API URL: ${this.whisperUrl}`);
+        const rawVad = (
+            this.configService.get<string>('WHISPER_VAD_FILTER')
+            || process.env.WHISPER_VAD_FILTER
+            || 'false'
+        ).trim().toLowerCase();
+        this.vadFilter = rawVad === 'true' || rawVad === '1' || rawVad === 'on';
+
+        this.logger.log(`Whisper API URL: ${this.whisperUrl} (vad_filter=${this.vadFilter})`);
     }
 
     /**
@@ -35,33 +47,15 @@ export class WhisperService implements ITranscriptionProvider {
     async transcribe(buffer: Buffer, filename: string, language?: string): Promise<TranscriptionResult> {
         this.logger.log(`[Whisper] Transcribing "${filename}" (${buffer.length} bytes), language: ${language || 'auto'}`);
 
-        const form = new FormData();
-        form.append('audio_file', buffer, {
-            filename,
-            contentType: this.getMimeType(filename),
-        });
-
-        // Force output=json on the URL. axios `params` can append a second output=
-        // after WHISPER_API_URL?output=txt — FastAPI then keeps the first (txt).
-        const asrUrl = buildWhisperAsrUrl(this.whisperUrl, { language, vadFilter: true });
-        this.logger.log(`[Whisper] ASR ${asrUrl.replace(/\?.*$/, '')}?output=json`);
-
-        const headers: Record<string, string> = {
-            ...form.getHeaders(),
-        };
+        const asrUrl = buildWhisperAsrUrl(this.whisperUrl, { language, vadFilter: this.vadFilter });
+        this.logger.log(`[Whisper] ASR ${asrUrl}`);
 
         let response;
         try {
-            response = await axios.post(asrUrl, form, {
-                headers,
-                responseType: 'text',  // Always get string, parse ourselves
-                timeout: 300_000, // 5 min
-                maxContentLength: Infinity,
-                maxBodyLength: Infinity,
-            });
+            response = await this.postAsr(asrUrl, buffer, filename);
         } catch (err) {
-            const status = err.response?.status || 502;
-            const body = err.response?.data;
+            const status = (err as any).response?.status || 502;
+            const body = (err as any).response?.data;
             let detail: string;
             if (typeof body === 'object' && body != null) {
                 detail = body.detail
@@ -70,21 +64,23 @@ export class WhisperService implements ITranscriptionProvider {
             } else if (typeof body === 'string' && body.trim()) {
                 detail = body.length > 500 ? `${body.slice(0, 500)}…` : body;
             } else {
-                detail = err.message || 'unknown error';
+                detail = (err as Error).message || 'unknown error';
             }
             this.logger.error(`[Whisper] Transcription failed (${status}): ${detail}`);
             throw new HttpException(`Whisper STT error: ${detail}`, status);
         }
 
+        const disposition = String(response.headers?.['content-disposition'] || '');
         const parsed = parseWhisperAsrResponse(response.data);
-        if (!parsed.structured) {
+        if (!parsed.structured || parsed.segments.length === 0) {
             const preview = (parsed.text || '').slice(0, 80).replace(/\s+/g, ' ');
             this.logger.warn(
-                `[Whisper] No JSON/VTT segments (${parsed.text.length} chars) preview="${preview}"`,
+                `[Whisper] No JSON/VTT segments (${parsed.text.length} chars, ` +
+                `disposition=${disposition || 'n/a'}) preview="${preview}"`,
             );
         } else {
             this.logger.debug(
-                `[Whisper] Parsed ASR: segs=${parsed.segments.length} lang=${parsed.language || '?'}`,
+                `[Whisper] Parsed ASR: segs=${parsed.segments.length} lang=${parsed.language || '?'} disposition=${disposition || 'n/a'}`,
             );
         }
 
@@ -104,11 +100,35 @@ export class WhisperService implements ITranscriptionProvider {
             }
         }
 
+        const firstStart = parsed.segments[0]?.start;
         this.logger.log(
-            `[Whisper] Transcription complete: ${text.length} chars, duration: ${duration}s, segs=${parsed.segments.length}`,
+            `[Whisper] Transcription complete: ${text.length} chars, duration: ${duration}s, ` +
+            `segs=${parsed.segments.length}, firstSegStart=${firstStart != null ? firstStart.toFixed(2) : 'n/a'}s`,
         );
+        // A late first segment means the opening greeting never reached the transcript.
+        if (firstStart != null && firstStart > 1.5) {
+            this.logger.warn(
+                `[Whisper] Transcript starts at ${firstStart.toFixed(2)}s — leading speech may be cut ` +
+                `(vad_filter=${this.vadFilter})`,
+            );
+        }
 
         return { text, duration, ...this.extractSegmentSignals(parsed, text) };
+    }
+
+    private async postAsr(asrUrl: string, buffer: Buffer, filename: string) {
+        const form = new FormData();
+        form.append('audio_file', buffer, {
+            filename,
+            contentType: this.getMimeType(filename),
+        });
+        return axios.post(asrUrl, form, {
+            headers: form.getHeaders(),
+            responseType: 'text',
+            timeout: 300_000,
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+        });
     }
 
     private extractSegmentSignals(

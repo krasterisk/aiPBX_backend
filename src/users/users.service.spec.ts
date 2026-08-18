@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { HttpStatus } from '@nestjs/common';
 import { getModelToken, getConnectionToken } from '@nestjs/sequelize';
+import { Op } from 'sequelize';
 import { UsersService } from './users.service';
 import { User } from './users.model';
 import { Rates } from '../currency/rates.model';
@@ -136,6 +137,19 @@ describe('UsersService', () => {
                 {
                     provide: getConnectionToken(),
                     useValue: {
+                        models: new Proxy(
+                            {},
+                            {
+                                get: (_target, prop) => {
+                                    if (prop === 'then' || typeof prop === 'symbol') return undefined;
+                                    return {
+                                        findAll: jest.fn().mockResolvedValue([]),
+                                        destroy: jest.fn().mockResolvedValue(0),
+                                        update: jest.fn().mockResolvedValue([0]),
+                                    };
+                                },
+                            },
+                        ),
                         transaction: jest.fn(async (cb: (t: { LOCK: { UPDATE: string } }) => Promise<void>) =>
                             cb({ LOCK: { UPDATE: 'UPDATE' } }),
                         ),
@@ -473,20 +487,33 @@ describe('UsersService', () => {
             await expect(service.deleteUser(999)).rejects.toThrow('User not found');
         });
 
-        it('should prevent deleting owner with sub-users', async () => {
+        it('should cascade-delete owner with sub-users and related tenant data', async () => {
             mockUsersRepo.findByPk.mockResolvedValue({ id: 1, vpbx_user_id: null });
-            mockUsersRepo.count.mockResolvedValue(3); // 3 sub-users
+            mockUsersRepo.findAll.mockResolvedValue([{ id: 10 }, { id: 11 }, { id: 12 }, { id: 13 }]);
 
-            await expect(service.deleteUser(1)).rejects.toThrow('Cannot delete owner');
+            const result = await service.deleteUser(1);
+
+            expect(mockUsersRepo.destroy).toHaveBeenCalledWith({
+                where: { id: { [Op.in]: [10, 11, 12, 13] } },
+                transaction: expect.anything(),
+            });
+            expect(mockUsersRepo.destroy).toHaveBeenCalledWith({
+                where: { id: 1 },
+                transaction: expect.anything(),
+            });
+            expect(result.statusCode).toBe(HttpStatus.OK);
         });
 
         it('should allow deleting owner with no sub-users', async () => {
             mockUsersRepo.findByPk.mockResolvedValue({ id: 1, vpbx_user_id: null });
-            mockUsersRepo.count.mockResolvedValue(0);
+            mockUsersRepo.findAll.mockResolvedValue([]);
 
             const result = await service.deleteUser(1);
 
-            expect(mockUsersRepo.destroy).toHaveBeenCalledWith({ where: { id: 1 } });
+            expect(mockUsersRepo.destroy).toHaveBeenCalledWith({
+                where: { id: 1 },
+                transaction: expect.anything(),
+            });
             expect(result.statusCode).toBe(HttpStatus.OK);
         });
 
@@ -506,7 +533,10 @@ describe('UsersService', () => {
 
             const result = await service.deleteUser(10, 5);
 
-            expect(mockUsersRepo.destroy).toHaveBeenCalledWith({ where: { id: 10 } });
+            expect(mockUsersRepo.destroy).toHaveBeenCalledWith({
+                where: { id: 10 },
+                transaction: expect.anything(),
+            });
             expect(result.statusCode).toBe(HttpStatus.OK);
         });
 
@@ -517,7 +547,10 @@ describe('UsersService', () => {
 
             const result = await service.deleteUser(10, 8);
 
-            expect(mockUsersRepo.destroy).toHaveBeenCalledWith({ where: { id: 10 } });
+            expect(mockUsersRepo.destroy).toHaveBeenCalledWith({
+                where: { id: 10 },
+                transaction: expect.anything(),
+            });
             expect(result.statusCode).toBe(HttpStatus.OK);
         });
     });

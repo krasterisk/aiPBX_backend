@@ -1,7 +1,7 @@
 import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
 import { InjectConnection } from "@nestjs/sequelize";
-import { Sequelize, Transaction } from "sequelize";
+import { Sequelize, Transaction, Op } from "sequelize";
 import { User } from "./users.model";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { OurOrganizationsService } from "../our-organizations/our-organizations.service";
@@ -28,6 +28,7 @@ import { isBalanceDepleted } from './balance-notification.util';
 import { parseUserId } from './user-id.util';
 import { emailWhereClause, normalizeAuthEmail } from './email.util';
 import { isInvoiceBillingEnabled } from '../shared/tenant/invoice-billing-context';
+import { cascadeDeleteTenantData } from './tenant-cascade-delete';
 
 export interface BalanceCreditOptions {
     source?: BalanceLedgerSource;
@@ -1134,17 +1135,6 @@ export class UsersService {
             throw new HttpException('User not found', HttpStatus.NOT_FOUND);
         }
 
-        // Если удаляется root user — проверяем, нет ли sub-users
-        if (user.vpbx_user_id === null || user.vpbx_user_id === undefined) {
-            const subUsersCount = await this.usersRepository.count({ where: { vpbx_user_id: id } });
-            if (subUsersCount > 0) {
-                throw new HttpException(
-                    `Cannot delete owner: ${subUsersCount} sub-user(s) still linked`,
-                    HttpStatus.BAD_REQUEST,
-                );
-            }
-        }
-
         // Если requester указан — проверяем права
         if (requesterId && !isAdmin) {
             const ownerId = await this.assertCanManageTenantUsers(requesterId, false);
@@ -1159,7 +1149,42 @@ export class UsersService {
             }
         }
 
-        await this.usersRepository.destroy({ where: { id } });
+        const isOwner = user.vpbx_user_id === null || user.vpbx_user_id === undefined;
+
+        await this.sequelize.transaction(async (transaction) => {
+            if (isOwner) {
+                const subUsers = await this.usersRepository.findAll({
+                    where: { vpbx_user_id: id },
+                    attributes: ['id'],
+                    transaction,
+                });
+                const subIds = subUsers.map((u) => u.id);
+                const memberIds = [id, ...subIds];
+
+                await cascadeDeleteTenantData(
+                    this.sequelize,
+                    { ownerId: id, memberIds, deleteOwnerScoped: true },
+                    transaction,
+                );
+
+                if (subIds.length > 0) {
+                    await this.usersRepository.destroy({
+                        where: { id: { [Op.in]: subIds } },
+                        transaction,
+                    });
+                    this.logger.log(`Deleted ${subIds.length} sub-user(s) for owner #${id}`);
+                }
+            } else {
+                await cascadeDeleteTenantData(
+                    this.sequelize,
+                    { ownerId: user.vpbx_user_id, memberIds: [id], deleteOwnerScoped: false },
+                    transaction,
+                );
+            }
+
+            await this.usersRepository.destroy({ where: { id }, transaction });
+        });
+
         return { message: 'User deleted successfully', statusCode: HttpStatus.OK };
     }
 

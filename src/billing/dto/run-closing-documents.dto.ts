@@ -28,13 +28,17 @@ export class RunClosingDocumentsDto {
     @IsOptional()
     periodTo?: string;
 
-    @ApiPropertyOptional({ example: '2026-05-01' })
+    @ApiPropertyOptional({ example: '2026-04-30', description: 'UPD date in SBIS; defaults to periodTo' })
     @IsString()
     @Matches(/^\d{4}-\d{2}-\d{2}$/)
     @IsOptional()
     documentDate?: string;
 
-    @ApiPropertyOptional({ default: false })
+    @ApiPropertyOptional({
+        default: false,
+        deprecated: true,
+        description: 'Ignored: closing only writes a SBIS draft (no sign / EDO / postings)',
+    })
     @Transform(({ value }) => toBool(value))
     @IsBoolean()
     @IsOptional()

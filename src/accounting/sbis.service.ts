@@ -1924,7 +1924,8 @@ export class SbisService {
             return { ok: false, detail: 'missing_document_id' };
         }
         try {
-            if (!this.edoAutoSendEnabled()) {
+            // Monthly UPD is draft-only: no signature, postings, or EDO send.
+            if (!this.edoAutoSendEnabled() || type === 'upd') {
                 await this.auth();
                 return { ok: true, detail: `draft_only:${type}:${documentId}` };
             }

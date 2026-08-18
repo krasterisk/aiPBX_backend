@@ -11,7 +11,6 @@ import { DocumentCounterService } from './document-counter.service';
 import { SbisService } from './sbis.service';
 import { BillingFxService } from '../billing/billing-fx.service';
 import { OurOrganizationsService } from '../our-organizations/our-organizations.service';
-import { OrganizationEdoService } from '../organizations/organization-edo.service';
 import { User } from '../users/users.model';
 import { buildClosingDocumentNote } from './billing.constants';
 
@@ -21,6 +20,7 @@ jest.mock('../users/personal-account.util', () => ({
 
 describe('ClosingService', () => {
     let service: ClosingService;
+    let orgModel: { findAll: jest.Mock };
     let billingModel: { sum: jest.Mock };
     let billingFx: { backfillMissingForPeriod: jest.Mock };
     let docModel: {
@@ -51,6 +51,7 @@ describe('ClosingService', () => {
     beforeEach(async () => {
         process.env.TENANT_CURRENCY = 'RUB';
 
+        orgModel = { findAll: jest.fn().mockResolvedValue([]) };
         billingModel = { sum: jest.fn() };
         billingFx = { backfillMissingForPeriod: jest.fn().mockResolvedValue(0) };
         docModel = {
@@ -83,7 +84,7 @@ describe('ClosingService', () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 ClosingService,
-                { provide: getModelToken(Organization), useValue: { findAll: jest.fn() } },
+                { provide: getModelToken(Organization), useValue: orgModel },
                 { provide: getModelToken(OrganizationDocument), useValue: docModel },
                 { provide: getModelToken(BillingRecord), useValue: billingModel },
                 { provide: getModelToken(CurrencyHistory), useValue: { findOne: jest.fn() } },
@@ -113,10 +114,6 @@ describe('ClosingService', () => {
                         }),
                     },
                 },
-                {
-                    provide: OrganizationEdoService,
-                    useValue: { assertEdoReady: jest.fn() },
-                },
                 { provide: getConnectionToken(), useValue: sequelize },
             ],
         }).compile();
@@ -127,6 +124,7 @@ describe('ClosingService', () => {
 
     afterEach(() => {
         process.env.TENANT_CURRENCY = originalTenantCurrency;
+        jest.useRealTimers();
         jest.restoreAllMocks();
     });
 
@@ -187,7 +185,6 @@ describe('ClosingService', () => {
         const result = await service.closeForOrganization(mockOrg, {
             periodFrom: '2026-04-01',
             periodTo: '2026-04-30',
-            documentDate: '2026-05-01',
         });
 
         expect(result.documentId).toBeDefined();
@@ -195,8 +192,42 @@ describe('ClosingService', () => {
         expect(updCreate).toBeDefined();
         expect(updCreate![0].amountRub).toBe('900.00');
         expect(updCreate![0].vatMode).toBe('none');
+        expect(updCreate![0].documentDate).toBe('2026-04-30');
 
         await new Promise((r) => setImmediate(r));
-        expect(sbis.createUpdDraft).toHaveBeenCalled();
+        expect(sbis.createUpdDraft).toHaveBeenCalledWith(
+            expect.objectContaining({ documentDate: '2026-04-30' }),
+        );
+        expect(sbis.sendDocumentToEdo).not.toHaveBeenCalled();
+    });
+
+    it('honors explicit documentDate override', async () => {
+        billingModel.sum.mockResolvedValueOnce(10).mockResolvedValueOnce(900);
+
+        await service.closeForOrganization(mockOrg, {
+            periodFrom: '2026-04-01',
+            periodTo: '2026-04-30',
+            documentDate: '2026-05-01',
+        });
+
+        const updCreate = docModel.create.mock.calls.find((c) => c[0].type === 'upd');
+        expect(updCreate![0].documentDate).toBe('2026-05-01');
+    });
+
+    it('runMonthlyClosing dates UPD as last day of previous month', async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date(2026, 7, 1, 3, 0, 0));
+        orgModel.findAll.mockResolvedValue([mockOrg]);
+        billingModel.sum.mockResolvedValueOnce(10).mockResolvedValueOnce(900);
+
+        await service.runMonthlyClosing();
+
+        const updCreate = docModel.create.mock.calls.find((c) => c[0].type === 'upd');
+        expect(updCreate).toBeDefined();
+        expect(updCreate![0].periodFrom).toBe('2026-07-01');
+        expect(updCreate![0].periodTo).toBe('2026-07-31');
+        expect(updCreate![0].documentDate).toBe('2026-07-31');
+
+        jest.useRealTimers();
     });
 });

@@ -45,6 +45,7 @@ describe('SbisService', () => {
     afterEach(() => {
         delete process.env.SBIS_LOGIN;
         delete process.env.SBIS_PASS;
+        delete process.env.SBIS_EDO_AUTO_SEND;
     });
 
     it('caches session after auth', async () => {
@@ -700,6 +701,17 @@ describe('SbisService', () => {
     it('edoAutoSendEnabled respects SBIS_EDO_AUTO_SEND=false', () => {
         process.env.SBIS_EDO_AUTO_SEND = 'false';
         expect(service.edoAutoSendEnabled()).toBe(false);
+    });
+
+    it('enqueueDocument does not sign or send UPD via EDO', async () => {
+        process.env.SBIS_EDO_AUTO_SEND = 'true';
+        (service as unknown as { sessionId: string | null }).sessionId = 'session-abc';
+        (service as unknown as { sessionExpiresAt: number }).sessionExpiresAt = Date.now() + 60_000;
+
+        const r = await service.enqueueDocument('upd', { sbisId: 'sbis-upd-1' });
+
+        expect(r).toEqual({ ok: true, detail: 'draft_only:upd:sbis-upd-1' });
+        expect(httpPost).not.toHaveBeenCalled();
     });
 
     it('edoUsePrepareAction defaults to false (execute calls prepare internally)', () => {

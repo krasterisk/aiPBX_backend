@@ -20,19 +20,17 @@ import { BillingFxService } from '../billing/billing-fx.service';
 import { isRubTenant } from '../shared/tenant/tenant-currency';
 import { isInvoiceBillingEnabled } from '../shared/tenant/invoice-billing-context';
 import { OurOrganizationsService } from '../our-organizations/our-organizations.service';
-import { OrganizationEdoService } from '../organizations/organization-edo.service';
 import { User } from '../users/users.model';
 import { OurOrganization } from '../our-organizations/our-organization.model';
 import { ensureOwnerPersonalAccount } from '../users/personal-account.util';
 import { extractOrganizationDocumentId } from './document-id.util';
 import { buildChetopBuyerFromOrganization, buildChetopSellerFromIssuer } from './sbis-invoice-party';
-import { previousCalendarMonthPeriod, todayCalendarDateLocal } from '../shared/date/calendar-date';
+import { previousCalendarMonthPeriod } from '../shared/date/calendar-date';
 
 export interface CloseForOrganizationOptions {
     periodFrom: string;
     periodTo: string;
     documentDate?: string;
-    sendViaEdo?: boolean;
     dryRun?: boolean;
 }
 
@@ -52,7 +50,6 @@ export interface CloseForOrganizationResult {
     number?: string;
     sbisId?: string;
     sbisNumber?: string;
-    edoSent?: boolean;
     error?: string;
 }
 
@@ -71,7 +68,6 @@ export class ClosingService {
         private readonly sbis: SbisService,
         private readonly billingFx: BillingFxService,
         private readonly ourOrganizationsService: OurOrganizationsService,
-        private readonly organizationEdo: OrganizationEdoService,
         @InjectConnection() private readonly sequelize: Sequelize,
     ) {}
 
@@ -89,8 +85,7 @@ export class ClosingService {
             return;
         }
         const { periodFrom, periodTo } = this.defaultPreviousMonthPeriod();
-        const documentDate = todayCalendarDateLocal();
-        const sendViaEdo = process.env.CLOSING_AUTO_SEND_EDO !== 'false';
+        const documentDate = periodTo;
 
         const orgs = await this.orgModel.findAll();
         for (const org of orgs) {
@@ -99,7 +94,6 @@ export class ClosingService {
                     periodFrom,
                     periodTo,
                     documentDate,
-                    sendViaEdo,
                 });
             } catch (e) {
                 this.logger.error(`closing failed for org ${org.id}: ${(e as Error).message}`);
@@ -112,7 +106,7 @@ export class ClosingService {
         options: CloseForOrganizationOptions,
     ): Promise<CloseForOrganizationResult> {
         const { periodFrom, periodTo } = options;
-        const documentDate = options.documentDate || todayCalendarDateLocal();
+        const documentDate = options.documentDate || periodTo;
         const fxDate = documentDate;
 
         const base: CloseForOrganizationResult = {
@@ -264,8 +258,7 @@ export class ClosingService {
             buyer: buildChetopBuyerFromOrganization(org, chetopSeller.bank),
         };
 
-        const sendViaEdo = Boolean(options.sendViaEdo);
-        this.enqueueUpdSbisPhases(stableDocId, draftInput, issuerOrg, org, sendViaEdo);
+        this.enqueueUpdSbisDraft(stableDocId, draftInput);
 
         return {
             organizationId: org.id,
@@ -282,41 +275,12 @@ export class ClosingService {
         };
     }
 
-    private enqueueUpdSbisPhases(
-        docId: string,
-        draftInput: SbisUpdDraftInput,
-        issuerOrg: OurOrganization,
-        org: Organization,
-        sendViaEdo: boolean,
-    ): void {
+    private enqueueUpdSbisDraft(docId: string, draftInput: SbisUpdDraftInput): void {
         void (async () => {
             try {
                 const draft = await this.sbis.createUpdDraft(draftInput);
                 const displayNumber = (draft.sbisNumber || '').trim() || UPD_NUMBER_PENDING;
-                let sbisStatus = 'draft';
-                let sbisLastError: string | null = null;
-                if (sendViaEdo) {
-                    try {
-                        this.organizationEdo.assertEdoReady(org);
-                        const thumbprint = issuerOrg.sbisCertThumbprint?.trim() || null;
-                        if (!thumbprint) {
-                            sbisLastError = 'Issuer certificate thumbprint is not configured';
-                            this.logger.warn(`UPD ${docId}: EDO skipped — no thumbprint`);
-                        } else {
-                            const sent = await this.sbis.sendDocumentToEdo(draft.documentId, draft.revisionId, {
-                                certThumbprint: thumbprint,
-                            });
-                            sbisStatus = 'sent_to_sbis';
-                            this.logger.log(
-                                `UPD ${docId} sent to EDO: ${sent.stateName || sent.stateCode || 'ok'}`,
-                            );
-                        }
-                    } catch (edoErr) {
-                        const msg = (edoErr as Error).message;
-                        sbisLastError = msg.slice(0, 500);
-                        this.logger.warn(`UPD ${docId}: EDO not sent — ${msg}`);
-                    }
-                }
+                this.logger.log(`UPD ${docId} drafted in SBIS ${draft.documentId}`);
 
                 await this.docModel.update(
                     {
@@ -324,8 +288,8 @@ export class ClosingService {
                         sbisId: draft.documentId,
                         sbisUrl: draft.sbisUrl,
                         sbisDocNum: draft.sbisNumber,
-                        sbisStatus,
-                        sbisLastError,
+                        sbisStatus: 'draft',
+                        sbisLastError: null,
                         pdfPath: null,
                     },
                     { where: { id: docId } },

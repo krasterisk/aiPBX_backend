@@ -28,6 +28,7 @@ export class ClosingTask {
         const docs = await this.docModel.findAll({
             where: {
                 status: 'failed',
+                type: { [Op.ne]: 'upd' },
                 sbisAttemptCount: { [Op.lt]: 6 },
             },
             limit: 20,

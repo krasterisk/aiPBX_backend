@@ -10,7 +10,6 @@ import { RolesGuard } from '../auth/roles.guard';
 import { GetBillingDto } from './dto/get-billing.dto';
 import { BackfillFxDto } from './dto/backfill-fx.dto';
 import { RunClosingDocumentsDto } from './dto/run-closing-documents.dto';
-import { todayCalendarDateLocal } from '../shared/date/calendar-date';
 
 @ApiTags('Billing')
 @Controller('billing')
@@ -62,8 +61,7 @@ export class BillingController {
         const defaults = this.closingService.defaultPreviousMonthPeriod();
         const periodFrom = query.periodFrom || defaults.periodFrom;
         const periodTo = query.periodTo || defaults.periodTo;
-        const documentDate = query.documentDate || todayCalendarDateLocal();
-        const sendViaEdo = query.sendViaEdo === true;
+        const documentDate = query.documentDate || periodTo;
         const dryRun = query.dryRun === true;
 
         if (!query.organizationId && !(dryRun && query.confirmAll)) {
@@ -86,7 +84,6 @@ export class BillingController {
                         periodFrom,
                         periodTo,
                         documentDate,
-                        sendViaEdo: false,
                         dryRun: true,
                     }),
                 );
@@ -103,7 +100,6 @@ export class BillingController {
             periodFrom,
             periodTo,
             documentDate,
-            sendViaEdo,
             dryRun,
         });
     }

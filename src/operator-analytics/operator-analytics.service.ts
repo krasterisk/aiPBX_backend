@@ -71,6 +71,11 @@ import {
     PROMPT_VERSION,
 } from './lib/analysis-schema';
 import {
+    buildAnalysisCompletedWebhookData,
+    buildAnalysisCompletedWebhookDataFromStored,
+    type AnalysisCompletedWebhookInput,
+} from './lib/webhook-payload';
+import {
     buildInsightsJsonSchema,
     buildOperatorInsightsResponse,
     computeFactsDigest,
@@ -739,11 +744,31 @@ export class OperatorAnalyticsService {
             this.logger.log(`Analysis completed for "${filename}" (id=${record.id}), cost=${totalCost} (llm=${llmCost}, stt=${sttCost}), tokens=${totalTokens}`);
 
             // 7. Call webhook if configured
-            if (project) {
-                this.callWebhook(project, 'analysis.completed', {
-                    recordId: record.id, filename, metrics, customMetrics: customMetricsResult,
-                }).catch(err => this.logger.warn(`Webhook error: ${err.message}`));
-            }
+            this.emitAnalysisCompleted(project, {
+                recordId: record.id,
+                filename,
+                metrics,
+                customMetrics: customMetricsResult as Record<string, unknown> | null,
+                transcription: channelDiarizedJson || diarizedText || sttResult.text || record.transcription,
+                duration: record.duration ?? sttResult.duration,
+                operatorName: record.operatorName,
+                clientPhone: record.clientPhone,
+                language: record.language,
+                detectedLanguage: record.detectedLanguage,
+                recordUrl: record.recordUrl,
+                sttProvider: record.sttProvider || sttResult.provider,
+                quality: finalQuality,
+                assessments,
+                customMetricsMeta: customMeta,
+                topics: topicsBlock,
+                analysisConfidence,
+                insufficientContent,
+                schemaVersion,
+                promptVersion: PROMPT_VERSION,
+                model: modelName,
+                diarizationSource: finalDiarizationSource,
+                customMetricsInvalid,
+            });
 
             return record.reload();
         } catch (e) {
@@ -1142,11 +1167,31 @@ export class OperatorAnalyticsService {
             this.logger.log(`Background analysis completed for record #${recordId}`);
 
             // Webhook
-            if (project) {
-                this.callWebhook(project, 'analysis.completed', {
-                    recordId, filename: record.filename, metrics, customMetrics: customMetricsResult,
-                }).catch(err => this.logger.warn(`Webhook error: ${err.message}`));
-            }
+            this.emitAnalysisCompleted(project, {
+                recordId,
+                filename: record.filename,
+                metrics,
+                customMetrics: customMetricsResult as Record<string, unknown> | null,
+                transcription: channelDiarizedJson || diarizedText || sttResult.text || record.transcription,
+                duration: record.duration ?? sttResult.duration,
+                operatorName: record.operatorName,
+                clientPhone: record.clientPhone,
+                language: record.language,
+                detectedLanguage: record.detectedLanguage,
+                recordUrl: record.recordUrl,
+                sttProvider: record.sttProvider || sttResult.provider,
+                quality: finalQuality,
+                assessments,
+                customMetricsMeta: customMeta,
+                topics: topicsBlock,
+                analysisConfidence,
+                insufficientContent,
+                schemaVersion,
+                promptVersion: PROMPT_VERSION,
+                model: modelName,
+                diarizationSource: finalDiarizationSource,
+                customMetricsInvalid,
+            });
 
             return AnalyticsStatus.COMPLETED;
         } catch (e) {
@@ -1376,15 +1421,32 @@ export class OperatorAnalyticsService {
             `Analysis regenerated for record #${recordId}, added cost=${totalCost} (llm=${llmCost}, stt=${sttCost})`,
         );
 
-        if (project) {
-            this.callWebhook(project, 'analysis.completed', {
-                recordId,
-                filename: record.filename,
-                metrics,
-                customMetrics: customMetricsResult,
-                regenerated: true,
-            }).catch(err => this.logger.warn(`Webhook error: ${err.message}`));
-        }
+        this.emitAnalysisCompleted(project, {
+            recordId,
+            filename: record.filename,
+            metrics,
+            customMetrics: customMetricsResult as Record<string, unknown> | null,
+            transcription: channelDiarizedJson || diarizedText || sttResult.text || record.transcription,
+            duration: record.duration ?? sttResult.duration,
+            operatorName: record.operatorName,
+            clientPhone: record.clientPhone,
+            language: record.language,
+            detectedLanguage: record.detectedLanguage,
+            recordUrl: record.recordUrl,
+            sttProvider: record.sttProvider || sttResult.provider,
+            quality: finalQuality,
+            assessments,
+            customMetricsMeta: customMeta,
+            topics: topicsBlock,
+            analysisConfidence,
+            insufficientContent,
+            schemaVersion,
+            promptVersion: PROMPT_VERSION,
+            model: modelName,
+            diarizationSource: finalDiarizationSource,
+            customMetricsInvalid,
+            regenerated: true,
+        });
 
         return aiCdr.reload({
             include: [
@@ -3168,6 +3230,15 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         }
     }
 
+    private emitAnalysisCompleted(
+        project: OperatorProject | null | undefined,
+        input: AnalysisCompletedWebhookInput,
+    ): void {
+        if (!project) return;
+        this.callWebhook(project, 'analysis.completed', buildAnalysisCompletedWebhookData(input))
+            .catch(err => this.logger.warn(`Webhook error: ${err.message}`));
+    }
+
     async callWebhook(
         project: OperatorProject,
         event: WebhookEvent,
@@ -3506,11 +3577,15 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         if (target.projectId) {
             const project = await this.projectRepository.findByPk(target.projectId);
             if (project) {
-                this.callWebhook(project, 'analysis.completed', {
-                    recordId: target.id,
-                    filename: target.filename,
-                    deduplicatedFrom: source.id,
-                }).catch(err => this.logger.warn(`Webhook error: ${err.message}`));
+                this.callWebhook(
+                    project,
+                    'analysis.completed',
+                    buildAnalysisCompletedWebhookDataFromStored({
+                        record: target,
+                        storedMetrics: (metrics || {}) as Record<string, unknown>,
+                        deduplicatedFrom: source.id,
+                    }),
+                ).catch(err => this.logger.warn(`Webhook error: ${err.message}`));
             }
         }
     }

@@ -39,6 +39,12 @@ export class BalanceThresholdAlertsService {
         });
     }
 
+    async listAll(): Promise<BalanceThresholdAlert[]> {
+        return this.alertRepo.findAll({
+            order: [['ownerUserId', 'ASC'], ['limitAmount', 'ASC']],
+        });
+    }
+
     async getTenantMembers(ownerUserId: number): Promise<User[]> {
         const owner = await this.usersRepo.findByPk(ownerUserId, {
             attributes: {

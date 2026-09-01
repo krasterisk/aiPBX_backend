@@ -22,7 +22,7 @@ export function resolveClosingUpdSubject(): string {
     return fromEnv || CLOSING_UPD_SUBJECT_DEFAULT;
 }
 
-function formatPeriodRu(periodFrom: string, periodTo: string): string {
+export function formatClosingPeriodRu(periodFrom: string, periodTo: string): string {
     const fmt = (iso: string) => {
         const p = iso.trim().split('-');
         if (p.length === 3 && p[0].length === 4) {
@@ -33,14 +33,35 @@ function formatPeriodRu(periodFrom: string, periodTo: string): string {
     return `${fmt(periodFrom)} — ${fmt(periodTo)}`;
 }
 
-/** SBIS document Примечание: personal account + billing period. */
+/**
+ * Line-level SBIS «Примечание» (survives reformation better than ИнфПередТабл).
+ * Keep л/с + period here; do NOT put period into НаимТов — SBIS matches nomenclature
+ * against its catalog by name/code, and a period suffix would break the match.
+ * USN wording stays on document note / ИнфПередТабл.
+ */
+export function buildClosingUpdLineNote(
+    personalAccountNumber: string | null | undefined,
+    periodFrom: string,
+    periodTo: string,
+): string {
+    const pa = (personalAccountNumber || '').trim();
+    const period = formatClosingPeriodRu(periodFrom, periodTo);
+    const parts: string[] = [];
+    if (pa) {
+        parts.push(`л/с ${pa}`);
+    }
+    parts.push(`Период оказания услуг: ${period}`);
+    return parts.join('. ') + (parts.length ? '.' : '');
+}
+
+/** SBIS document Примечание / ИнфПередТабл: personal account + billing period + USN. */
 export function buildClosingDocumentNote(
     personalAccountNumber: string | null | undefined,
     periodFrom: string,
     periodTo: string,
 ): string {
     const pa = (personalAccountNumber || '').trim();
-    const period = formatPeriodRu(periodFrom, periodTo);
+    const period = formatClosingPeriodRu(periodFrom, periodTo);
     const parts: string[] = [];
     if (pa) {
         parts.push(`Лицевой счёт ${pa}.`);

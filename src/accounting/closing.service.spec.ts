@@ -12,7 +12,7 @@ import { SbisService } from './sbis.service';
 import { BillingFxService } from '../billing/billing-fx.service';
 import { OurOrganizationsService } from '../our-organizations/our-organizations.service';
 import { User } from '../users/users.model';
-import { buildClosingDocumentNote } from './billing.constants';
+import { buildClosingDocumentNote, buildClosingUpdLineNote } from './billing.constants';
 
 jest.mock('../users/personal-account.util', () => ({
     ensureOwnerPersonalAccount: jest.fn().mockResolvedValue('AIPBX-00000042'),
@@ -133,6 +133,12 @@ describe('ClosingService', () => {
         expect(note).toContain('AIPBX-1');
         expect(note).toContain('01.04.2026');
         expect(note).toContain('30.04.2026');
+    });
+
+    it('buildClosingUpdLineNote keeps л/с and period in line comment only', () => {
+        expect(buildClosingUpdLineNote('AIPBX-1', '2026-04-01', '2026-04-30')).toBe(
+            'л/с AIPBX-1. Период оказания услуг: 01.04.2026 — 30.04.2026.',
+        );
     });
 
     it('skips when upd already exists for period', async () => {

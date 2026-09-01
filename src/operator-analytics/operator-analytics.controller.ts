@@ -400,10 +400,14 @@ export class OperatorAnalyticsController {
     @ApiResponse({ status: 201, description: 'Token generated' })
     async generateToken(
         @Req() req: RequestWithUser,
-        @Body() body: { name?: string; projectId?: number },
+        @Body() body: { name?: string; projectId?: number; ownerUserId?: string },
     ) {
+        const selfId = req.vpbxUserId || req.tokenUserId;
+        const ownerId = req.isAdmin && body.ownerUserId
+            ? String(body.ownerUserId)
+            : selfId;
         return this.service.generateApiToken(
-            req.vpbxUserId || req.tokenUserId,
+            ownerId,
             body.name,
             body.projectId ? +body.projectId : undefined,
         );
@@ -415,8 +419,17 @@ export class OperatorAnalyticsController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'List API tokens (with projectName)' })
-    async listTokens(@Req() req: RequestWithUser) {
-        return this.service.getApiTokens(req.vpbxUserId || req.tokenUserId);
+    async listTokens(
+        @Req() req: RequestWithUser,
+        @Query('userId') listUserId?: string,
+    ) {
+        if (req.isAdmin && (listUserId == null || listUserId === '')) {
+            return this.service.getApiTokens();
+        }
+        const ownerId = req.isAdmin && listUserId
+            ? String(listUserId)
+            : (req.vpbxUserId || req.tokenUserId);
+        return this.service.getApiTokens(ownerId);
     }
 
     @Patch('tokens/:id/revoke')
@@ -427,7 +440,11 @@ export class OperatorAnalyticsController {
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Revoke an API token' })
     async revokeToken(@Req() req: RequestWithUser, @Param('id') id: string) {
-        return this.service.revokeApiToken(+id, req.vpbxUserId || req.tokenUserId);
+        return this.service.revokeApiToken(
+            +id,
+            req.vpbxUserId || req.tokenUserId,
+            req.isAdmin ?? false,
+        );
     }
 
     @Delete('tokens/:id')
@@ -438,7 +455,11 @@ export class OperatorAnalyticsController {
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Delete an API token' })
     async deleteToken(@Req() req: RequestWithUser, @Param('id') id: string) {
-        return this.service.deleteApiToken(+id, req.vpbxUserId || req.tokenUserId);
+        return this.service.deleteApiToken(
+            +id,
+            req.vpbxUserId || req.tokenUserId,
+            req.isAdmin ?? false,
+        );
     }
 
     // ─── Projects — Static routes FIRST (before :id) ─────────────────

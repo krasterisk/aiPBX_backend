@@ -626,6 +626,9 @@ describe('SbisService', () => {
         const xmlBuf = Buffer.from(attachBody.params.Документ.Вложение.Файл.ДвоичныеДанные, 'base64');
         const xml = require('iconv-lite').decode(xmlBuf, 'win1251');
         expect(xml).toContain('НомерДок="336"');
+        expect(xml).toContain('НаимТов="Услуги AIPBX"');
+        expect(xml).not.toMatch(/НаимТов="[^"]*за период/);
+        expect(xml).toContain('Период оказания услуг: 01.04.2026');
     });
 
     it('extractPdfUrlFromReadDoc prefers СсылкаНаPDF for formalized UPD attachment', () => {

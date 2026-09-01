@@ -910,6 +910,31 @@ describe('OperatorAnalyticsService', () => {
         });
     });
 
+    describe('getApiTokens', () => {
+        it('lists all tokens when userId is omitted', async () => {
+            mockApiTokenRepo.findAll.mockResolvedValue([
+                { id: 1, name: 'A', userId: '10', isActive: true, lastUsedAt: null, createdAt: new Date(), projectId: null },
+            ]);
+
+            const result = await service.getApiTokens();
+
+            expect(mockApiTokenRepo.findAll).toHaveBeenCalledWith(expect.objectContaining({
+                where: {},
+            }));
+            expect(result[0].userId).toBe('10');
+        });
+
+        it('filters by owner when userId is set', async () => {
+            mockApiTokenRepo.findAll.mockResolvedValue([]);
+
+            await service.getApiTokens('7');
+
+            expect(mockApiTokenRepo.findAll).toHaveBeenCalledWith(expect.objectContaining({
+                where: { userId: '7' },
+            }));
+        });
+    });
+
     describe('revokeApiToken', () => {
         it('should set isActive to false', async () => {
             const token = { id: 1, userId: '1', update: jest.fn().mockResolvedValue(undefined) };
@@ -926,6 +951,17 @@ describe('OperatorAnalyticsService', () => {
             await expect(
                 service.revokeApiToken(999, '1'),
             ).rejects.toThrow('Token not found');
+        });
+
+        it('looks up by id only when admin', async () => {
+            const token = { id: 2, userId: '99', update: jest.fn().mockResolvedValue(undefined) };
+            mockApiTokenRepo.findOne.mockResolvedValue(token);
+
+            await service.revokeApiToken(2, '1', true);
+
+            expect(mockApiTokenRepo.findOne).toHaveBeenCalledWith({
+                where: { id: 2 },
+            });
         });
     });
 

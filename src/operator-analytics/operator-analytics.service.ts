@@ -3337,10 +3337,10 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         return { token: rawToken, id: record.id, projectId: record.projectId };
     }
 
-    async getApiTokens(userId: string) {
+    async getApiTokens(userId?: string) {
         const tokens = await this.apiTokenRepository.findAll({
-            where: { userId },
-            attributes: ['id', 'name', 'isActive', 'lastUsedAt', 'createdAt', 'projectId'],
+            where: userId ? { userId } : {},
+            attributes: ['id', 'name', 'userId', 'isActive', 'lastUsedAt', 'createdAt', 'projectId'],
             order: [['createdAt', 'DESC']],
         });
 
@@ -3358,6 +3358,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         return tokens.map(t => ({
             id: t.id,
             name: t.name,
+            userId: t.userId,
             isActive: t.isActive,
             lastUsedAt: t.lastUsedAt,
             createdAt: t.createdAt,
@@ -3366,18 +3367,18 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         }));
     }
 
-    async revokeApiToken(tokenId: number, userId: string) {
+    async revokeApiToken(tokenId: number, userId: string, isAdmin = false) {
         const token = await this.apiTokenRepository.findOne({
-            where: { id: tokenId, userId },
+            where: isAdmin ? { id: tokenId } : { id: tokenId, userId },
         });
         if (!token) throw new HttpException('Token not found', HttpStatus.NOT_FOUND);
         await token.update({ isActive: false });
         return { success: true };
     }
 
-    async deleteApiToken(tokenId: number, userId: string) {
+    async deleteApiToken(tokenId: number, userId: string, isAdmin = false) {
         const token = await this.apiTokenRepository.findOne({
-            where: { id: tokenId, userId },
+            where: isAdmin ? { id: tokenId } : { id: tokenId, userId },
         });
         if (!token) throw new HttpException('Token not found', HttpStatus.NOT_FOUND);
         await token.destroy();

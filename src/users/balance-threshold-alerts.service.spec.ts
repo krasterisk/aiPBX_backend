@@ -76,6 +76,20 @@ describe('BalanceThresholdAlertsService', () => {
         service = moduleRef.get(BalanceThresholdAlertsService);
     });
 
+    describe('listAll', () => {
+        it('returns all alerts ordered by owner then limit', async () => {
+            const rows = [alertRow];
+            alertRepo.findAll.mockResolvedValue(rows);
+
+            const result = await service.listAll();
+
+            expect(alertRepo.findAll).toHaveBeenCalledWith({
+                order: [['ownerUserId', 'ASC'], ['limitAmount', 'ASC']],
+            });
+            expect(result).toBe(rows);
+        });
+    });
+
     describe('create', () => {
         it('normalizes emails and stores alert', async () => {
             orgRepo.findOne.mockResolvedValue({ id: 5 });

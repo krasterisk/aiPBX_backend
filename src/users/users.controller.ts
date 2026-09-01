@@ -169,6 +169,9 @@ export class UsersController {
         @Req() request: RequestWithUser,
         @Query('ownerUserId') ownerUserId?: string,
     ) {
+        if (request.isAdmin && (ownerUserId == null || ownerUserId === '')) {
+            return this.balanceAlertsService.listAll();
+        }
         const ownerId = await this.resolveOwnerUserId(request, ownerUserId);
         return this.balanceAlertsService.listForOwner(ownerId);
     }

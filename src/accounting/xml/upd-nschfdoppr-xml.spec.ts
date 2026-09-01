@@ -72,5 +72,31 @@ describe('upd-nschfdoppr-xml', () => {
         expect(xmlUtf8).toContain('<БезНДС>без НДС</БезНДС>');
         expect(xmlUtf8).toContain('СодОпер="Услуги оказаны в полном объеме"');
         expect(xmlUtf8).toContain('<БезДокОснПер>1</БезДокОснПер>');
+        expect(xmlUtf8).toContain('Идентиф="Примечание"');
+        expect(xmlUtf8).toContain('л/с AIPBX-1');
+        expect(xmlUtf8).toContain('Идентиф="ИнфПередТабл"');
+        expect(xmlUtf8).toContain('Период оказания услуг');
+    });
+
+it('line Примечание can carry period without changing НаимТов for catalog match', () => {
+        const { xmlUtf8 } = buildUpdNschfdopprXml({
+            number: '336',
+            documentDate: '2026-05-31',
+            periodFrom: '2026-04-01',
+            periodTo: '2026-04-30',
+            amountRub: 3750,
+            lineItemName: 'Услуги AIPBX.RU',
+            note: 'Лицевой счёт AIPBX-1. Период оказания услуг: 01.04.2026 — 30.04.2026.',
+            personalAccountNote: 'л/с AIPBX-1. Период оказания услуг: 01.04.2026 — 30.04.2026.',
+            seller,
+            buyer,
+            infoDateRu: '22.05.2026',
+            infoTime: '11:37:05',
+            fileUuid: '984ADA3D-ED9E-46B7-87B2-AB2C41529E69',
+        });
+
+        expect(xmlUtf8).toContain('НаимТов="Услуги AIPBX.RU"');
+        expect(xmlUtf8).not.toMatch(/НаимТов="[^"]*за период/);
+        expect(xmlUtf8).toMatch(/Идентиф="Примечание"[^>]*Период оказания услуг/);
     });
 });

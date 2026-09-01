@@ -19,6 +19,7 @@ import type {
 import { parsePersonFio } from './sbis-invoice-party';
 import { SBIS_CHETOP_ATTACHMENT_META } from './sbis-chetop-attachment';
 import { stripLineItemPersonalAccountFromSubject } from './subject-resolver';
+import { buildClosingUpdLineNote } from './billing.constants';
 import {
     buildInvoiceChetopXml,
     formatIsoDateRu,
@@ -866,9 +867,13 @@ export class SbisService {
         sbisNumber?: string | null,
     ): UpdNschfdopprBuildResult | null {
         if (!input.seller || !input.buyer) return null;
-        const personalAccountNote = input.personalAccountNumber
-            ? `л/с ${input.personalAccountNumber}`
-            : null;
+        // Period goes into line Примечание (survives SBIS «переформировать»),
+        // NOT into НаимТов — nomenclature must stay catalog-stable for SBIS matching.
+        const personalAccountNote = buildClosingUpdLineNote(
+            input.personalAccountNumber,
+            input.periodFrom,
+            input.periodTo,
+        );
         const number = (sbisNumber || input.number || '').trim() || null;
         return buildUpdNschfdopprXml({
             number,

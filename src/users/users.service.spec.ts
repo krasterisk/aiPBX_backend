@@ -654,6 +654,39 @@ describe('UsersService', () => {
             expect(result.message).toContain('Balance topped up');
         });
 
+        it('should reject top-up for a sub-user', async () => {
+            mockUsersRepo.findByPk.mockResolvedValueOnce({
+                ...mockUser,
+                id: 11,
+                vpbx_user_id: 10,
+                roles: [{ value: 'USER' }],
+            });
+
+            await expect(
+                service.adminTopUpBalance({ userId: '11', amount: 100 } as any),
+            ).rejects.toThrow('Balance can be topped up only for tenant owner accounts');
+            expect(mockPaymentsRepo.create).not.toHaveBeenCalled();
+        });
+
+        it('should allow top-up for a platform admin', async () => {
+            const user = ledgerUser(100);
+            mockUsersRepo.findByPk
+                .mockResolvedValueOnce({ ...mockUser, roles: [{ value: 'ADMIN' }] })
+                .mockResolvedValueOnce({ id: 1, vpbx_user_id: null })
+                .mockResolvedValueOnce(user)
+                .mockResolvedValueOnce({ balance: 200 });
+
+            const result = await service.adminTopUpBalance({
+                userId: '1',
+                amount: 100,
+                currency: 'USD',
+                paymentMethod: 'admin',
+            } as any);
+
+            expect(result.message).toContain('Balance topped up');
+            expect(mockPaymentsRepo.create).toHaveBeenCalled();
+        });
+
         it('should default currency to USD', async () => {
             const user = ledgerUser(100);
             mockUsersRepo.findByPk

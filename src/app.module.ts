@@ -40,6 +40,9 @@ import { AccountingModule } from "./accounting/accounting.module";
 import { LegalModule } from "./legal/legal.module";
 import { OurOrganizationsModule } from "./our-organizations/our-organizations.module";
 import { HelpdeskModule } from "./helpdesk/helpdesk.module";
+import { TtsModule } from "./tts/tts.module";
+import { VoiceSessionModule } from "./voice-session/voice-session.module";
+import { OpenAiCompatModule } from "./openai-compat/openai-compat.module";
 
 @Module({
     imports: [
@@ -93,6 +96,9 @@ import { HelpdeskModule } from "./helpdesk/helpdesk.module";
         LegalModule,
         OurOrganizationsModule,
         HelpdeskModule,
+        TtsModule,
+        VoiceSessionModule,
+        OpenAiCompatModule,
         ThrottlerModule.forRoot([{
             ttl: 60000,
             limit: 100,

@@ -2525,13 +2525,15 @@ export class OperatorAnalyticsService {
 
     // ─── Projects ────────────────────────────────────────────────────
 
-    async getProjects(userId: string, isAdmin: boolean) {
+    async getProjects(userId: string, isAdmin: boolean, filterUserId?: string) {
         // // Ensure default project exists for this user
         // if (!isAdmin) {
         //     await this.resolveDefaultProject(userId);
         // }
 
-        const where = isAdmin ? {} : { userId };
+        const where = !isAdmin
+            ? { userId }
+            : (filterUserId ? { userId: filterUserId } : {});
         const projects = await this.projectRepository.findAll({
             where,
             order: [['createdAt', 'DESC']],
@@ -2632,8 +2634,11 @@ export class OperatorAnalyticsService {
             digestConfig?: DigestConfig | null;
             alertConfig?: AlertConfig | null;
         },
+        isAdmin = false,
     ): Promise<OperatorProject> {
-        const project = await this.projectRepository.findOne({ where: { id, userId } });
+        const project = await this.projectRepository.findOne({
+            where: isAdmin ? { id } : { id, userId },
+        });
         if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
         if (project.isDefault && data.name !== undefined) {
             throw new HttpException('Cannot rename default project', HttpStatus.BAD_REQUEST);

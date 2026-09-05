@@ -9,6 +9,8 @@ export const API_KEY_SCOPES = {
     CHAT_MESSAGE: 'chat:message',
     MODELS_READ: 'models:read',
     HELPDESK_TOOLS: 'helpdesk:tools',
+    TTS_SYNTHESIZE: 'tts:synthesize',
+    VOICE_SESSION: 'voice:session',
 } as const;
 
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[keyof typeof API_KEY_SCOPES];

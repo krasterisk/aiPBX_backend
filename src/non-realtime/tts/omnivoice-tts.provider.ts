@@ -37,6 +37,7 @@ export class OmniVoiceTtsProvider implements ITtsProvider {
 
         const voice = options.voice || 'default';
         const language = options.language || 'ru';
+        const sampleRate = options.sampleRate || this.outputSampleRate;
 
         this.logger.debug(
             `[OmniVoice] Synthesizing: "${text.substring(0, 50)}..." voice=${voice} lang=${language}`,
@@ -49,7 +50,7 @@ export class OmniVoiceTtsProvider implements ITtsProvider {
                     text,
                     voice,
                     language,
-                    sample_rate: this.outputSampleRate,
+                    sample_rate: sampleRate,
                 },
                 {
                     responseType: 'arraybuffer',
@@ -105,5 +106,15 @@ export class OmniVoiceTtsProvider implements ITtsProvider {
         } catch {
             return { status: 'unavailable', url: this.ttsUrl };
         }
+    }
+
+    async listVoices(): Promise<{
+        available_voices: string[];
+        native_sample_rate: number;
+        [key: string]: unknown;
+    }> {
+        const voicesUrl = this.ttsUrl.replace(/\/tts\/?$/, '/voices');
+        const { data } = await axios.get(voicesUrl, { timeout: 5_000 });
+        return data;
     }
 }

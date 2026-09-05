@@ -445,6 +445,17 @@ describe('OperatorAnalyticsService', () => {
                 order: [['createdAt', 'DESC']],
             });
         });
+
+        it('filters admin list by owner when filterUserId is set', async () => {
+            mockProjectRepo.findAll.mockResolvedValue([mockProject]);
+
+            await service.getProjects('1', true, '7');
+
+            expect(mockProjectRepo.findAll).toHaveBeenCalledWith({
+                where: { userId: '7' },
+                order: [['createdAt', 'DESC']],
+            });
+        });
     });
 
     describe('createProject', () => {
@@ -517,6 +528,22 @@ describe('OperatorAnalyticsService', () => {
             await expect(
                 service.updateProject(999, '1', { name: 'Updated' }),
             ).rejects.toThrow('Project not found');
+        });
+
+        it('looks up by id only when admin', async () => {
+            const project = {
+                ...mockProject,
+                userId: '99',
+                isDefault: false,
+                save: jest.fn().mockResolvedValue(undefined),
+            };
+            mockProjectRepo.findOne.mockResolvedValue(project);
+
+            await service.updateProject(2, '1', { description: 'x' }, true);
+
+            expect(mockProjectRepo.findOne).toHaveBeenCalledWith({
+                where: { id: 2 },
+            });
         });
 
         it('should throw when renaming default project', async () => {

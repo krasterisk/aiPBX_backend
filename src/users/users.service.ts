@@ -1259,6 +1259,15 @@ export class UsersService {
             throw new HttpException('User not found', HttpStatus.NOT_FOUND);
         }
 
+        const parentId = user.vpbx_user_id;
+        const isSubUser = parentId != null && Number(parentId) !== Number(user.id);
+        if (isSubUser) {
+            throw new HttpException(
+                'Balance can be topped up only for tenant owner accounts',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
         const currency = dto.currency || 'USD';
         const payment = await this.paymentsRepository.create({
             userId: String(dto.userId),

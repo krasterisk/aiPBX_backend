@@ -408,6 +408,11 @@ export class CreateProjectDto {
     @ValidateNested()
     @Type(() => AlertConfigDto)
     alertConfig?: AlertConfigDto | null;
+
+    @ApiPropertyOptional({ description: 'Admin only: create the project for this tenant owner' })
+    @IsOptional()
+    @IsString()
+    ownerUserId?: string;
 }
 
 // ─── Update Project DTO ──────────────────────────────────────────

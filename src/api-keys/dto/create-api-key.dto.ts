@@ -14,7 +14,7 @@ export class CreateApiKeyDto {
     name: string;
 
     @ApiProperty({
-        example: ['chat:message', 'models:read'],
+        example: ['chat:message', 'models:read', 'tts:synthesize', 'voice:session'],
         description: 'Scopes. Null/omit = all scopes.',
         required: false,
     })

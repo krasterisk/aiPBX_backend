@@ -90,7 +90,11 @@ export class NonRealtimeService {
         this.sessions.set(channelId, session);
 
         // Create CDR
-        const source = channelId.startsWith('playground-') ? 'playground' : 'call';
+        const source = channelId.startsWith('playground-')
+            ? 'playground'
+            : channelId.startsWith('voice-')
+                ? 'voice'
+                : 'call';
         await this.aiCdrService.cdrCreate({
             channelId,
             callerId,
@@ -207,6 +211,7 @@ export class NonRealtimeService {
                     this.logger.log(`[${channelId}] Interrupting bot speech`);
                     session.abortPipeline();
                     await this.streamAudioService.interruptStream(channelId);
+                    this.emitEvent(session, { type: 'audio.interrupted' });
                 }
 
                 // Emit event for logging/UI
@@ -511,6 +516,8 @@ export class NonRealtimeService {
         const { channelId, assistant } = session;
         const signal = session.pipelineAbort?.signal;
         const isPlayground = channelId.startsWith('playground-');
+        const isVoiceSession = channelId.startsWith('voice-');
+        const isWsAudio = isPlayground || isVoiceSession;
 
         const ttsProviderName = assistant['ttsProvider'] || process.env.DEFAULT_TTS_PROVIDER || 'omnivoice';
         const ttsProvider = this.ttsProviders.get(ttsProviderName);
@@ -525,8 +532,8 @@ export class NonRealtimeService {
         session.isSpeaking = true;
 
         // For telephony (Asterisk): initialize UDP/RTP stream
-        // For playground (WebSocket): audio is emitted via EventEmitter, no UDP needed
-        if (!isPlayground) {
+        // For playground / voice WS: audio is emitted via EventEmitter, no UDP needed
+        if (!isWsAudio) {
             await this.streamAudioService.addStream(channelId, {
                 external_local_Address: session.address,
                 external_local_Port: Number(session.port),
@@ -543,7 +550,9 @@ export class NonRealtimeService {
             for await (const pcmChunk of audioStream) {
                 if (signal?.aborted) return;
 
-                if (isPlayground) {
+                if (isVoiceSession) {
+                    this.eventEmitter.emit(`audioDelta.${channelId}`, pcmChunk, ttsProvider.outputSampleRate);
+                } else if (isPlayground) {
                     // Playground: resample TTS output (48kHz) to 24kHz for browser AudioContext
                     // Browser expects PCM16 24kHz (same as OpenAI Realtime API format)
                     const resampled = ttsProvider.outputSampleRate !== 24000
@@ -711,7 +720,9 @@ export class NonRealtimeService {
         const { channelId, callerId, assistant } = session;
 
         try {
-            if (channelId.startsWith('playground-')) {
+            if (channelId.startsWith('voice-')) {
+                this.eventEmitter.emit(`voice.event.${channelId}`, event);
+            } else if (channelId.startsWith('playground-')) {
                 const socketId = channelId.replace('playground-', '');
                 this.wsGateway.sendToPlayground(socketId, channelId, assistant.name, event);
             } else {

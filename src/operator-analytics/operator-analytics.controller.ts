@@ -485,8 +485,16 @@ export class OperatorAnalyticsController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'List projects (with recordCount)' })
-    async listProjects(@Req() req: RequestWithUser) {
-        return this.service.getProjects(req.vpbxUserId || req.tokenUserId, req.isAdmin ?? false);
+    async listProjects(
+        @Req() req: RequestWithUser,
+        @Query('userId') listUserId?: string,
+    ) {
+        const filterUserId = req.isAdmin && listUserId ? String(listUserId) : undefined;
+        return this.service.getProjects(
+            req.vpbxUserId || req.tokenUserId,
+            req.isAdmin ?? false,
+            filterUserId,
+        );
     }
 
     @Post('projects')
@@ -498,7 +506,11 @@ export class OperatorAnalyticsController {
         @Req() req: RequestWithUser,
         @Body() body: CreateProjectDto,
     ) {
-        return this.service.createProject(req.vpbxUserId || req.tokenUserId, body);
+        const selfId = req.vpbxUserId || req.tokenUserId;
+        const ownerId = req.isAdmin && body.ownerUserId
+            ? String(body.ownerUserId)
+            : selfId;
+        return this.service.createProject(ownerId, body);
     }
 
     @Post('projects/:id')
@@ -511,7 +523,12 @@ export class OperatorAnalyticsController {
         @Param('id') id: string,
         @Body() body: UpdateProjectDto,
     ) {
-        return this.service.updateProject(+id, req.vpbxUserId || req.tokenUserId, body);
+        return this.service.updateProject(
+            +id,
+            req.vpbxUserId || req.tokenUserId,
+            body,
+            req.isAdmin ?? false,
+        );
     }
 
     @Patch('projects/:id')
@@ -524,7 +541,12 @@ export class OperatorAnalyticsController {
         @Param('id') id: string,
         @Body() body: UpdateProjectDto,
     ) {
-        return this.service.updateProject(+id, req.vpbxUserId || req.tokenUserId, body);
+        return this.service.updateProject(
+            +id,
+            req.vpbxUserId || req.tokenUserId,
+            body,
+            req.isAdmin ?? false,
+        );
     }
 
     @Post('projects/:id/digest/send')

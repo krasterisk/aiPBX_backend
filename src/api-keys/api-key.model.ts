@@ -30,11 +30,11 @@ export class ApiKey extends Model<ApiKey> {
 
     /**
      * JSON array of allowed scopes.
-     * Supported values: 'chat:message', 'models:read'.
+     * Supported values: 'chat:message', 'models:read', 'helpdesk:tools', 'tts:synthesize', 'voice:session'.
      * Null = all scopes allowed.
      */
     @ApiProperty({
-        example: ['chat:message', 'models:read'],
+        example: ['chat:message', 'models:read', 'tts:synthesize'],
         description: 'Allowed scopes. Null = all scopes.',
     })
     @Column({ type: DataType.JSON, allowNull: true })

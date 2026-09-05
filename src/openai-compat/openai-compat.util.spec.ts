@@ -1,4 +1,4 @@
-import { pickOllamaModel, stripThinkTags } from './openai-compat.util';
+import { extractOpenAiChunkText, pickOllamaModel, stripThinkTags } from './openai-compat.util';
 
 describe('openai-compat utils', () => {
     const available = ['gemma4:e4b', 'nomic-embed-text:latest'];
@@ -16,5 +16,11 @@ describe('openai-compat utils', () => {
 
     it('strips Gemma/Qwen think blocks', () => {
         expect(stripThinkTags('hello <think>secret</think> world')).toBe('hello  world');
+    });
+
+    it('reads stream text from delta or message.content', () => {
+        expect(extractOpenAiChunkText({ choices: [{ delta: { content: 'Hi' } }] })).toBe('Hi');
+        expect(extractOpenAiChunkText({ choices: [{ message: { content: 'слышу' } }] })).toBe('слышу');
+        expect(extractOpenAiChunkText({ choices: [{ delta: {} }] })).toBe('');
     });
 });

@@ -48,6 +48,7 @@ describe('OpenAiCompatService', () => {
         expect(create).toHaveBeenCalledWith(expect.objectContaining({
             model: 'gemma4:e4b',
             stream: false,
+            think: false,
             messages: [{ role: 'user', content: 'hi' }],
         }), expect.anything());
         expect(result.body.model).toBe('gemma4:e4b');
@@ -99,6 +100,17 @@ describe('OpenAiCompatService', () => {
         }
 
         expect(out.map((c) => c.choices[0].delta.content).filter(Boolean)).toEqual(['Hi', '!']);
+    });
+
+    it('rewrites Ollama message.content chunks onto delta.content', async () => {
+        async function* chunks() {
+            yield { choices: [{ message: { content: 'слышу' } }] };
+        }
+        const out: any[] = [];
+        for await (const chunk of service.sanitizeStream(chunks(), 'gemma4:e4b')) {
+            out.push(chunk);
+        }
+        expect(out[0].choices[0].delta.content).toBe('слышу');
     });
 
     it('maps Ollama failures to 502', async () => {

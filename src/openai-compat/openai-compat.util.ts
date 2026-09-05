@@ -23,3 +23,15 @@ export function isOpenAiChatMessage(value: unknown): value is {
 } {
     return !!value && typeof value === 'object' && typeof (value as { role?: unknown }).role === 'string';
 }
+
+/** Ollama may put text on delta.content or on the final message.content. */
+export function extractOpenAiChunkText(chunk: any): string {
+    const choice = chunk?.choices?.[0];
+    if (typeof choice?.delta?.content === 'string') return choice.delta.content;
+    if (typeof choice?.message?.content === 'string') return choice.message.content;
+    return '';
+}
+
+export function chunkHasVisibleText(chunk: any): boolean {
+    return extractOpenAiChunkText(chunk).trim().length > 0;
+}

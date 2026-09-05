@@ -1,5 +1,11 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { DEFAULT_COMPAT_MODEL, isOpenAiChatMessage, pickOllamaModel, stripThinkTags } from './openai-compat.util';
+import {
+    DEFAULT_COMPAT_MODEL,
+    extractOpenAiChunkText,
+    isOpenAiChatMessage,
+    pickOllamaModel,
+    stripThinkTags,
+} from './openai-compat.util';
 import { ChatCompletionsRequest } from './dto/chat-completions.dto';
 
 export interface OpenAiCompletionBody {
@@ -46,6 +52,8 @@ export class OpenAiCompatService {
             model,
             messages,
             stream: !!dto.stream,
+            // Gemma/Qwen on Ollama otherwise spend the stream on <think> and the client sees empty text.
+            think: false,
         };
         if (dto.temperature != null) params.temperature = dto.temperature;
         if (dto.max_tokens != null) params.max_tokens = dto.max_tokens;
@@ -82,9 +90,15 @@ export class OpenAiCompatService {
         let insideThink = false;
         for await (const chunk of iterator) {
             const choice = chunk?.choices?.[0];
-            const delta = choice?.delta;
-            if (delta?.content) {
-                let text = String(delta.content);
+            if (!choice) {
+                if (chunk && !chunk.model) chunk.model = model;
+                yield chunk;
+                continue;
+            }
+            if (!choice.delta) choice.delta = {};
+            const rawText = extractOpenAiChunkText(chunk);
+            if (rawText) {
+                let text = rawText;
                 if (text.includes('<think>')) {
                     insideThink = true;
                     text = text.replace(/<think>[\s\S]*/g, '');
@@ -96,8 +110,8 @@ export class OpenAiCompatService {
                 if (insideThink) {
                     continue;
                 }
-                delta.content = text;
-                if (!text && !delta.tool_calls && !choice?.finish_reason) {
+                choice.delta.content = text;
+                if (!text && !choice.delta.tool_calls && !choice.finish_reason) {
                     continue;
                 }
             }

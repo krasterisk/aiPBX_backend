@@ -48,12 +48,30 @@ describe('OpenAiCompatService', () => {
         expect(create).toHaveBeenCalledWith(expect.objectContaining({
             model: 'gemma4:e4b',
             stream: false,
-            think: false,
             messages: [{ role: 'user', content: 'hi' }],
         }), expect.anything());
+        expect(create.mock.calls[0][0].think).toBeUndefined();
         expect(result.body.model).toBe('gemma4:e4b');
         expect(result.body.choices[0].message.content).toBe('Привет');
         expect(result.body.object).toBe('chat.completion');
+    });
+
+    it('uses reasoning when content is empty', async () => {
+        create.mockResolvedValue({
+            choices: [{
+                message: { role: 'assistant', content: '', reasoning: 'Да, я здесь' },
+                finish_reason: 'stop',
+            }],
+        });
+
+        const result = await service.complete({
+            messages: [{ role: 'user', content: 'ты здесь?' }],
+            stream: false,
+        });
+
+        expect(result.stream).toBe(false);
+        if (result.stream !== false) throw new Error('expected non-stream');
+        expect(result.body.choices[0].message.content).toBe('Да, я здесь');
     });
 
     it('passes tools through without executing them', async () => {
@@ -100,6 +118,19 @@ describe('OpenAiCompatService', () => {
         }
 
         expect(out.map((c) => c.choices[0].delta.content).filter(Boolean)).toEqual(['Hi', '!']);
+    });
+
+    it('keeps the answer when think and text arrive in one chunk', async () => {
+        async function* chunks() {
+            yield { choices: [{ delta: { content: '<think>план</think>Да, я здесь' }, finish_reason: 'stop' }] };
+        }
+
+        const out: any[] = [];
+        for await (const chunk of service.sanitizeStream(chunks(), 'qwen3.5:9b')) {
+            out.push(chunk);
+        }
+
+        expect(out.map((c) => c.choices[0].delta.content).filter(Boolean)).toEqual(['Да, я здесь']);
     });
 
     it('rewrites Ollama message.content chunks onto delta.content', async () => {

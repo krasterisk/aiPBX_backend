@@ -61,14 +61,26 @@ export class OpenAiCompatController {
                 this.logger.warn('stream had no visible text — falling back to a non-stream completion');
                 const once = await this.compatService.complete({ ...dto, stream: false });
                 if (once.stream === false) {
-                    const content = once.body.choices?.[0]?.message?.content;
-                    if (content) {
+                    const message = once.body.choices?.[0]?.message;
+                    const content = message?.content;
+                    const toolCalls = message?.tool_calls;
+                    this.logger.log(
+                        `fallback json chars=${typeof content === 'string' ? content.length : 0} tools=${toolCalls?.length ?? 0}`,
+                    );
+                    if (content || toolCalls?.length) {
                         res.write(`data: ${JSON.stringify({
                             id: once.body.id,
                             object: 'chat.completion.chunk',
                             created: once.body.created,
                             model: once.body.model,
-                            choices: [{ index: 0, delta: { content }, finish_reason: 'stop' }],
+                            choices: [{
+                                index: 0,
+                                delta: {
+                                    ...(content ? { content } : {}),
+                                    ...(toolCalls?.length ? { tool_calls: toolCalls } : {}),
+                                },
+                                finish_reason: once.body.choices[0].finish_reason,
+                            }],
                         })}\n\n`);
                         visible = true;
                     }

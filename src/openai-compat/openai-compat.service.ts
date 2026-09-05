@@ -1,10 +1,11 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import {
     DEFAULT_COMPAT_MODEL,
+    extractAssistantText,
     extractOpenAiChunkText,
     isOpenAiChatMessage,
     pickOllamaModel,
-    stripThinkTags,
+    stripThinkIncremental,
 } from './openai-compat.util';
 import { ChatCompletionsRequest } from './dto/chat-completions.dto';
 
@@ -35,6 +36,8 @@ export type CompletionsResult =
 
 @Injectable()
 export class OpenAiCompatService {
+    private readonly logger = new Logger(OpenAiCompatService.name);
+
     constructor(
         private readonly client: { chat: { completions: { create: (...args: any[]) => Promise<any> } } },
         private readonly listModels: () => Promise<string[]>,
@@ -48,12 +51,13 @@ export class OpenAiCompatService {
         }
 
         const model = await this.resolveModel(dto.model);
+        this.logger.log(
+            `ollama model=${model} requested=${dto.model || '-'} stream=${!!dto.stream} tools=${dto.tools?.length ?? 0}`,
+        );
         const params: Record<string, unknown> = {
             model,
             messages,
             stream: !!dto.stream,
-            // Gemma/Qwen on Ollama otherwise spend the stream on <think> and the client sees empty text.
-            think: false,
         };
         if (dto.temperature != null) params.temperature = dto.temperature;
         if (dto.max_tokens != null) params.max_tokens = dto.max_tokens;
@@ -98,22 +102,13 @@ export class OpenAiCompatService {
             if (!choice.delta) choice.delta = {};
             const rawText = extractOpenAiChunkText(chunk);
             if (rawText) {
-                let text = rawText;
-                if (text.includes('<think>')) {
-                    insideThink = true;
-                    text = text.replace(/<think>[\s\S]*/g, '');
-                }
-                if (insideThink && text.includes('</think>')) {
-                    insideThink = false;
-                    text = text.replace(/[\s\S]*<\/think>/g, '');
-                }
-                if (insideThink) {
-                    continue;
-                }
-                choice.delta.content = text;
+                const stripped = stripThinkIncremental(rawText, insideThink);
+                insideThink = stripped.insideThink;
+                const text = stripped.text;
                 if (!text && !choice.delta.tool_calls && !choice.finish_reason) {
                     continue;
                 }
+                choice.delta.content = text;
             }
             if (chunk && !chunk.model) {
                 chunk.model = model;
@@ -125,9 +120,13 @@ export class OpenAiCompatService {
     private toCompletion(raw: any, model: string): OpenAiCompletionBody {
         const choice = raw?.choices?.[0];
         const message = choice?.message ?? {};
-        const content = typeof message.content === 'string'
-            ? stripThinkTags(message.content)
-            : message.content ?? null;
+        const content = extractAssistantText(message) || null;
+        if (!content && !message.tool_calls?.length) {
+            const snippet = JSON.stringify(message);
+            this.logger.warn(
+                `empty Ollama message model=${model} finish=${choice?.finish_reason || '-'} keys=${Object.keys(message).join(',')} snippet=${snippet.slice(0, 400)}`,
+            );
+        }
 
         return {
             id: raw?.id || `chatcmpl-${Date.now()}`,

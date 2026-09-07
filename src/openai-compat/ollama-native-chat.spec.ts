@@ -54,6 +54,19 @@ describe('OllamaNativeChat', () => {
         expect(chunk.choices[0].finish_reason).toBeNull();
     });
 
+    it('emits only new tool-argument suffix when Ollama repeats the full snapshot', () => {
+        const emittedArgs: string[] = [];
+        const first = toOpenAiChunk({
+            message: { tool_calls: [{ function: { name: 'list_call_groups', arguments: {} } }] },
+        }, 'qwen3.5:9b', 'chatcmpl-1', emittedArgs);
+        const second = toOpenAiChunk({
+            message: { tool_calls: [{ function: { name: 'list_call_groups', arguments: {} } }] },
+        }, 'qwen3.5:9b', 'chatcmpl-1', emittedArgs);
+
+        expect(first.choices[0].delta.tool_calls?.[0].function.arguments).toBe('{}');
+        expect(second.choices[0].delta.tool_calls?.[0].function.arguments).toBe('');
+    });
+
     it('POSTs /api/chat with num_ctx instead of /v1/chat/completions', async () => {
         const fetchImpl = jest.fn().mockResolvedValue({
             ok: true,

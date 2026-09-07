@@ -67,6 +67,7 @@ import {
     buildCustomMetricMeta,
     buildOpenAiJsonSchema,
     parseAndValidateAnalysisResponse,
+    isLlmDiarizationUsable,
     MetricAssessment,
     PROMPT_VERSION,
 } from './lib/analysis-schema';
@@ -93,6 +94,7 @@ import {
 } from './lib/operator-evidence';
 import { buildInsightsPrompt } from './lib/insights-prompt';
 import { extractLlmJsonContent } from './lib/llm-json';
+import { buildOpenAiAnalyticsChatParams } from './lib/openai-chat-params';
 import { PROJECT_TEMPLATES } from './project-templates';
 import { OPERATOR_CDR_SOURCE } from './lib/analytics-source';
 import { Op, Sequelize } from 'sequelize';
@@ -160,6 +162,7 @@ export class OperatorAnalyticsService {
 
         this.analyticsModel = process.env.ANALYTICS_LLM_MODEL || 'gpt-4o-mini';
         this.fallbackModel = process.env.ANALYTICS_FALLBACK_MODEL || process.env.DEFAULT_OLLAMA_MODEL || 'gemma4:e4b';
+        this.logger.log(`Analytics LLM primary=${this.analyticsModel} fallback=${this.fallbackModel}`);
         const configuredMinDuration = Number(
             this.configService.get<string>('OPERATOR_ANALYSIS_MIN_DURATION_SEC')
             || process.env.OPERATOR_ANALYSIS_MIN_DURATION_SEC,
@@ -199,7 +202,7 @@ export class OperatorAnalyticsService {
     // ─── LLM with fallback ─────────────────────────────────────────
 
     /**
-     * Call LLM with automatic fallback: OpenAI (gpt-4o-mini) → Ollama (gemma4:e4b)
+     * Call LLM with automatic fallback: OpenAI (ANALYTICS_LLM_MODEL) → Ollama (gemma4:e4b)
      */
     private async chatWithFallback(
         messages: any[],
@@ -211,31 +214,26 @@ export class OperatorAnalyticsService {
         } = {},
     ): Promise<{ content: string; usage?: any; model: string }> {
         const temperature = options.temperature ?? 0;
-        // Primary: OpenAI
+        // Primary: OpenAI (gpt-5* omits temperature; gpt-4o* still sends 0)
         try {
-            const params: any = {
-                messages,
+            const params = buildOpenAiAnalyticsChatParams({
                 model: this.analyticsModel,
+                messages,
                 temperature,
-            };
-            if (options.jsonSchema) {
-                params.response_format = {
-                    type: 'json_schema',
-                    json_schema: {
-                        name: options.schemaName || 'operator_analysis',
-                        strict: true,
-                        schema: options.jsonSchema,
-                    },
-                };
-            } else if (options.jsonObject !== false) {
-                params.response_format = { type: 'json_object' };
-            }
+                jsonSchema: options.jsonSchema,
+                schemaName: options.schemaName,
+                jsonObject: options.jsonObject,
+                reasoningEffort: process.env.ANALYTICS_REASONING_EFFORT,
+                maxTokens: Number(process.env.ANALYTICS_OPENAI_MAX_TOKENS) || undefined,
+            });
 
-            const completion = await this.openAiClient.chat.completions.create(params);
+            const completion = await this.openAiClient.chat.completions.create(params as any);
+            const model = completion.model || this.analyticsModel;
+            this.logger.log(`[Analytics LLM] OpenAI succeeded model=${model}`);
             return {
                 content: completion.choices[0]?.message?.content || '{}',
                 usage: completion.usage,
-                model: this.analyticsModel,
+                model,
             };
         } catch (err) {
             this.logger.warn(`[Analytics LLM] OpenAI (${this.analyticsModel}) failed: ${err.message}. Falling back to Ollama...`);
@@ -272,7 +270,7 @@ export class OperatorAnalyticsService {
                 );
             }
 
-            this.logger.log(`[Analytics LLM] Ollama fallback (${this.fallbackModel}) succeeded`);
+            this.logger.log(`[Analytics LLM] Ollama fallback succeeded model=${this.fallbackModel}`);
             return { content, usage: completion.usage, model: this.fallbackModel };
         } catch (fallbackErr) {
             this.logger.error(`[Analytics LLM] Ollama fallback also failed: ${fallbackErr.message}`);
@@ -639,7 +637,7 @@ export class OperatorAnalyticsService {
                     options.customMetrics,
                     project,
                     sttQuality.quality === 'low' ? sttQuality : undefined,
-                    { stereoDiarization: this.stereoDiarizationPromptMode(diarizationSource) },
+                    this.analysisLlmOptions(channelDiarizedJson, diarizationSource),
                 );
 
             const finalQuality = combineTranscriptionQuality(sttQuality, {
@@ -741,7 +739,7 @@ export class OperatorAnalyticsService {
             });
             await this.checkProjectBudget(project, record.userId);
 
-            this.logger.log(`Analysis completed for "${filename}" (id=${record.id}), cost=${totalCost} (llm=${llmCost}, stt=${sttCost}), tokens=${totalTokens}`);
+            this.logger.log(`Analysis completed for "${filename}" (id=${record.id}), model=${modelName}, cost=${totalCost} (llm=${llmCost}, stt=${sttCost}), tokens=${totalTokens}`);
 
             // 7. Call webhook if configured
             this.emitAnalysisCompleted(project, {
@@ -1064,7 +1062,7 @@ export class OperatorAnalyticsService {
                     undefined,
                     project,
                     sttQuality.quality === 'low' ? sttQuality : undefined,
-                    { stereoDiarization: this.stereoDiarizationPromptMode(diarizationSource) },
+                    this.analysisLlmOptions(channelDiarizedJson, diarizationSource),
                 );
 
             const finalQuality = combineTranscriptionQuality(sttQuality, {
@@ -1164,7 +1162,7 @@ export class OperatorAnalyticsService {
             });
             await this.checkProjectBudget(project, record.userId);
 
-            this.logger.log(`Background analysis completed for record #${recordId}`);
+            this.logger.log(`Background analysis completed for record #${recordId}, model=${modelName}`);
 
             // Webhook
             this.emitAnalysisCompleted(project, {
@@ -1301,7 +1299,7 @@ export class OperatorAnalyticsService {
                 undefined,
                 project,
                 sttQuality.quality === 'low' ? sttQuality : undefined,
-                { stereoDiarization: this.stereoDiarizationPromptMode(diarizationSource) },
+                this.analysisLlmOptions(channelDiarizedJson, diarizationSource),
             );
 
         const finalQuality = combineTranscriptionQuality(sttQuality, {
@@ -1418,7 +1416,7 @@ export class OperatorAnalyticsService {
         await this.checkProjectBudget(project, record.userId);
 
         this.logger.log(
-            `Analysis regenerated for record #${recordId}, added cost=${totalCost} (llm=${llmCost}, stt=${sttCost})`,
+            `Analysis regenerated for record #${recordId}, model=${modelName}, added cost=${totalCost} (llm=${llmCost}, stt=${sttCost})`,
         );
 
         this.emitAnalysisCompleted(project, {
@@ -3905,6 +3903,18 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         return undefined;
     }
 
+    /** LLM diarization only when stereo/channel labels are missing. */
+    private analysisLlmOptions(
+        channelDiarizedJson: string | null,
+        diarizationSource: DiarizationSource | null,
+    ): { llmDiarize: boolean; stereoDiarization?: 'energy' | 'channels' } {
+        const llmDiarize = !channelDiarizedJson;
+        return {
+            llmDiarize,
+            stereoDiarization: llmDiarize ? this.stereoDiarizationPromptMode(diarizationSource) : undefined,
+        };
+    }
+
     private async chargeCost(
         userId: string,
         totalTokens: number,
@@ -3954,7 +3964,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         customMetricsDef?: CustomMetricDef[],
         project?: OperatorProject,
         qualityHint?: TranscriptionQualityAssessment,
-        options?: { stereoDiarization?: 'energy' | 'channels'; channelDiarized?: boolean },
+        options?: { stereoDiarization?: 'energy' | 'channels'; channelDiarized?: boolean; llmDiarize?: boolean },
     ): Promise<{
         metrics: OperatorMetrics;
         customMetricsResult: any;
@@ -3969,13 +3979,20 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         topicTagIds: string[];
     }> {
         const ctx = buildAnalysisContext(project, customMetricsDef);
-        const jsonSchema = buildOpenAiJsonSchema(ctx);
+        const llmDiarize = options?.llmDiarize !== false;
+        const schemaOptions = { llmDiarize };
+        const jsonSchema = buildOpenAiJsonSchema(ctx, schemaOptions);
         const prompt = buildAnalysisPrompt(transcription, ctx, {
             systemPrompt: project?.systemPrompt,
             qualityHintConfidence: qualityHint?.confidence,
             stereoDiarization: options?.stereoDiarization,
             channelDiarized: options?.channelDiarized,
+            llmDiarize,
         });
+
+        this.logger.log(
+            `[Analytics LLM] request model=${this.analyticsModel} llmDiarize=${llmDiarize}`,
+        );
 
         const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
             { role: 'system', content: 'Call center QA analyzer. JSON only. Summary, rationale, and all prose must match the transcript language (not English unless the call is in English).' },
@@ -3994,8 +4011,9 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
                 llmResult.content,
                 ctx,
                 raw => this.sanitizeJsonResponse(raw),
+                schemaOptions,
             );
-            return { ...parsed, usage: llmResult.usage, modelName: llmResult.model };
+            return { ...parsed, usage: llmResult.usage, modelName: llmResult.model, rawContent: llmResult.content };
         };
 
         let parsedResult;
@@ -4017,15 +4035,40 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
                 },
                 {
                     role: 'user',
-                    content: 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields and per-metric assessments (rationale + quote). Rationale and summary must be in the transcript language.',
+                    content: llmDiarize
+                        ? 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields, per-metric assessments (rationale + quote), and diarized_text as short operator/customer turns (not one blob). Rationale and summary must be in the transcript language.'
+                        : 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields and per-metric assessments (rationale + quote). Rationale and summary must be in the transcript language.',
                 },
             ]);
         }
 
+        if (llmDiarize && !isLlmDiarizationUsable(parsedResult.diarizedRaw)) {
+            this.logger.warn(
+                `[Analytics LLM] model=${parsedResult.modelName} diarized_text missing or collapsed, retrying once`,
+            );
+            try {
+                parsedResult = await requestValidated([
+                    ...messages,
+                    {
+                        role: 'assistant',
+                        content: this.sanitizeJsonResponse(parsedResult.rawContent || '{}'),
+                    },
+                    {
+                        role: 'user',
+                        content: 'diarized_text is missing, empty, or a single dumped blob. Keep the same scores/assessments. Split TRANSCRIPTION into short operator/customer turns in diarized_text (at least 2 items). Do not glue the whole call into one item.',
+                    },
+                ]);
+            } catch (retryErr) {
+                this.logger.warn(
+                    `[Analytics LLM] model=${parsedResult.modelName} diarization retry failed: ${(retryErr as Error).message}`,
+                );
+            }
+        }
+
         let diarizedText: string | null = null;
-        if (Array.isArray(parsedResult.diarizedRaw) && parsedResult.diarizedRaw.length > 0) {
+        if (llmDiarize && isLlmDiarizationUsable(parsedResult.diarizedRaw)) {
             diarizedText = JSON.stringify(parsedResult.diarizedRaw);
-        } else if (typeof parsedResult.diarizedRaw === 'string' && parsedResult.diarizedRaw.length > 0) {
+        } else if (llmDiarize && typeof parsedResult.diarizedRaw === 'string' && parsedResult.diarizedRaw.length > 0) {
             diarizedText = parsedResult.diarizedRaw;
         }
 

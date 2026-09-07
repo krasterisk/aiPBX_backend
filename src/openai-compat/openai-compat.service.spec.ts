@@ -51,7 +51,7 @@ describe('OpenAiCompatService', () => {
             stream: false,
             keep_alive: -1,
             messages: [{ role: 'user', content: 'hi' }],
-            options: { num_ctx: 32768, num_predict: 2048 },
+            options: { num_ctx: 32768, num_predict: 4096 },
         }), expect.anything());
         expect(create.mock.calls[0][0].think).toBeUndefined();
         expect(result.body.model).toBe('gemma4:e4b');
@@ -136,9 +136,9 @@ describe('OpenAiCompatService', () => {
         expect(out.map((c) => c.choices[0].delta.content).filter(Boolean)).toEqual(['Да, я здесь']);
     });
 
-    it('emits hidden thinking as content when the stream had no visible text', async () => {
+    it('does not leak hidden thinking as the user-visible answer', async () => {
         async function* chunks() {
-            yield { id: 'chatcmpl-1', choices: [{ delta: { reasoning: 'Да, я здесь' } }] };
+            yield { id: 'chatcmpl-1', choices: [{ delta: { reasoning: 'план create_ivr' } }] };
             yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
         }
 
@@ -147,7 +147,7 @@ describe('OpenAiCompatService', () => {
             out.push(chunk);
         }
 
-        expect(out.map((c) => c.choices?.[0]?.delta?.content).filter(Boolean)).toEqual(['Да, я здесь']);
+        expect(out.map((c) => c.choices?.[0]?.delta?.content).filter(Boolean)).toEqual([]);
     });
 
     it('rewrites Ollama message.content chunks onto delta.content', async () => {

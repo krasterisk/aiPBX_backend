@@ -134,24 +134,16 @@ export class OpenAiCompatService {
             yield chunk;
         }
         if (!visible && hidden.trim()) {
-            yield {
-                id: lastMeta.id || `chatcmpl-${Date.now()}`,
-                object: 'chat.completion.chunk',
-                created: lastMeta.created || Math.floor(Date.now() / 1000),
-                model,
-                choices: [{
-                    index: 0,
-                    delta: { content: hidden.trim() },
-                    finish_reason: 'stop',
-                }],
-            };
+            this.logger.warn(
+                `stream had only hidden thinking chars=${hidden.trim().length} model=${model} — not leaking CoT as content`,
+            );
         }
     }
 
     private numPredict(requested?: number): number {
-        const want = requested != null && Number.isFinite(requested) ? Math.floor(requested) : 2048;
-        const room = Math.max(256, this.numCtx - 1024);
-        return Math.min(Math.max(want, 1), 4096, room);
+        const want = requested != null && Number.isFinite(requested) ? Math.floor(requested) : 4096;
+        const room = Math.max(512, this.numCtx - 1024);
+        return Math.min(Math.max(want, 1), 8192, room);
     }
 
     private toCompletion(raw: any, model: string): OpenAiCompletionBody {

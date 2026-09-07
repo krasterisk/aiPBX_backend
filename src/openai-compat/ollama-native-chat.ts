@@ -111,7 +111,7 @@ export function toOpenAiCompletion(raw: any, model: string) {
     };
 }
 
-export function toOpenAiChunk(raw: any, model: string, id: string) {
+export function toOpenAiChunk(raw: any, model: string, id: string, emittedArgs: string[] = []) {
     const message = raw?.message ?? {};
     const content = typeof message.content === 'string' ? message.content : '';
     const thinking = typeof message.thinking === 'string' ? message.thinking : '';
@@ -120,15 +120,21 @@ export function toOpenAiChunk(raw: any, model: string, id: string) {
     if (content) delta.content = content;
     if (thinking) delta.reasoning = thinking;
     if (toolCalls.length) {
-        delta.tool_calls = toolCalls.map((call: any, index: number) => ({
-            index,
-            id: call.id || `call_${index}`,
-            type: 'function',
-            function: {
-                name: call.function?.name || '',
-                arguments: stringifyToolArguments(call.function?.arguments),
-            },
-        }));
+        delta.tool_calls = toolCalls.map((call: any, index: number) => {
+            const full = stringifyToolArguments(call.function?.arguments);
+            const prev = emittedArgs[index] ?? '';
+            const argDelta = full.startsWith(prev) ? full.slice(prev.length) : full;
+            emittedArgs[index] = full;
+            return {
+                index,
+                id: call.id || `call_${index}`,
+                type: 'function',
+                function: {
+                    name: call.function?.name || '',
+                    arguments: argDelta,
+                },
+            };
+        });
     }
 
     return {
@@ -234,8 +240,9 @@ export class OllamaNativeChat {
     }
 
     private async *iterateStream(response: Response, model: string, id: string) {
+        const emittedArgs: string[] = [];
         for await (const raw of readNdjson(response)) {
-            yield toOpenAiChunk(raw, model, id);
+            yield toOpenAiChunk(raw, model, id, emittedArgs);
         }
     }
 }

@@ -143,7 +143,7 @@ const CLOSING_QUALITY_RUBRIC = buildCompactRubric(
  * specific prompt revision. Stored on each record (DB column + metrics._model).
  * Format: YYYY-MM-DD.N (date of change + same-day revision counter).
  */
-export const PROMPT_VERSION = '2026-08-12.1';
+export const PROMPT_VERSION = '2026-09-07.1';
 
 export interface MetricAssessment {
     rationale: string;
@@ -401,7 +401,24 @@ function assessmentSchema() {
     });
 }
 
-export function buildZodAnalysisSchema(ctx: AnalysisBuildContext) {
+export type AnalysisSchemaOptions = {
+    /** When false, speakers are already labeled (stereo) — do not ask the LLM to diarize. Default true. */
+    llmDiarize?: boolean;
+};
+
+/** True when the model returned a real turn list, not an empty array or a single dumped blob. */
+export function isLlmDiarizationUsable(turns: unknown): boolean {
+    if (!Array.isArray(turns) || turns.length < 2) return false;
+    return turns.every((row) => {
+        const speaker = (row as { speaker?: unknown })?.speaker;
+        const text = (row as { text?: unknown })?.text;
+        return (speaker === 'operator' || speaker === 'customer')
+            && typeof text === 'string'
+            && text.trim().length > 0;
+    });
+}
+
+export function buildZodAnalysisSchema(ctx: AnalysisBuildContext, options?: AnalysisSchemaOptions) {
     const shape: Record<string, z.ZodTypeAny> = {};
 
     // Reason-before-score: assessments are produced before the numeric scores.
@@ -427,10 +444,12 @@ export function buildZodAnalysisSchema(ctx: AnalysisBuildContext) {
     shape.success = z.boolean();
     shape.analysis_confidence = z.number().min(0).max(1);
     shape.insufficient_content = z.boolean();
-    shape.diarized_text = z.array(z.object({
-        speaker: z.enum(['operator', 'customer']),
-        text: z.string(),
-    }));
+    if (options?.llmDiarize !== false) {
+        shape.diarized_text = z.array(z.object({
+            speaker: z.enum(['operator', 'customer']),
+            text: z.string(),
+        }));
+    }
 
     if (ctx.customMetrics.length) {
         const customShape: Record<string, z.ZodTypeAny> = {};
@@ -449,7 +468,7 @@ export function buildZodAnalysisSchema(ctx: AnalysisBuildContext) {
     return z.object(shape);
 }
 
-export function buildOpenAiJsonSchema(ctx: AnalysisBuildContext) {
+export function buildOpenAiJsonSchema(ctx: AnalysisBuildContext, options?: AnalysisSchemaOptions) {
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
 
@@ -497,18 +516,20 @@ export function buildOpenAiJsonSchema(ctx: AnalysisBuildContext) {
     properties.success = { type: 'boolean' };
     properties.analysis_confidence = { type: 'number', minimum: 0, maximum: 1 };
     properties.insufficient_content = { type: 'boolean' };
-    properties.diarized_text = {
-        type: 'array',
-        items: {
-            type: 'object',
-            properties: {
-                speaker: { type: 'string', enum: ['operator', 'customer'] },
-                text: { type: 'string' },
+    if (options?.llmDiarize !== false) {
+        properties.diarized_text = {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    speaker: { type: 'string', enum: ['operator', 'customer'] },
+                    text: { type: 'string' },
+                },
+                required: ['speaker', 'text'],
+                additionalProperties: false,
             },
-            required: ['speaker', 'text'],
-            additionalProperties: false,
-        },
-    };
+        };
+    }
 
     if (ctx.customMetrics.length) {
         const customProps: Record<string, unknown> = {};
@@ -550,10 +571,12 @@ export function buildOpenAiJsonSchema(ctx: AnalysisBuildContext) {
         required.push('topic_tag_ids');
     }
 
-    required.push(
+    const trailingRequired = [
         'customer_sentiment', 'csat', 'summary', 'success',
-        'analysis_confidence', 'insufficient_content', 'diarized_text',
-    );
+        'analysis_confidence', 'insufficient_content',
+    ];
+    if (options?.llmDiarize !== false) trailingRequired.push('diarized_text');
+    required.push(...trailingRequired);
 
     return {
         type: 'object',
@@ -577,6 +600,8 @@ export function buildAnalysisPrompt(
         stereoDiarization?: 'energy' | 'channels';
         /** @deprecated use stereoDiarization: 'channels' */
         channelDiarized?: boolean;
+        /** When false, skip diarized_text (stereo already labeled speakers). Default true. */
+        llmDiarize?: boolean;
     },
 ): string {
     const metricLines = ctx.visibleDefaultMetrics.map((key, index) => {
@@ -631,20 +656,26 @@ export function buildAnalysisPrompt(
         ? `\nLOW STT CONFIDENCE (${options.qualityHintConfidence}): if unreliable, set insufficient_content=true, analysis_confidence<0.4; do not invent scores.`
         : '';
 
-    const stereoMode = options?.stereoDiarization
-        || (options?.channelDiarized ? 'channels' : undefined);
+    const llmDiarize = options?.llmDiarize !== false;
+    const stereoMode = llmDiarize
+        ? (options?.stereoDiarization || (options?.channelDiarized ? 'channels' : undefined))
+        : undefined;
 
     const channelDiarizedBlock = stereoMode === 'energy'
         ? `\nCHANNEL ENERGY: TRANSCRIPTION is already chronological with speakers from stereo L/R energy. In diarized_text: keep the same turn order and speakers. Never reassign speakers. Never reorder turns.`
         : stereoMode === 'channels'
             ? `\nCHANNEL STEREO: TRANSCRIPTION lists operator/customer channel texts (speakers are ground truth from audio L/R). In diarized_text: split into short utterances and interleave chronologically as a real call. Never reassign speakers. Never dump all operator text into one item and all customer text into another.`
-            : '';
+            : llmDiarize
+                ? `\nDIARIZE: TRANSCRIPTION has no speaker labels. Split into short conversational turns in diarized_text. Each item is one utterance. Alternate operator/customer as in a real call. Preserve wording; do not summarize or omit turns. Do not put the whole call into one item. Do not dump all operator text into one item and all customer text into another.`
+                : `\nSPEAKERS: TRANSCRIPTION is already labeled (stereo). Score the call only — do not diarize and do not emit diarized_text.`;
 
-    const diarizedInstruction = stereoMode === 'energy'
-        ? 'diarized_text: copy TRANSCRIPTION turn order and speakers (lowercase English operator|customer only); do not reorder or reassign.'
-        : stereoMode === 'channels'
-            ? 'diarized_text: chronological turns from the stereo channels (speakers lowercase English operator|customer only); alternate speakers as in a real conversation; keep wording from the matching channel.'
-            : 'diarized_text: preserve full original text; speakers lowercase English operator|customer.';
+    const diarizedInstruction = !llmDiarize
+        ? 'Do not include diarized_text.'
+        : stereoMode === 'energy'
+            ? 'diarized_text: copy TRANSCRIPTION turn order and speakers (lowercase English operator|customer only); do not reorder or reassign.'
+            : stereoMode === 'channels'
+                ? 'diarized_text: chronological turns from the stereo channels (speakers lowercase English operator|customer only); alternate speakers as in a real conversation; keep wording from the matching channel.'
+                : 'diarized_text: split into short utterances; speakers lowercase English operator|customer only; do not glue the whole call into one item.';
 
     const metricJsonLines = ctx.visibleDefaultMetrics
         .map(key => `  "${key}": <0|25|50|75|100>`)
@@ -680,8 +711,7 @@ ${metricJsonLines}${metricJsonLines ? ',' : ''}
   "summary": "<brief call summary, transcript language>",
   "success": <boolean>,
   "analysis_confidence": <0-1>,
-  "insufficient_content": <boolean>,
-  "diarized_text": [{ "speaker": "operator|customer", "text": "..." }]${ctx.customMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}${taxonomyJsonLine}
+  "insufficient_content": <boolean>${llmDiarize ? ',\n  "diarized_text": [{ "speaker": "operator|customer", "text": "..." }]' : ''}${ctx.customMetrics.length ? ',\n  "custom_metrics": { ... }' : ''}${taxonomyJsonLine}
 }
 
 Metric checklists (4 items each unless noted):
@@ -705,6 +735,7 @@ export function parseAndValidateAnalysisResponse(
     rawContent: string,
     ctx: AnalysisBuildContext,
     sanitize: (raw: string) => string,
+    options?: AnalysisSchemaOptions,
 ) {
     const sanitized = sanitize(rawContent);
     let parsed: unknown;
@@ -714,7 +745,7 @@ export function parseAndValidateAnalysisResponse(
         throw new AnalysisSchemaValidationError('LLM response is not valid JSON', rawContent);
     }
 
-    const schema = buildZodAnalysisSchema(ctx);
+    const schema = buildZodAnalysisSchema(ctx, options);
     const result = schema.safeParse(parsed);
     if (!result.success) {
         throw new AnalysisSchemaValidationError(

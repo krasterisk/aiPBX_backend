@@ -6,6 +6,7 @@ import {
     buildOpenAiJsonSchema,
     buildZodAnalysisSchema,
     inferNumberRange,
+    isLlmDiarizationUsable,
     METRIC_RUBRIC_DESCRIPTIONS,
     parseAndValidateAnalysisResponse,
     PROMPT_VERSION,
@@ -60,7 +61,7 @@ describe('analysis-schema', () => {
         } as any);
         const prompt = buildAnalysisPrompt('Оператор: Добрый день, клиника X, меня зовут Татьяна, слушаю вас.', greetingCtx);
 
-        expect(PROMPT_VERSION).toBe('2026-08-12.1');
+        expect(PROMPT_VERSION).toBe('2026-09-07.1');
         expect(prompt).toContain('GLOBAL SCORING');
         expect(prompt).toContain('transcript language');
         expect(prompt).toContain('predominantly English');
@@ -87,7 +88,32 @@ describe('analysis-schema', () => {
         expect(METRIC_RUBRIC_DESCRIPTIONS.problem_resolution).toMatch(/unmet|ideal|wish|prefer/i);
     });
 
-    it('adds channel-diarization instructions when channelDiarized is set', () => {
+    it('asks the model to split unlabeled mono transcripts into speaker turns', () => {
+        const prompt = buildAnalysisPrompt(
+            'Здравствуйте чем могу помочь давайте запишем на вторник',
+            buildAnalysisContext({ visibleDefaultMetrics: ['greeting_quality'] } as any),
+        );
+        expect(prompt).toContain('diarized_text');
+        expect(prompt).toMatch(/split into short/i);
+        expect(prompt).toContain('Do not put the whole call into one item');
+        expect(prompt).not.toContain('preserve full original text');
+    });
+
+    it('omits LLM diarization when speakers are already labeled', () => {
+        const labeled = '[0:01] operator: Hello\n[0:02] customer: Hi';
+        const greetingCtx = buildAnalysisContext({ visibleDefaultMetrics: ['greeting_quality'] } as any);
+        const prompt = buildAnalysisPrompt(labeled, greetingCtx, { llmDiarize: false });
+        expect(prompt).not.toContain('"diarized_text"');
+        expect(prompt).toMatch(/already labeled/i);
+        expect(prompt).not.toContain('CHANNEL ENERGY');
+        expect(prompt).not.toContain('CHANNEL STEREO');
+
+        const schema = buildOpenAiJsonSchema(greetingCtx, { llmDiarize: false }) as any;
+        expect(schema.properties.diarized_text).toBeUndefined();
+        expect(schema.required).not.toContain('diarized_text');
+    });
+
+    it('adds channel-diarization instructions when channel blobs still need interleaving', () => {
         const prompt = buildAnalysisPrompt(
             'operator: Hello\ncustomer: Hi',
             buildAnalysisContext({ visibleDefaultMetrics: ['greeting_quality'] } as any),
@@ -95,17 +121,17 @@ describe('analysis-schema', () => {
         );
         expect(prompt).toContain('CHANNEL STEREO');
         expect(prompt).toContain('interleave chronologically');
+        expect(prompt).toContain('diarized_text');
     });
 
-    it('adds energy-preserve instructions for stereoDiarization=energy', () => {
-        const prompt = buildAnalysisPrompt(
-            '[0:01] operator: Hello\n[0:02] customer: Hi',
-            buildAnalysisContext({ visibleDefaultMetrics: ['greeting_quality'] } as any),
-            { stereoDiarization: 'energy' },
-        );
-        expect(prompt).toContain('CHANNEL ENERGY');
-        expect(prompt).toContain('Never reorder turns');
-        expect(prompt).not.toContain('interleave chronologically');
+    it('treats empty or single-turn LLM diarization as unusable', () => {
+        expect(isLlmDiarizationUsable(null)).toBe(false);
+        expect(isLlmDiarizationUsable([])).toBe(false);
+        expect(isLlmDiarizationUsable([{ speaker: 'operator', text: 'весь диалог целиком' }])).toBe(false);
+        expect(isLlmDiarizationUsable([
+            { speaker: 'operator', text: 'Здравствуйте' },
+            { speaker: 'customer', text: 'Да' },
+        ])).toBe(true);
     });
 
     it('includes compact checklist rubrics for every default metric', () => {
@@ -128,7 +154,7 @@ describe('analysis-schema', () => {
         const transcript = 'Оператор: Добрый день.\nКлиент: Здравствуйте.\n'.repeat(20);
         const prompt = buildAnalysisPrompt(transcript, fullCtx);
         const rubricsOnly = ALL_DEFAULT_METRIC_KEYS.map(k => METRIC_RUBRIC_DESCRIPTIONS[k]).join('\n');
-        expect(prompt.length).toBeLessThan(transcript.length + rubricsOnly.length + 2900);
+        expect(prompt.length).toBeLessThan(transcript.length + rubricsOnly.length + 3300);
         expect(rubricsOnly.length).toBeLessThan(2800);
     });
 

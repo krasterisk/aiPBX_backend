@@ -1,5 +1,16 @@
 export const DEFAULT_COMPAT_MODEL = 'gemma4:e4b';
 
+/** Default Ollama context. 4096 silently truncates agent prompts with tools (~11k). */
+export const DEFAULT_OLLAMA_NUM_CTX = 32768;
+
+export function resolveOllamaNumCtx(
+    raw: string | undefined = process.env.OLLAMA_NUM_CTX || process.env.OLLAMA_CONTEXT_LENGTH,
+): number {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 2048) return Math.floor(n);
+    return DEFAULT_OLLAMA_NUM_CTX;
+}
+
 export function pickOllamaModel(
     requested: string | undefined,
     available: string[],
@@ -21,8 +32,9 @@ export function stripThinkTags(text: string): string {
 export function stripThinkIncremental(
     text: string,
     insideThink: boolean,
-): { text: string; insideThink: boolean } {
+): { text: string; insideThink: boolean; hidden: string } {
     let out = '';
+    let hidden = '';
     let i = 0;
     let inside = insideThink;
     while (i < text.length) {
@@ -38,13 +50,15 @@ export function stripThinkIncremental(
         } else {
             const end = text.indexOf('</think>', i);
             if (end === -1) {
+                hidden += text.slice(i);
                 break;
             }
+            hidden += text.slice(i, end);
             inside = false;
             i = end + '</think>'.length;
         }
     }
-    return { text: out, insideThink: inside };
+    return { text: out, insideThink: inside, hidden };
 }
 
 export function textFromContent(content: unknown): string {

@@ -60,10 +60,15 @@ services:
     restart: unless-stopped
     profiles:
       - gpu-full
+    environment:
+      # /v1 ignores per-request num_ctx; this is the default for other callers.
+      # Agent completions go through /api/chat with the same value from OLLAMA_NUM_CTX.
+      - OLLAMA_CONTEXT_LENGTH=${OLLAMA_CONTEXT_LENGTH:-32768}
     networks:
       - app-network
     ports:
-      - "11434:11434"
+      # Host loopback only. Remote access is allowlisted in iptables, not 0.0.0.0.
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama-data:/root/.ollama
     deploy:

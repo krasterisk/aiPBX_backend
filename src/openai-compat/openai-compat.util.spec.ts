@@ -1,7 +1,13 @@
-import { chunkHasVisibleText, extractAssistantText, extractOpenAiChunkText, pickOllamaModel, stripThinkIncremental, stripThinkTags } from './openai-compat.util';
+import { chunkHasVisibleText, extractAssistantText, extractOpenAiChunkText, pickOllamaModel, resolveOllamaNumCtx, stripThinkIncremental, stripThinkTags } from './openai-compat.util';
 
 describe('openai-compat utils', () => {
     const available = ['gemma4:e4b', 'nomic-embed-text:latest'];
+
+    it('resolves Ollama context from env with a 32k default', () => {
+        expect(resolveOllamaNumCtx('')).toBe(32768);
+        expect(resolveOllamaNumCtx('16384')).toBe(16384);
+        expect(resolveOllamaNumCtx('nope')).toBe(32768);
+    });
 
     it('uses fallback when model is missing or unknown', () => {
         expect(pickOllamaModel(undefined, available, 'gemma4:e4b')).toBe('gemma4:e4b');
@@ -19,9 +25,10 @@ describe('openai-compat utils', () => {
         expect(stripThinkIncremental('<think>план</think>Да', false)).toEqual({
             text: 'Да',
             insideThink: false,
+            hidden: 'план',
         });
-        expect(stripThinkIncremental('abc', true)).toEqual({ text: '', insideThink: true });
-        expect(stripThinkIncremental('</think>Hi', true)).toEqual({ text: 'Hi', insideThink: false });
+        expect(stripThinkIncremental('abc', true)).toEqual({ text: '', insideThink: true, hidden: 'abc' });
+        expect(stripThinkIncremental('</think>Hi', true)).toEqual({ text: 'Hi', insideThink: false, hidden: '' });
     });
 
     it('reads stream text from delta or message.content', () => {

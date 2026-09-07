@@ -13,6 +13,7 @@ describe('OpenAiCompatService', () => {
             { chat: { completions: { create } } } as never,
             listModels,
             'gemma4:e4b',
+            32768,
         );
     });
 
@@ -48,7 +49,9 @@ describe('OpenAiCompatService', () => {
         expect(create).toHaveBeenCalledWith(expect.objectContaining({
             model: 'gemma4:e4b',
             stream: false,
+            keep_alive: -1,
             messages: [{ role: 'user', content: 'hi' }],
+            options: { num_ctx: 32768, num_predict: 2048 },
         }), expect.anything());
         expect(create.mock.calls[0][0].think).toBeUndefined();
         expect(result.body.model).toBe('gemma4:e4b');
@@ -131,6 +134,20 @@ describe('OpenAiCompatService', () => {
         }
 
         expect(out.map((c) => c.choices[0].delta.content).filter(Boolean)).toEqual(['Да, я здесь']);
+    });
+
+    it('emits hidden thinking as content when the stream had no visible text', async () => {
+        async function* chunks() {
+            yield { id: 'chatcmpl-1', choices: [{ delta: { reasoning: 'Да, я здесь' } }] };
+            yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
+        }
+
+        const out: any[] = [];
+        for await (const chunk of service.sanitizeStream(chunks(), 'qwen3.5:9b')) {
+            out.push(chunk);
+        }
+
+        expect(out.map((c) => c.choices?.[0]?.delta?.content).filter(Boolean)).toEqual(['Да, я здесь']);
     });
 
     it('rewrites Ollama message.content chunks onto delta.content', async () => {

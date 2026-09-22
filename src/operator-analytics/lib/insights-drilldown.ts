@@ -24,6 +24,7 @@ export async function enrichInsightsWithChannelIds(
             endDate?: string;
             operatorName?: string;
             projectId?: number;
+            withoutProject?: boolean;
         };
         isAdmin: boolean;
         realUserId: string | null;

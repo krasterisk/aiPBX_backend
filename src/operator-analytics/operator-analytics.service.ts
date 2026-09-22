@@ -32,6 +32,7 @@ import {
     countLowQualityCdrs,
     DASHBOARD_PAGE_SIZE,
     findChannelIdsForDistribution,
+    isWithoutProject,
 } from './lib/dashboard-aggregation';
 import { buildTagStats } from './lib/tag-stats';
 import { normalizeDigestConfig, type DigestConfig } from './interfaces/digest-config.interface';
@@ -1771,6 +1772,16 @@ export class OperatorAnalyticsService {
         return { tagIds: uniqueTagIds };
     }
 
+    private scopeProjectQuery<T extends { projectId?: number; withoutProject?: unknown }>(query: T): Omit<T, 'withoutProject' | 'projectId'> & {
+        projectId?: number;
+        withoutProject: boolean;
+    } {
+        if (isWithoutProject(query.withoutProject)) {
+            return { ...query, projectId: undefined, withoutProject: true };
+        }
+        return { ...query, withoutProject: false };
+    }
+
     async getCdrs(query: {
         userId?: string;
         startDate?: string;
@@ -1781,12 +1792,14 @@ export class OperatorAnalyticsService {
         sentiment?: string;
         success?: string | boolean;
         projectId?: number;
+        withoutProject?: string | boolean;
         page?: number;
         limit?: number;
         search?: string;
         sortField?: string;
         sortOrder?: string;
     }, isAdmin: boolean, realUserId: string) {
+        const scoped = this.scopeProjectQuery(query);
         const where: any = {};
         const sentimentKey = this.parseSentimentFilter(query.sentiment);
         const successFlag = this.parseSuccessFilter(query.success);
@@ -1817,8 +1830,10 @@ export class OperatorAnalyticsService {
             where.assistantName = this.likeOp(`%${query.operatorName}%`);
         }
 
-        if (query.projectId) {
-            where.projectId = query.projectId;
+        if (scoped.withoutProject) {
+            where.projectId = null;
+        } else if (scoped.projectId) {
+            where.projectId = scoped.projectId;
         }
 
         if (query.tagId) {
@@ -1828,8 +1843,10 @@ export class OperatorAnalyticsService {
             } else if (query.userId) {
                 tagWhere.userId = query.userId;
             }
-            if (query.projectId) {
-                tagWhere.projectId = query.projectId;
+            if (scoped.withoutProject) {
+                tagWhere.projectId = null;
+            } else if (scoped.projectId) {
+                tagWhere.projectId = scoped.projectId;
             }
             const tagRows = await this.callTagRepository.findAll({
                 where: tagWhere,
@@ -1845,7 +1862,8 @@ export class OperatorAnalyticsService {
                 this.aiCdrRepository.sequelize,
                 {
                     userId: query.userId,
-                    projectId: query.projectId,
+                    projectId: scoped.projectId,
+                    withoutProject: scoped.withoutProject,
                     startDate: query.startDate,
                     endDate: query.endDate,
                     operatorName: query.operatorName,
@@ -1863,7 +1881,8 @@ export class OperatorAnalyticsService {
                 this.aiCdrRepository.sequelize,
                 {
                     userId: query.userId,
-                    projectId: query.projectId,
+                    projectId: scoped.projectId,
+                    withoutProject: scoped.withoutProject,
                     startDate: query.startDate,
                     endDate: query.endDate,
                     operatorName: query.operatorName,
@@ -1885,7 +1904,8 @@ export class OperatorAnalyticsService {
             ];
             const oaWhere: any = { transcription: this.likeOp(searchStr) };
             if (!isAdmin) oaWhere.userId = realUserId;
-            if (query.projectId) oaWhere.projectId = query.projectId;
+            if (scoped.withoutProject) oaWhere.projectId = null;
+            else if (scoped.projectId) oaWhere.projectId = scoped.projectId;
             const matchingOa = await this.analyticsRepository.findAll({
                 where: oaWhere,
                 attributes: ['id'],
@@ -1947,6 +1967,7 @@ export class OperatorAnalyticsService {
             startDate?: string;
             endDate?: string;
             projectId?: number;
+            withoutProject?: string | boolean;
             limit?: number;
             order?: 'worst' | 'best';
         },
@@ -1954,6 +1975,7 @@ export class OperatorAnalyticsService {
         realUserId: string | null,
         actorUserId?: string,
     ) {
+        const scoped = this.scopeProjectQuery(query);
         const operatorName = query.operatorName?.trim() || '';
         const cap = resolveEvidenceMaxCalls(query.limit);
         const order = query.order ?? 'worst';
@@ -1962,7 +1984,8 @@ export class OperatorAnalyticsService {
             userId: query.userId,
             startDate: query.startDate,
             endDate: query.endDate,
-            projectId: query.projectId,
+            projectId: scoped.projectId,
+            withoutProject: scoped.withoutProject,
             ...(operatorName ? { operatorNameExact: operatorName } : {}),
         };
 
@@ -1988,8 +2011,8 @@ export class OperatorAnalyticsService {
         let customMetricIds: string[] = [];
         let defaultKeys: readonly string[] | undefined;
         let includeCustomMetrics = false;
-        if (query.projectId) {
-            const project = await this.projectRepository.findByPk(query.projectId);
+        if (scoped.projectId) {
+            const project = await this.projectRepository.findByPk(scoped.projectId);
             customMetricIds = project?.customMetricsSchema?.map(m => m.id) ?? [];
             defaultKeys = resolveVisibleDefaultMetrics(project);
             includeCustomMetrics = true;
@@ -2034,8 +2057,10 @@ export class OperatorAnalyticsService {
         endDate?: string;
         operatorName?: string;
         projectId?: number;
+        withoutProject?: string | boolean;
     }, isAdmin: boolean, realUserId: string) {
-        const where = buildDashboardCdrWhere(query, isAdmin, realUserId, (v) => this.likeOp(v));
+        const scoped = this.scopeProjectQuery(query);
+        const where = buildDashboardCdrWhere(scoped, isAdmin, realUserId, (v) => this.likeOp(v));
         const numericKeys = [
             'greeting_quality', 'script_compliance', 'politeness_empathy',
             'active_listening', 'objection_handling', 'product_knowledge',
@@ -2045,8 +2070,8 @@ export class OperatorAnalyticsService {
         const totalAnalyzed = await this.aiCdrRepository.count({ where });
         if (totalAnalyzed === 0) {
             let tagStats: TagStat[] | undefined;
-            if (query.projectId) {
-                const project = await this.projectRepository.findByPk(query.projectId);
+            if (scoped.projectId) {
+                const project = await this.projectRepository.findByPk(scoped.projectId);
                 if (project?.callTaxonomy?.length) {
                     tagStats = [];
                 }
@@ -2066,7 +2091,7 @@ export class OperatorAnalyticsService {
 
         const excludedLowQualityCount = await countLowQualityCdrs(
             this.aiCdrRepository.sequelize,
-            query,
+            scoped,
             isAdmin,
             realUserId,
         );
@@ -2091,7 +2116,7 @@ export class OperatorAnalyticsService {
 
         const sqlAgg = await aggregateMetricsFromSql(
             this.aiCdrRepository.sequelize,
-            query,
+            scoped,
             isAdmin,
             realUserId,
             excludedLowQualityCount > 0,
@@ -2165,8 +2190,8 @@ export class OperatorAnalyticsService {
         let customMetricsAggregated: Record<string, { type: string; value?: number; distribution?: Record<string, number> }> = {};
         let tagStats: TagStat[] | undefined;
         let project: OperatorProject | null = null;
-        if (query.projectId) {
-            project = await this.projectRepository.findByPk(query.projectId);
+        if (scoped.projectId) {
+            project = await this.projectRepository.findByPk(scoped.projectId);
             if (project?.customMetricsSchema?.length) {
                 customMetricsAggregated = this.aggregateCustomMetrics(recordsForDerived, project.customMetricsSchema);
             }
@@ -2950,6 +2975,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         tenantUserId: string,
         query: {
             projectId?: number;
+            withoutProject?: boolean;
             startDate?: string;
             endDate?: string;
             operatorName?: string;
@@ -2959,7 +2985,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         return [
             'insights:v1',
             tenantUserId,
-            query.projectId ?? 'all',
+            query.withoutProject ? 'none' : (query.projectId ?? 'all'),
             query.startDate || '',
             query.endDate || '',
             query.operatorName || '',
@@ -2975,6 +3001,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             endDate?: string;
             operatorName?: string;
             projectId?: number;
+            withoutProject?: boolean;
             refresh?: string | boolean;
         };
         isAdmin: boolean;
@@ -3051,6 +3078,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
                 endDate: query.endDate,
                 operatorName: query.operatorName,
                 projectId: query.projectId,
+                withoutProject: query.withoutProject,
             },
             isAdmin,
             realUserId,
@@ -3105,6 +3133,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             endDate?: string;
             operatorName?: string;
             projectId?: number;
+            withoutProject?: string | boolean;
             refresh?: string | boolean;
         },
         isAdmin: boolean,
@@ -3115,8 +3144,9 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
         }
 
+        const scoped = this.scopeProjectQuery(query);
         return this.generateInsights({
-            query,
+            query: scoped,
             isAdmin,
             realUserId,
             billingUserId: authUserId,

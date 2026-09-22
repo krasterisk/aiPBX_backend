@@ -10,6 +10,16 @@ describe('dashboard-aggregation', () => {
 
     const likeOp = (v: string) => ({ [Op.like]: v });
 
+    it('buildDashboardCdrWhere limits to calls without a project', () => {
+        const where = buildDashboardCdrWhere(
+            { withoutProject: true, projectId: 5 },
+            true,
+            '1',
+            likeOp,
+        );
+        expect(where.projectId).toBeNull();
+    });
+
     it('buildDashboardCdrWhere scopes non-admin to realUserId', () => {
         const where = buildDashboardCdrWhere({}, false, '42', likeOp);
         expect(where.userId).toBe('42');

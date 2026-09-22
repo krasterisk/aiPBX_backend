@@ -679,6 +679,7 @@ export class OperatorAnalyticsController {
             sentiment?: string;
             success?: string;
             projectId?: number;
+            withoutProject?: string;
             page?: number;
             limit?: number;
             search?: string;
@@ -707,6 +708,7 @@ export class OperatorAnalyticsController {
             endDate?: string;
             operatorName?: string;
             projectId?: number;
+            withoutProject?: string;
         },
     ) {
         const isAdmin = req.isAdmin ?? false;
@@ -730,6 +732,7 @@ export class OperatorAnalyticsController {
             endDate?: string;
             operatorName?: string;
             projectId?: number;
+            withoutProject?: string;
             refresh?: string;
         },
     ) {
@@ -753,6 +756,7 @@ export class OperatorAnalyticsController {
             startDate?: string;
             endDate?: string;
             projectId?: number;
+            withoutProject?: string;
             limit?: number;
             order?: string;
         },
@@ -771,6 +775,7 @@ export class OperatorAnalyticsController {
                 startDate: query.startDate,
                 endDate: query.endDate,
                 projectId: query.projectId,
+                withoutProject: query.withoutProject,
                 limit: query.limit,
                 order: order as 'worst' | 'best',
             },

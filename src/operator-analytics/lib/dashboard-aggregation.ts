@@ -4,10 +4,16 @@ import { ALL_DEFAULT_METRIC_KEYS } from '../interfaces/operator-metrics.interfac
 export interface DashboardCdrFilters {
     userId?: string;
     projectId?: number;
+    /** Calls whose analysis was stored with no project. Wins over projectId. */
+    withoutProject?: boolean;
     startDate?: string;
     endDate?: string;
     operatorName?: string;
     operatorNameExact?: string;
+}
+
+export function isWithoutProject(value: unknown): boolean {
+    return value === true || value === 1 || value === '1' || value === 'true';
 }
 
 export function buildDashboardCdrWhere(
@@ -43,11 +49,30 @@ export function buildDashboardCdrWhere(
         where.assistantName = likeOp(`%${query.operatorName}%`);
     }
 
-    if (query.projectId) {
+    if (query.withoutProject) {
+        where.projectId = null;
+    } else if (query.projectId) {
         where.projectId = query.projectId;
     }
 
     return where;
+}
+
+function pushProjectClause(
+    dialect: string,
+    alias: string,
+    filters: { projectId?: number; withoutProject?: boolean },
+    clauses: string[],
+    replacements: Record<string, unknown>,
+): void {
+    if (filters.withoutProject) {
+        clauses.push(`${alias}.${q('projectId', dialect)} IS NULL`);
+        return;
+    }
+    if (filters.projectId != null) {
+        clauses.push(`${alias}.${q('projectId', dialect)} = :projectId`);
+        replacements.projectId = filters.projectId;
+    }
 }
 
 function q(name: string, dialect: string): string {
@@ -90,10 +115,7 @@ export async function countLowQualityCdrs(
         replacements.userId = filters.userId;
     }
 
-    if (filters.projectId != null) {
-        clauses.push(`${c}.${q('projectId', dialect)} = :projectId`);
-        replacements.projectId = filters.projectId;
-    }
+    pushProjectClause(dialect, c, filters, clauses, replacements);
     if (filters.operatorNameExact) {
         clauses.push(`${c}.${q('assistantName', dialect)} = :operatorNameExact`);
         replacements.operatorNameExact = filters.operatorNameExact;
@@ -172,10 +194,7 @@ export async function aggregateMetricsFromSql(
         replacements.userId = filters.userId;
     }
 
-    if (filters.projectId != null) {
-        cdrClauses.push(`${c}.${q('projectId', dialect)} = :projectId`);
-        replacements.projectId = filters.projectId;
-    }
+    pushProjectClause(dialect, c, filters, cdrClauses, replacements);
     if (filters.operatorNameExact) {
         cdrClauses.push(`${c}.${q('assistantName', dialect)} = :operatorNameExact`);
         replacements.operatorNameExact = filters.operatorNameExact;
@@ -321,10 +340,7 @@ function appendCdrFilterClauses(
         replacements.userId = filters.userId;
     }
 
-    if (filters.projectId != null) {
-        clauses.push(`${c}.${q('projectId', dialect)} = :projectId`);
-        replacements.projectId = filters.projectId;
-    }
+    pushProjectClause(dialect, c, filters, clauses, replacements);
     if (filters.operatorNameExact) {
         clauses.push(`${c}.${q('assistantName', dialect)} = :operatorNameExact`);
         replacements.operatorNameExact = filters.operatorNameExact;

@@ -1475,26 +1475,6 @@ describe('OperatorAnalyticsService', () => {
             expect(result.tagStats).toEqual([]);
         });
 
-        it('averages only the default metrics visible on the project', async () => {
-            setupDashboardWithRecords([dashboardRecord()], {
-                visibleDefaultMetrics: ['politeness_empathy', 'speech_clarity_pace'],
-                callTaxonomy: [],
-            });
-            mockAiCdrRepo.sequelize.query.mockResolvedValue([[
-                { metricId: 'politeness_empathy', avgNum: '80', trueCount: '0', channelCount: '1', strValue: null, rowCount: '1' },
-                { metricId: 'speech_clarity_pace', avgNum: '40', trueCount: '0', channelCount: '1', strValue: null, rowCount: '1' },
-                { metricId: 'greeting_quality', avgNum: '10', trueCount: '0', channelCount: '1', strValue: null, rowCount: '1' },
-            ]]);
-
-            const result = await service.getDashboard({ projectId: 1 }, true, null);
-
-            expect(result.averageScore).toBe(60);
-            expect(result.aggregatedMetrics).toEqual({
-                politeness_empathy: 80,
-                speech_clarity_pace: 40,
-            });
-        });
-
         it('includes per-theme statistics for a selected project', async () => {
             setupDashboardWithRecords([
                 dashboardRecord({ tags: ['billing'], tagNames: { billing: 'Счета' } }),

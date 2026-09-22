@@ -1,0 +1,20 @@
+{
+    "id": "example-003-out-of-scope-service",
+    "description": "Clinic does not offer the requested specialty. A clear informed refusal with a referral and a polite close is a successful call — do not penalize success, resolution, or knowledge.",
+    "language": "ru",
+    "transcript": "Оператор: Добрый день, клиника Солнце, оператор Мария, чем могу помочь?\nКлиент: Здравствуйте, хочу записаться к кардиологу.\nОператор: Понимаю. Кардиолога у нас нет, мы этим направлением не занимаемся. Мы ведём терапию, стоматологию и офтальмологию. К кардиологу можно обратиться в городскую поликлинику.\nКлиент: Понятно, спасибо.\nОператор: Пожалуйста. Записать к кардиологу не смогу. Если понадобится терапевт или окулист — обращайтесь. Что-нибудь ещё?\nКлиент: Нет, спасибо.\nОператор: Всего доброго!",
+    "reference": {
+        "greeting_quality": 100,
+        "script_compliance": 100,
+        "politeness_empathy": 100,
+        "active_listening": 75,
+        "objection_handling": 100,
+        "product_knowledge": 100,
+        "problem_resolution": 100,
+        "speech_clarity_pace": 75,
+        "closing_quality": 100,
+        "csat": 4,
+        "customer_sentiment": "Neutral",
+        "success": true
+    }
+}

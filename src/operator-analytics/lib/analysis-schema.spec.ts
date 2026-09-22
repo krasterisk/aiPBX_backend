@@ -61,7 +61,7 @@ describe('analysis-schema', () => {
         } as any);
         const prompt = buildAnalysisPrompt('Оператор: Добрый день, клиника X, меня зовут Татьяна, слушаю вас.', greetingCtx);
 
-        expect(PROMPT_VERSION).toBe('2026-09-07.1');
+        expect(PROMPT_VERSION).toBe('2026-09-22.1');
         expect(prompt).toContain('GLOBAL SCORING');
         expect(prompt).toContain('transcript language');
         expect(prompt).toContain('predominantly English');
@@ -70,15 +70,21 @@ describe('analysis-schema', () => {
         expect(prompt).toContain('Добрый день');
     });
 
-    it('guards against outcome bias and quote/rationale contradiction', () => {
+    it('guards against outcome bias and does not treat an out-of-scope request as failure', () => {
         const fullCtx = buildAnalysisContext({ visibleDefaultMetrics: [...ALL_DEFAULT_METRIC_KEYS] } as any);
         const prompt = buildAnalysisPrompt('sample transcript', fullCtx);
 
         expect(prompt).toContain('PROCESS vs OUTCOME');
         expect(prompt).toContain('not whether the customer got their preferred outcome');
-        expect(prompt).toContain('success/csat');
+        expect(prompt).toContain('SUCCESS:');
+        expect(prompt).toContain('outside company scope is NOT a failed call');
+        expect(prompt).toContain('out-of-scope');
+        expect(prompt).toContain('услуга не оказана');
         expect(prompt).toContain('Score each metric independently');
         expect(prompt).toContain('quote must support the rationale');
+        expect(prompt).not.toContain('success/csat = outcome');
+        expect(prompt).not.toContain('extra required items');
+        expect(prompt).toContain('BUSINESS CONTEXT, if set, is what the company offers');
     });
 
     it('credits alternatives for objections, knowledge, and resolution', () => {
@@ -154,7 +160,8 @@ describe('analysis-schema', () => {
         const transcript = 'Оператор: Добрый день.\nКлиент: Здравствуйте.\n'.repeat(20);
         const prompt = buildAnalysisPrompt(transcript, fullCtx);
         const rubricsOnly = ALL_DEFAULT_METRIC_KEYS.map(k => METRIC_RUBRIC_DESCRIPTIONS[k]).join('\n');
-        expect(prompt.length).toBeLessThan(transcript.length + rubricsOnly.length + 3300);
+        // Headroom covers GLOBAL SCORING: scope, success, CSAT, and the out-of-scope example.
+        expect(prompt.length).toBeLessThan(transcript.length + rubricsOnly.length + 6000);
         expect(rubricsOnly.length).toBeLessThan(2800);
     });
 

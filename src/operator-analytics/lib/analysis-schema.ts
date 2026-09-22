@@ -16,14 +16,47 @@ export const FULL_SCORE_INSTRUCTION =
     'Give 100 when every checklist item is clearly present (synonyms OK, e.g. "Добрый день" = greeting). Below 100: name the missing item. Rationale: 1 short sentence in transcript language, paraphrase behavior; verbatim text only in quote. No boilerplate ("соответствует требованиям", "все элементы присутствуют", "уровень 75").';
 
 /**
- * Anti-outcome-bias + evidence consistency. Keeps process metrics from collapsing into
- * "customer did not get preferred outcome" and prevents quote↔rationale contradictions.
+ * Anti-outcome-bias. A business limit (service not offered, no slot/stock, fixed policy)
+ * is not an operator failure when the operator states it clearly and closes correctly.
  */
 export const PROCESS_VS_OUTCOME_INSTRUCTION =
-    'PROCESS vs OUTCOME: Score checklist/behavior, not whether the customer got their preferred outcome. ' +
-    'No slots/stock/capacity ≠ auto-fail for objection_handling/product_knowledge/problem_resolution when alts/next step offered. ' +
-    'success/csat = outcome. Score each metric independently (no shared failure story). ' +
-    'quote must support the rationale.';
+    'PROCESS vs OUTCOME: Score checklist behavior, not whether the customer got their preferred outcome. ' +
+    'Score each metric independently (no shared failure story). quote must support the rationale. ' +
+    'Below 100 only when rationale names a missing operator behavior. Never lower a score because the customer did not receive the service.';
+
+/** success = correct handling inside company scope, not fulfillment of the customer's wish. */
+export const SUCCESS_INSTRUCTION =
+    'SUCCESS: true when the operator handled the request correctly within company scope — answered, booked, sold, or solved; ' +
+    'OR clearly stated a business limit (service/specialty not offered, no slot, no stock, policy they cannot change) AND gave a next step: an in-scope alternative, a referral, what IS offered, or a polite informed close the customer accepted. ' +
+    'success=false only for operator-caused failure: ignored the request, wrong info, rude hangup, no answer to a question the company can answer, abandoned the customer. ' +
+    'A request outside company scope is NOT a failed call.';
+
+/** CSAT/sentiment judge the operator, not the business constraint. */
+export const CSAT_INSTRUCTION =
+    'CSAT and sentiment rate the customer reaction to the OPERATOR, not to a business limit. ' +
+    'A polite understood refusal of an out-of-scope service, with thanks, is sentiment Neutral or Positive and csat 4-5. ' +
+    'Do not drop csat or sentiment only because the company cannot provide the requested service.';
+
+/** Business context is a scope boundary, not extra script items. */
+export const BUSINESS_CONTEXT_INSTRUCTION =
+    'BUSINESS CONTEXT, if set, is what the company offers and a check that the answer is accurate. ' +
+    'It is not extra script items. A request absent from it is out of scope — not a knowledge gap and not a script miss — when the operator says so clearly.';
+
+/** Classify scope before scoring so one unmet wish does not collapse every metric. */
+export const SCOPE_INSTRUCTION =
+    'SCOPE first: in-scope request vs business limit (service/specialty not offered, no slot, no stock, policy the operator cannot change). ' +
+    'A correctly handled business limit (request understood, limit stated clearly, plus alternative, referral, or accepted close) does not lower problem_resolution, product_knowledge, objection_handling, or script_compliance. ' +
+    'Do not copy that limit into greeting, politeness, listening, speech, or closing.';
+
+/**
+ * One worked judgment. Nano models follow a concrete case more reliably than an abstract exception.
+ */
+export const OUT_OF_SCOPE_EXAMPLE =
+    'EXAMPLE (follow the judgment, do not copy the text): Patient asks for a service the clinic does not provide. ' +
+    'Operator greets, names the clinic, explains they do not offer it, names what they do offer or where to go, thanks, and says goodbye. Customer: "понятно, спасибо". ' +
+    'Correct: success true; product_knowledge 100; problem_resolution 100; objection_handling 100 (no objection); csat 4-5; sentiment Neutral or Positive. ' +
+    'Wrong: success false or low resolution/knowledge because "услуга не оказана". ' +
+    'Same pattern for any domain: no such property, category not delivered, bank product not in the lineup.';
 
 export const OUTPUT_LANGUAGE_INSTRUCTION =
     'LANGUAGE: ALL prose (summary, every rationale, quotes) MUST be in the transcript language — detect from TRANSCRIPTION above. ru/de/zh transcript → write ru/de/zh. Use English prose ONLY if the transcript is predominantly English. JSON keys and enums (Positive/Neutral/Negative) stay English.';
@@ -32,7 +65,7 @@ const CHECKLIST_SCORE_MAP =
     'Checklist map: 100=all items (N/A items count as present), 75=3/4, 50=2/4, 25=1/4, 0=none.';
 
 const NA_AS_PRESENT_NOTE =
-    'N/A items (e.g. no objection raised) count as present.';
+    'N/A items count as present: no objection raised; no upset customer; nothing to explain because the service is not offered; no booking when the request is out of scope and the customer accepted the answer.';
 
 /** Compact checklist — scoring rules live once in buildAnalysisPrompt (GLOBAL SCORING). */
 function buildCompactRubric(title: string, elements: string[], note?: string): string {
@@ -53,12 +86,12 @@ const GREETING_QUALITY_RUBRIC = buildCompactRubric(
 const SCRIPT_COMPLIANCE_RUBRIC = buildCompactRubric(
     'Script:',
     [
-        'standard opening (+ BUSINESS CONTEXT if set)',
+        'standard opening',
         'clarify customer need before acting',
         'required verification/disclosures when applicable',
-        'workflow to resolution/close',
+        'workflow to a correct close',
     ],
-    'BUSINESS CONTEXT steps are extra required items',
+    'do not require booking or selling a service the company does not offer',
 );
 
 const POLITENESS_EMPATHY_RUBRIC = buildCompactRubric(
@@ -90,7 +123,7 @@ const OBJECTION_HANDLING_RUBRIC = buildCompactRubric(
         'stay calm/professional',
         'move toward resolution',
     ],
-    'no objection → score 100; offering alt after full/unavailable counts',
+    'no objection → score 100; an out-of-scope question is not an objection; offering alt after unavailable counts',
 );
 
 const PRODUCT_KNOWLEDGE_RUBRIC = buildCompactRubric(
@@ -101,7 +134,7 @@ const PRODUCT_KNOWLEDGE_RUBRIC = buildCompactRubric(
         'explain options/steps/pricing when needed',
         'if unsure: admit + lookup/escalate',
     ],
-    'naming available options/slots/times = item 3',
+    'accurate "we do not offer X; we offer Y or refer" = items 1 and 3, not evasion; naming options/slots also = item 3',
 );
 
 const PROBLEM_RESOLUTION_RUBRIC = buildCompactRubric(
@@ -112,7 +145,7 @@ const PROBLEM_RESOLUTION_RUBRIC = buildCompactRubric(
         'confirm outcome/next step',
         'resolved in-call OR clear next step agreed',
     ],
-    'agreed alt slot/time = item 4; unmet ideal wish ≠ auto-fail',
+    'clear scope refusal plus alternative, referral, or accepted close = items 2 and 4; unmet wish ≠ auto-fail',
 );
 
 const SPEECH_CLARITY_PACE_RUBRIC = buildCompactRubric(
@@ -143,7 +176,7 @@ const CLOSING_QUALITY_RUBRIC = buildCompactRubric(
  * specific prompt revision. Stored on each record (DB column + metrics._model).
  * Format: YYYY-MM-DD.N (date of change + same-day revision counter).
  */
-export const PROMPT_VERSION = '2026-09-07.1';
+export const PROMPT_VERSION = '2026-09-22.1';
 
 export interface MetricAssessment {
     rationale: string;
@@ -687,7 +720,12 @@ export function buildAnalysisPrompt(
         CHECKLIST_SCORE_MAP,
         NA_AS_PRESENT_NOTE,
         FULL_SCORE_INSTRUCTION,
+        SCOPE_INSTRUCTION,
+        BUSINESS_CONTEXT_INSTRUCTION,
+        SUCCESS_INSTRUCTION,
+        CSAT_INSTRUCTION,
         PROCESS_VS_OUTCOME_INSTRUCTION,
+        OUT_OF_SCOPE_EXAMPLE,
     ].join(' ');
 
     return `
@@ -700,7 +738,7 @@ ${OUTPUT_LANGUAGE_INSTRUCTION}
 
 ${globalScoring}
 
-SCORING ORDER: (1) fill assessments for: ${assessmentKeys.join(', ')} — rationale + summary in transcript language first, then scores; (2) assign numeric scores consistent with rationale.
+SCORING ORDER: (1) classify in-scope vs business limit; (2) mark each checklist item present, absent, or N/A (N/A = present); (3) map the count to 100/75/50/25/0; (4) write the rationale naming only a missing operator behavior — never "customer did not receive the service". Assessments for ${assessmentKeys.join(', ')} and the summary stay in the transcript language.
 
 JSON shape:
 {

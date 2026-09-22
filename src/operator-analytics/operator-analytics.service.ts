@@ -68,6 +68,7 @@ import {
     buildOpenAiJsonSchema,
     parseAndValidateAnalysisResponse,
     isLlmDiarizationUsable,
+    resolveVisibleDefaultMetrics,
     MetricAssessment,
     PROMPT_VERSION,
 } from './lib/analysis-schema';
@@ -2028,20 +2029,16 @@ export class OperatorAnalyticsService {
         projectId?: number;
     }, isAdmin: boolean, realUserId: string) {
         const where = buildDashboardCdrWhere(query, isAdmin, realUserId, (v) => this.likeOp(v));
-        const numericKeys = [
-            'greeting_quality', 'script_compliance', 'politeness_empathy',
-            'active_listening', 'objection_handling', 'product_knowledge',
-            'problem_resolution', 'speech_clarity_pace', 'closing_quality',
-        ] as const;
+        const project = query.projectId
+            ? await this.projectRepository.findByPk(query.projectId)
+            : null;
+        const numericKeys = resolveVisibleDefaultMetrics(project);
 
         const totalAnalyzed = await this.aiCdrRepository.count({ where });
         if (totalAnalyzed === 0) {
             let tagStats: TagStat[] | undefined;
-            if (query.projectId) {
-                const project = await this.projectRepository.findByPk(query.projectId);
-                if (project?.callTaxonomy?.length) {
-                    tagStats = [];
-                }
+            if (query.projectId && project?.callTaxonomy?.length) {
+                tagStats = [];
             }
             return {
                 totalAnalyzed: 0, totalCost: 0, averageDuration: 0,
@@ -2103,7 +2100,10 @@ export class OperatorAnalyticsService {
         let sentimentDistribution: { positive: number; neutral: number; negative: number };
 
         if (sqlAgg.usedSql && sqlAgg.aggregationCount > 0) {
-            aggregatedMetrics = { ...sqlAgg.numericAverages };
+            aggregatedMetrics = {};
+            for (const key of numericKeys) {
+                aggregatedMetrics[key] = sqlAgg.numericAverages[key] ?? 0;
+            }
             averageScore = parseFloat(
                 (numericKeys.reduce((s, k) => s + (aggregatedMetrics[k] || 0), 0) / numericKeys.length).toFixed(2),
             );
@@ -2152,21 +2152,20 @@ export class OperatorAnalyticsService {
         }
 
         const averageDuration = recordsForDerived.reduce((sum, r) => sum + (r.duration || 0), 0) / aggregationCount;
-        const timeSeries = this.buildTimeSeries(recordsForDerived, query.startDate, query.endDate);
+        const timeSeries = this.buildTimeSeries(recordsForDerived, query.startDate, query.endDate, numericKeys);
 
         let customMetricsAggregated: Record<string, { type: string; value?: number; distribution?: Record<string, number> }> = {};
         let tagStats: TagStat[] | undefined;
-        if (query.projectId) {
-            const project = await this.projectRepository.findByPk(query.projectId);
-            if (project?.customMetricsSchema?.length) {
+        if (project) {
+            if (project.customMetricsSchema?.length) {
                 customMetricsAggregated = this.aggregateCustomMetrics(recordsForDerived, project.customMetricsSchema);
             }
-            if (project?.callTaxonomy?.length) {
+            if (project.callTaxonomy?.length) {
                 tagStats = buildTagStats(recordsForDerived, project.callTaxonomy);
             }
         }
 
-        const agentScorecards = this.buildAgentScorecards(recordsForDerived);
+        const agentScorecards = this.buildAgentScorecards(recordsForDerived, numericKeys);
 
         return {
             totalAnalyzed,
@@ -2361,7 +2360,7 @@ export class OperatorAnalyticsService {
         };
     }
 
-    private buildAgentScorecards(records: AiCdr[]): Array<{
+    private buildAgentScorecards(records: AiCdr[], numericKeys: DefaultMetricKey[]): Array<{
         operatorName: string;
         callsCount: number;
         averageScore: number;
@@ -2369,11 +2368,6 @@ export class OperatorAnalyticsService {
         avgCsat: number | null;
         negativeRate: number;
     }> {
-        const numericKeys = [
-            'greeting_quality', 'script_compliance', 'politeness_empathy',
-            'active_listening', 'objection_handling', 'product_knowledge',
-            'problem_resolution', 'speech_clarity_pace', 'closing_quality',
-        ];
         const byOperator = new Map<string, AiCdr[]>();
         for (const r of records) {
             const name = (r.assistantName || '').trim() || 'Unknown Operator';
@@ -4240,18 +4234,17 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         return result;
     }
 
-    private buildTimeSeries(records: AiCdr[], startDate?: string, endDate?: string) {
+    private buildTimeSeries(
+        records: AiCdr[],
+        startDate?: string,
+        endDate?: string,
+        numericKeys: DefaultMetricKey[] = ALL_DEFAULT_METRIC_KEYS,
+    ) {
         if (!records.length) return { monthly: [], daily: [] };
 
         const start = startDate ? new Date(startDate) : new Date(records[0].createdAt);
         const end = endDate ? new Date(endDate) : new Date(records[records.length - 1].createdAt);
         const daysDiff = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-
-        const numericKeys = [
-            'greeting_quality', 'script_compliance', 'politeness_empathy',
-            'active_listening', 'objection_handling', 'product_knowledge',
-            'problem_resolution', 'speech_clarity_pace', 'closing_quality',
-        ];
 
         const buildMonthly = daysDiff > 60;
         const dailyGroups: Record<string, { calls: number; totalScore: number; totalDuration: number }> = {};

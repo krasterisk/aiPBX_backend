@@ -1,4 +1,5 @@
 import {
+    averageOperatorScore,
     buildOperatorEvidence,
     readAssessment,
     resolveEvidenceMaxCalls,
@@ -172,6 +173,42 @@ describe('operator-evidence', () => {
             });
             expect(metric?.evidence).toHaveLength(2);
             expect(metric?.evidence.map(e => e.value)).toEqual([false, true]);
+        });
+
+        it('does not let unused default metrics or a null checklist item lower the operator score', () => {
+            const records = [
+                baseRecord({
+                    channelId: '1',
+                    metrics: {
+                        politeness_empathy: 90,
+                        speech_clarity_pace: 100,
+                        custom_metrics: { greeting: true, branch: false, lead_source: null },
+                    },
+                }),
+                baseRecord({
+                    channelId: '2',
+                    metrics: {
+                        politeness_empathy: 90,
+                        speech_clarity_pace: 100,
+                        custom_metrics: { greeting: true, branch: false, lead_source: null },
+                    },
+                }),
+            ];
+
+            const score = averageOperatorScore(records, {
+                defaultKeys: ['politeness_empathy', 'speech_clarity_pace'],
+                includeCustomMetrics: true,
+            });
+            // (90 + 100 + greeting 100 + branch 0) / 4. lead_source null and the other 7 defaults stay out.
+            expect(score).toBe(72.5);
+
+            const result = buildOperatorEvidence(records, {
+                operatorName: '204',
+                defaultKeys: ['politeness_empathy', 'speech_clarity_pace'],
+                includeCustomMetrics: true,
+                customMetricIds: ['greeting', 'branch', 'lead_source'],
+            });
+            expect(result.averageScore).toBe(72.5);
         });
 
         it('excludes null custom booleans from the rate when the metric does not apply', () => {

@@ -67,6 +67,7 @@ import {
     buildCustomMetricMeta,
     buildOpenAiJsonSchema,
     parseAndValidateAnalysisResponse,
+    resolveVisibleDefaultMetrics,
     isLlmDiarizationUsable,
     MetricAssessment,
     PROMPT_VERSION,
@@ -89,6 +90,7 @@ import { buildInsightsFacts, resolveInsightsMinCalls } from './lib/insights-fact
 import { enrichInsightsWithChannelIds } from './lib/insights-drilldown';
 import { InsightsCacheService } from './insights-cache.service';
 import {
+    averageOperatorScore,
     buildOperatorEvidence,
     resolveEvidenceMaxCalls,
 } from './lib/operator-evidence';
@@ -1984,9 +1986,13 @@ export class OperatorAnalyticsService {
         });
 
         let customMetricIds: string[] = [];
+        let defaultKeys: readonly string[] | undefined;
+        let includeCustomMetrics = false;
         if (query.projectId) {
             const project = await this.projectRepository.findByPk(query.projectId);
             customMetricIds = project?.customMetricsSchema?.map(m => m.id) ?? [];
+            defaultKeys = resolveVisibleDefaultMetrics(project);
+            includeCustomMetrics = true;
         }
 
         const sampleCapped = rows.length >= cap;
@@ -1995,6 +2001,8 @@ export class OperatorAnalyticsService {
             order,
             customMetricIds,
             sampleCapped,
+            defaultKeys,
+            includeCustomMetrics,
         });
 
         this.logOperatorEvidenceAccess(actorUserId, operatorName || 'all', eligibleRecords.length);
@@ -2156,8 +2164,9 @@ export class OperatorAnalyticsService {
 
         let customMetricsAggregated: Record<string, { type: string; value?: number; distribution?: Record<string, number> }> = {};
         let tagStats: TagStat[] | undefined;
+        let project: OperatorProject | null = null;
         if (query.projectId) {
-            const project = await this.projectRepository.findByPk(query.projectId);
+            project = await this.projectRepository.findByPk(query.projectId);
             if (project?.customMetricsSchema?.length) {
                 customMetricsAggregated = this.aggregateCustomMetrics(recordsForDerived, project.customMetricsSchema);
             }
@@ -2166,7 +2175,15 @@ export class OperatorAnalyticsService {
             }
         }
 
-        const agentScorecards = this.buildAgentScorecards(recordsForDerived);
+        const agentScorecards = this.buildAgentScorecards(
+            recordsForDerived,
+            project
+                ? {
+                    defaultKeys: resolveVisibleDefaultMetrics(project),
+                    includeCustomMetrics: true,
+                }
+                : undefined,
+        );
 
         return {
             totalAnalyzed,
@@ -2361,7 +2378,10 @@ export class OperatorAnalyticsService {
         };
     }
 
-    private buildAgentScorecards(records: AiCdr[]): Array<{
+    private buildAgentScorecards(
+        records: AiCdr[],
+        score?: { defaultKeys: readonly string[]; includeCustomMetrics: boolean },
+    ): Array<{
         operatorName: string;
         callsCount: number;
         averageScore: number;
@@ -2369,11 +2389,13 @@ export class OperatorAnalyticsService {
         avgCsat: number | null;
         negativeRate: number;
     }> {
-        const numericKeys = [
-            'greeting_quality', 'script_compliance', 'politeness_empathy',
-            'active_listening', 'objection_handling', 'product_knowledge',
-            'problem_resolution', 'speech_clarity_pace', 'closing_quality',
-        ];
+        const numericKeys = score?.defaultKeys?.length
+            ? [...score.defaultKeys]
+            : [
+                'greeting_quality', 'script_compliance', 'politeness_empathy',
+                'active_listening', 'objection_handling', 'product_knowledge',
+                'problem_resolution', 'speech_clarity_pace', 'closing_quality',
+            ];
         const byOperator = new Map<string, AiCdr[]>();
         for (const r of records) {
             const name = (r.assistantName || '').trim() || 'Unknown Operator';
@@ -2382,8 +2404,6 @@ export class OperatorAnalyticsService {
         }
 
         const scorecards = Array.from(byOperator.entries()).map(([operatorName, rows]) => {
-            const sums: Record<string, number> = {};
-            numericKeys.forEach(k => { sums[k] = 0; });
             let successCount = 0;
             let negativeCount = 0;
             let csatSum = 0;
@@ -2394,7 +2414,6 @@ export class OperatorAnalyticsService {
                 const m = r.analytics?.metrics;
                 if (!m) continue;
                 scored++;
-                numericKeys.forEach(k => { sums[k] += (m[k] || 0); });
                 if (m.success) successCount++;
                 const sentiment = (r.analytics?.sentiment || m.customer_sentiment || '').toLowerCase();
                 if (sentiment === 'negative') negativeCount++;
@@ -2406,11 +2425,13 @@ export class OperatorAnalyticsService {
             }
 
             const denom = scored || 1;
-            const aggregated = numericKeys.reduce((s, k) => s + (sums[k] / denom), 0) / numericKeys.length;
             return {
                 operatorName,
                 callsCount: rows.length,
-                averageScore: parseFloat(aggregated.toFixed(2)),
+                averageScore: averageOperatorScore(rows, {
+                    defaultKeys: numericKeys,
+                    includeCustomMetrics: score?.includeCustomMetrics === true,
+                }),
                 successRate: parseFloat(((successCount / denom) * 100).toFixed(2)),
                 avgCsat: csatCount ? parseFloat((csatSum / csatCount).toFixed(2)) : null,
                 negativeRate: parseFloat(((negativeCount / denom) * 100).toFixed(2)),

@@ -63,6 +63,69 @@ export interface BuildOperatorEvidenceOptions {
     order?: 'worst' | 'best';
     customMetricIds?: string[];
     sampleCapped?: boolean;
+    /**
+     * Default metrics that belong in the headline score.
+     * Keys outside this list are not treated as 0.
+     * Omitted → all built-in numeric metrics, missing values count as 0.
+     */
+    defaultKeys?: readonly string[];
+    /** Checklist booleans/numbers. null is skipped and does not lower the score. */
+    includeCustomMetrics?: boolean;
+}
+
+export interface OperatorScoreOptions {
+    defaultKeys: readonly string[];
+    includeCustomMetrics?: boolean;
+}
+
+/**
+ * Mean of the metrics a project actually scores.
+ * A missing built-in key counts as 0 only when it is in defaultKeys.
+ * Custom null is excluded; false is 0 and true is 100.
+ */
+export function averageOperatorScore(
+    records: EvidenceRecord[],
+    opts: OperatorScoreOptions,
+): number {
+    const defaultKeys = opts.defaultKeys;
+    const sums: Record<string, number> = {};
+    for (const key of defaultKeys) sums[key] = 0;
+    let scoredCalls = 0;
+    const custom = new Map<string, { sum: number; count: number }>();
+
+    for (const record of records) {
+        const metrics = record.analytics?.metrics as Record<string, unknown> | undefined;
+        if (!metrics) continue;
+        scoredCalls++;
+        for (const key of defaultKeys) {
+            const value = metrics[key];
+            if (typeof value === 'number' && Number.isFinite(value)) sums[key] += value;
+        }
+        if (!opts.includeCustomMetrics) continue;
+        const bag = metrics.custom_metrics;
+        if (!bag || typeof bag !== 'object' || Array.isArray(bag)) continue;
+        for (const [id, raw] of Object.entries(bag as Record<string, unknown>)) {
+            let contribution: number | null = null;
+            if (raw === true) contribution = 100;
+            else if (raw === false) contribution = 0;
+            else if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 && raw <= 100) {
+                contribution = raw;
+            }
+            if (contribution == null) continue;
+            const bucket = custom.get(id) ?? { sum: 0, count: 0 };
+            bucket.sum += contribution;
+            bucket.count += 1;
+            custom.set(id, bucket);
+        }
+    }
+
+    if (scoredCalls === 0) return 0;
+    const parts: number[] = defaultKeys.map(key => sums[key] / scoredCalls);
+    for (const bucket of custom.values()) {
+        if (bucket.count > 0) parts.push(bucket.sum / bucket.count);
+    }
+    if (!parts.length) return 0;
+    return parseFloat((parts.reduce((sum, value) => sum + value, 0) / parts.length).toFixed(2));
 }
 
 type EvidenceRecord = {
@@ -192,20 +255,12 @@ export function buildOperatorEvidence(
 
     const buckets = new Map<string, Bucket>();
     let scoredCalls = 0;
-    const scoreSums: Record<string, number> = {};
-    NUMERIC_DEFAULT_KEYS.forEach(k => { scoreSums[k] = 0; });
-    let scoreCount = 0;
 
     for (const record of records) {
         const metrics = record.analytics?.metrics as Record<string, unknown> | undefined;
         if (!metrics) continue;
 
         scoredCalls++;
-        NUMERIC_DEFAULT_KEYS.forEach(k => {
-            const v = readMetricValue(metrics, k);
-            if (typeof v === 'number') scoreSums[k] += v;
-        });
-        scoreCount++;
 
         const customMeta = metrics._custom_meta as Record<string, StoredMetricMeta> | undefined;
         const keys = collectMetricKeys(metrics);
@@ -246,10 +301,10 @@ export function buildOperatorEvidence(
         }
     }
 
-    const denom = scoreCount || 1;
-    const averageScore = parseFloat(
-        (NUMERIC_DEFAULT_KEYS.reduce((s, k) => s + (scoreSums[k] / denom), 0) / NUMERIC_DEFAULT_KEYS.length).toFixed(2),
-    );
+    const averageScore = averageOperatorScore(records, {
+        defaultKeys: opts.defaultKeys?.length ? opts.defaultKeys : NUMERIC_DEFAULT_KEYS,
+        includeCustomMetrics: opts.includeCustomMetrics === true,
+    });
 
     const metrics: OperatorEvidenceMetric[] = [];
     for (const [metricId, bucket] of buckets.entries()) {

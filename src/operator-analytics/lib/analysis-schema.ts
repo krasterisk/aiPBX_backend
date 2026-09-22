@@ -570,7 +570,8 @@ export function buildOpenAiJsonSchema(ctx: AnalysisBuildContext, options?: Analy
         for (const metric of ctx.customMetrics) {
             switch (metric.type) {
                 case 'boolean':
-                    customProps[metric.id] = { type: 'boolean' };
+                    // null = the check does not apply to this call and is excluded from scores.
+                    customProps[metric.id] = { type: ['boolean', 'null'] };
                     break;
                 case 'number':
                     customProps[metric.id] = { type: 'number' };
@@ -656,10 +657,13 @@ export function buildAnalysisPrompt(
             } else if (m.type === 'number') {
                 const { min, max } = resolveMetricRange(m);
                 typeDef = `number ${min}..${max}`;
+            } else if (m.type === 'boolean') {
+                typeDef = 'boolean|null';
             }
             return `${m.id} (${typeDef}): ${m.description}`;
         }).join('; ');
-        customMetricsPromptBlock = `\nCustom metrics (also in assessments + custom_metrics): ${customDefs}`;
+        customMetricsPromptBlock = `\nCustom metrics (also in assessments + custom_metrics): ${customDefs}`
+            + `\nBoolean null means the metric does not apply to this call — only when its description says so. null is excluded from scores. false means the check applied and failed. Do not use false for a not-applicable call.`;
     }
 
     let taxonomyPromptBlock = '';

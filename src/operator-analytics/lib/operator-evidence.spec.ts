@@ -174,6 +174,37 @@ describe('operator-evidence', () => {
             expect(metric?.evidence.map(e => e.value)).toEqual([false, true]);
         });
 
+        it('excludes null custom booleans from the rate when the metric does not apply', () => {
+            const records = [
+                baseRecord({
+                    channelId: '1',
+                    metrics: {
+                        custom_metrics: { lead_source: true },
+                        _assessments: {
+                            lead_source: { rationale: 'Первый визит, вопрос задан.' },
+                        },
+                    },
+                }),
+                baseRecord({
+                    channelId: '2',
+                    createdAt: '2026-07-01T11:00:00.000Z',
+                    metrics: {
+                        custom_metrics: { lead_source: null },
+                        _assessments: {
+                            lead_source: { rationale: 'Пациент уже лечился в клинике, вопрос не обязателен.' },
+                        },
+                    },
+                }),
+            ];
+
+            const result = buildOperatorEvidence(records, {
+                operatorName: 'all',
+                customMetricIds: ['lead_source'],
+            });
+            const metric = result.metrics.find(m => m.metricId === 'lead_source');
+            expect(metric?.average).toBe(100);
+        });
+
         it('marks built-in keys as default origin', () => {
             const records = [baseRecord({
                 metrics: {

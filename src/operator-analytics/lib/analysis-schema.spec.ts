@@ -37,6 +37,7 @@ describe('analysis-schema', () => {
         expect(schema.properties.script_compliance).toBeDefined();
         expect(schema.properties.politeness_empathy).toBeUndefined();
         expect(schema.properties.custom_metrics).toBeDefined();
+        expect(schema.properties.custom_metrics.properties.upsell_attempt.type).toEqual(['boolean', 'null']);
         expect(schema.properties.assessments.properties.upsell_attempt).toBeDefined();
         expect(schema.properties.assessments.properties.greeting_quality.properties.rationale)
             .toBeDefined();

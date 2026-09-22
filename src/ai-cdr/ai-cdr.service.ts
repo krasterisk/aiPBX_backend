@@ -124,7 +124,7 @@ export class AiCdrService {
     /** JSON_EXTRACT for sorting by nested JSON path */
     private sqlJsonExtract(table: string, column: string, jsonPath: string): string {
         return this.dialect === 'postgres'
-            ? `(${this.q(table)}.${this.q(column)}::jsonb->'scenario_analysis'->>'success')`
+            ? `(replace((${this.q(table)}.${this.q(column)})::text, E'\\\\u0000', '')::jsonb->'scenario_analysis'->>'success')`
             : `JSON_EXTRACT(${this.q(table)}.${this.q(column)}, '${jsonPath}')`;
     }
 

@@ -1,7 +1,13 @@
-import { buildDashboardCdrWhere, findChannelIdsForDistribution } from './dashboard-aggregation';
+import { buildDashboardCdrWhere, findChannelIdsForDistribution, postgresJsonbCast } from './dashboard-aggregation';
 import { Op } from 'sequelize';
 
 describe('dashboard-aggregation', () => {
+    it('strips U+0000 before casting metrics json to jsonb', () => {
+        expect(postgresJsonbCast('a."metrics"')).toBe(
+            `replace((a."metrics")::text, E'\\\\u0000', '')::jsonb`,
+        );
+    });
+
     const likeOp = (v: string) => ({ [Op.like]: v });
 
     it('buildDashboardCdrWhere scopes non-admin to realUserId', () => {

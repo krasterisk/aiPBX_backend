@@ -54,11 +54,20 @@ function q(name: string, dialect: string): string {
     return dialect === 'postgres' ? `"${name}"` : `\`${name}\``;
 }
 
+/**
+ * Cast stored json to jsonb. PostgreSQL rejects the JSON escape U+0000
+ * (`\u0000`), which shows up in transcript quotes. Strip it before the cast.
+ */
+export function postgresJsonbCast(sqlExpr: string): string {
+    return `replace((${sqlExpr})::text, E'\\\\u0000', '')::jsonb`;
+}
+
 function qualityJsonExpr(dialect: string, analyticsAlias: string): string {
+    const metrics = `${analyticsAlias}.${q('metrics', dialect)}`;
     if (dialect === 'postgres') {
-        return `${analyticsAlias}.${q('metrics', dialect)}::jsonb->'_quality'->>'quality'`;
+        return `${postgresJsonbCast(metrics)}->'_quality'->>'quality'`;
     }
-    return `JSON_UNQUOTE(JSON_EXTRACT(${analyticsAlias}.${q('metrics', dialect)}, '$._quality.quality'))`;
+    return `JSON_UNQUOTE(JSON_EXTRACT(${metrics}, '$._quality.quality'))`;
 }
 
 export async function countLowQualityCdrs(
@@ -338,17 +347,18 @@ function appendCdrFilterClauses(
 }
 
 function successJsonExpr(dialect: string, analyticsAlias: string): string {
+    const metrics = `${analyticsAlias}.${q('metrics', dialect)}`;
     if (dialect === 'postgres') {
-        return `(${analyticsAlias}.${q('metrics', dialect)}::jsonb->>'success')`;
+        return `(${postgresJsonbCast(metrics)}->>'success')`;
     }
-    return `JSON_UNQUOTE(JSON_EXTRACT(${analyticsAlias}.${q('metrics', dialect)}, '$.success'))`;
+    return `JSON_UNQUOTE(JSON_EXTRACT(${metrics}, '$.success'))`;
 }
 
 function sentimentJsonExpr(dialect: string, analyticsAlias: string): string {
     if (dialect === 'postgres') {
         return `LOWER(COALESCE(
             NULLIF(${analyticsAlias}.${q('sentiment', dialect)}, ''),
-            ${analyticsAlias}.${q('metrics', dialect)}::jsonb->>'customer_sentiment'
+            ${postgresJsonbCast(`${analyticsAlias}.${q('metrics', dialect)}`)}->>'customer_sentiment'
         ))`;
     }
     return `LOWER(COALESCE(

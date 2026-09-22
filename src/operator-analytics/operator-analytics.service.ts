@@ -3647,6 +3647,20 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         });
     }
 
+    /** PostgreSQL json/jsonb cannot store U+0000. Models sometimes emit it inside quotes. */
+    private stripNulChars<T>(value: T): T {
+        if (typeof value === 'string') return value.replace(/\u0000/g, '') as T;
+        if (Array.isArray(value)) return value.map(item => this.stripNulChars(item)) as T;
+        if (value && typeof value === 'object') {
+            const out: Record<string, unknown> = {};
+            for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+                out[key] = this.stripNulChars(nested);
+            }
+            return out as T;
+        }
+        return value;
+    }
+
     private enrichStoredMetrics(
         metrics: Record<string, any>,
         assessment: TranscriptionQualityAssessment,
@@ -3661,7 +3675,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             diarizationSource?: DiarizationSource | null;
         },
     ) {
-        return {
+        return this.stripNulChars({
             ...metrics,
             ...(extras?.assessments ? { _assessments: extras.assessments } : {}),
             ...(extras?.customMeta && Object.keys(extras.customMeta).length
@@ -3683,7 +3697,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
                 confidence: assessment.confidence,
                 reasons: assessment.reasons,
             },
-        };
+        });
     }
 
     /**

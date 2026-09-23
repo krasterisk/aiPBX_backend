@@ -2200,15 +2200,18 @@ export class OperatorAnalyticsService {
             }
         }
 
-        const agentScorecards = this.buildAgentScorecards(
-            recordsForDerived,
-            project
-                ? {
-                    defaultKeys: resolveVisibleDefaultMetrics(project),
-                    includeCustomMetrics: true,
-                }
-                : undefined,
-        );
+        const projectScore = project
+            ? {
+                defaultKeys: resolveVisibleDefaultMetrics(project),
+                includeCustomMetrics: true,
+            }
+            : undefined;
+
+        if (projectScore) {
+            averageScore = averageOperatorScore(recordsForDerived, projectScore);
+        }
+
+        const agentScorecards = this.buildAgentScorecards(recordsForDerived, projectScore);
 
         return {
             totalAnalyzed,

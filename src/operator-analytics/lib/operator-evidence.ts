@@ -268,7 +268,7 @@ export function buildOperatorEvidence(
     type Bucket = {
         sum: number;
         sampleSize: number;
-        candidates: Array<OperatorEvidenceItem & { sortValue: number }>;
+        candidates: Array<OperatorEvidenceItem & { sortValue: number; unset: boolean }>;
         label?: string;
     };
 
@@ -317,6 +317,7 @@ export function buildOperatorEvidence(
                 rationale: assessment?.rationale,
                 quote: assessment?.quote,
                 sortValue: sortValueForMetric(value),
+                unset: value == null,
             });
         }
     }
@@ -329,6 +330,7 @@ export function buildOperatorEvidence(
     const metrics: OperatorEvidenceMetric[] = [];
     for (const [metricId, bucket] of buckets.entries()) {
         bucket.candidates.sort((a, b) => {
+            if (a.unset !== b.unset) return a.unset ? 1 : -1;
             const byScore = lowFirst ? a.sortValue - b.sortValue : b.sortValue - a.sortValue;
             if (byScore !== 0) return byScore;
             const byTime = b.createdAt.localeCompare(a.createdAt);
@@ -341,7 +343,7 @@ export function buildOperatorEvidence(
         const evidence: OperatorEvidenceItem[] = includePage
             ? bucket.candidates
                 .slice(start, start + evidencePageSize)
-                .map(({ sortValue: _sortValue, ...item }) => item)
+                .map(({ sortValue: _sortValue, unset: _unset, ...item }) => item)
             : [];
 
         if (bucket.candidates.length === 0) continue;

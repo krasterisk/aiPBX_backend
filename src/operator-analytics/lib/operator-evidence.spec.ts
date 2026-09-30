@@ -123,6 +123,55 @@ describe('operator-evidence', () => {
             expect(page2.metrics[0].average).toBe(page1.metrics[0].average);
         });
 
+        it('sorts scored calls worst-first and leaves null values last', () => {
+            const records = [
+                baseRecord({
+                    channelId: 'missing',
+                    createdAt: '2026-07-01T12:00:00.000Z',
+                    metrics: {
+                        custom_metrics: { lead_source: null },
+                        _assessments: { lead_source: { rationale: 'Пункт не оценивался.' } },
+                    },
+                }),
+                baseRecord({
+                    channelId: 'high',
+                    createdAt: '2026-07-02T12:00:00.000Z',
+                    metrics: {
+                        custom_metrics: { lead_source: 90 },
+                        _assessments: { lead_source: { quote: 'Высокий балл' } },
+                    },
+                }),
+                baseRecord({
+                    channelId: 'zero',
+                    createdAt: '2026-07-03T12:00:00.000Z',
+                    metrics: {
+                        custom_metrics: { lead_source: 0 },
+                        _assessments: { lead_source: { quote: 'Нулевой балл' } },
+                    },
+                }),
+                baseRecord({
+                    channelId: 'missed',
+                    createdAt: '2026-07-04T12:00:00.000Z',
+                    metrics: {
+                        custom_metrics: { lead_source: false },
+                        _assessments: { lead_source: { rationale: 'Не спросил.' } },
+                    },
+                }),
+            ];
+
+            const result = buildOperatorEvidence(records, {
+                operatorName: 'Иван',
+                customMetricIds: ['lead_source'],
+                order: 'worst',
+            });
+            expect(result.metrics[0].evidence.map(item => item.channelId)).toEqual([
+                'missed',
+                'zero',
+                'high',
+                'missing',
+            ]);
+        });
+
         it('includes a scored call that has no quote and sorts it with the misses', () => {
             const records = [
                 baseRecord({

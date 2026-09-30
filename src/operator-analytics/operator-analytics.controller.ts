@@ -759,6 +759,9 @@ export class OperatorAnalyticsController {
             withoutProject?: string;
             limit?: number;
             order?: string;
+            metricId?: string;
+            evidencePage?: number;
+            evidencePageSize?: number;
         },
     ) {
         const order = query.order ?? 'worst';
@@ -778,6 +781,9 @@ export class OperatorAnalyticsController {
                 withoutProject: query.withoutProject,
                 limit: query.limit,
                 order: order as 'worst' | 'best',
+                metricId: query.metricId,
+                evidencePage: query.evidencePage,
+                evidencePageSize: query.evidencePageSize,
             },
             isAdmin,
             realUserId,

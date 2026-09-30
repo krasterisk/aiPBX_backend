@@ -30,7 +30,7 @@ export class ApiKey extends Model<ApiKey> {
 
     /**
      * JSON array of allowed scopes.
-     * Supported values: 'chat:message', 'models:read', 'helpdesk:tools', 'tts:synthesize', 'voice:session'.
+     * Supported values: 'chat:message', 'models:read', 'helpdesk:tools', 'tts:synthesize', 'stt:transcribe', 'voice:session'.
      * Null = all scopes allowed.
      */
     @ApiProperty({

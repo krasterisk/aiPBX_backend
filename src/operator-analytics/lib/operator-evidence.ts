@@ -3,7 +3,8 @@ import {
     StoredMetricMeta,
 } from '../interfaces/operator-metrics.interface';
 
-export const EVIDENCE_PER_METRIC = 5;
+export const DEFAULT_EVIDENCE_PAGE_SIZE = 20;
+export const MAX_EVIDENCE_PAGE_SIZE = 100;
 export const DEFAULT_EVIDENCE_MAX_CALLS = 300;
 
 const NUMERIC_DEFAULT_KEYS = ALL_DEFAULT_METRIC_KEYS;
@@ -46,6 +47,10 @@ export interface OperatorEvidenceMetric {
     label?: string;
     average: number | null;
     sampleSize: number;
+    /** All scored calls for this metric, not just the current page. */
+    evidenceTotal: number;
+    evidencePage: number;
+    evidencePageSize: number;
     evidence: OperatorEvidenceItem[];
 }
 
@@ -63,6 +68,10 @@ export interface BuildOperatorEvidenceOptions {
     order?: 'worst' | 'best';
     customMetricIds?: string[];
     sampleCapped?: boolean;
+    /** When set, only this metric's evidence page is filled. Summaries of other metrics stay. */
+    metricId?: string;
+    evidencePage?: number;
+    evidencePageSize?: number;
     /**
      * Default metrics that belong in the headline score.
      * Keys outside this list are not treated as 0.
@@ -199,6 +208,13 @@ function sentimentToScore(value: number | boolean | string | null): number | nul
     }
 }
 
+function coercePage(value: number | undefined, fallback: number, max?: number): number {
+    if (value == null || !Number.isFinite(value)) return fallback;
+    const floored = Math.floor(value);
+    if (floored < 1) return fallback;
+    return max != null ? Math.min(floored, max) : floored;
+}
+
 function classifyOrigin(
     key: string,
     customMetricIds: Set<string>,
@@ -234,6 +250,9 @@ export function buildOperatorEvidence(
     const order = opts.order ?? 'worst';
     const customMetricIds = new Set(opts.customMetricIds ?? []);
     const lowFirst = order === 'worst';
+    const requestedMetricId = opts.metricId?.trim() || undefined;
+    const evidencePage = coercePage(opts.evidencePage, 1);
+    const evidencePageSize = coercePage(opts.evidencePageSize, DEFAULT_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_PAGE_SIZE);
 
     if (!records.length) {
         return {
@@ -267,9 +286,10 @@ export function buildOperatorEvidence(
 
         for (const key of keys) {
             const assessment = readAssessment(metrics as Parameters<typeof readAssessment>[0], key);
-            if (!assessment?.rationale && !assessment?.quote) continue;
-
             const value = readMetricValue(metrics, key);
+            const hasText = Boolean(assessment?.rationale || assessment?.quote);
+            // Keep every scored call, including misses that have no quote.
+            if (!hasText && value == null) continue;
             if (!buckets.has(key)) {
                 buckets.set(key, { sum: 0, sampleSize: 0, candidates: [] });
             }
@@ -294,8 +314,8 @@ export function buildOperatorEvidence(
                     ? record.createdAt.toISOString()
                     : String(record.createdAt ?? ''),
                 value,
-                rationale: assessment.rationale,
-                quote: assessment.quote,
+                rationale: assessment?.rationale,
+                quote: assessment?.quote,
                 sortValue: sortValueForMetric(value),
             });
         }
@@ -308,13 +328,23 @@ export function buildOperatorEvidence(
 
     const metrics: OperatorEvidenceMetric[] = [];
     for (const [metricId, bucket] of buckets.entries()) {
-        bucket.candidates.sort((a, b) => (lowFirst ? a.sortValue - b.sortValue : b.sortValue - a.sortValue));
+        bucket.candidates.sort((a, b) => {
+            const byScore = lowFirst ? a.sortValue - b.sortValue : b.sortValue - a.sortValue;
+            if (byScore !== 0) return byScore;
+            const byTime = b.createdAt.localeCompare(a.createdAt);
+            if (byTime !== 0) return byTime;
+            return a.channelId.localeCompare(b.channelId);
+        });
 
-        const evidence: OperatorEvidenceItem[] = bucket.candidates
-            .slice(0, EVIDENCE_PER_METRIC)
-            .map(({ sortValue: _sortValue, ...item }) => item);
+        const includePage = !requestedMetricId || requestedMetricId === metricId;
+        const start = (evidencePage - 1) * evidencePageSize;
+        const evidence: OperatorEvidenceItem[] = includePage
+            ? bucket.candidates
+                .slice(start, start + evidencePageSize)
+                .map(({ sortValue: _sortValue, ...item }) => item)
+            : [];
 
-        if (evidence.length === 0) continue;
+        if (bucket.candidates.length === 0) continue;
 
         const numericCount = bucket.candidates.reduce(
             (n, c) => n + (valueToAverageContribution(metricId, c.value) != null ? 1 : 0),
@@ -329,6 +359,9 @@ export function buildOperatorEvidence(
                 ? parseFloat((bucket.sum / avgDenom).toFixed(2))
                 : null,
             sampleSize: bucket.sampleSize,
+            evidenceTotal: bucket.candidates.length,
+            evidencePage,
+            evidencePageSize,
             evidence,
         });
     }

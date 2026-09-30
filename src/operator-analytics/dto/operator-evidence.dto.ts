@@ -33,6 +33,15 @@ export class OperatorEvidenceMetricDto {
     @ApiProperty({ example: 12 })
     sampleSize: number;
 
+    @ApiProperty({ example: 48, description: 'All scored calls for this metric' })
+    evidenceTotal: number;
+
+    @ApiProperty({ example: 1 })
+    evidencePage: number;
+
+    @ApiProperty({ example: 20 })
+    evidencePageSize: number;
+
     @ApiProperty({ type: [OperatorEvidenceItemDto] })
     evidence: OperatorEvidenceItemDto[];
 }

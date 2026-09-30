@@ -10091,6 +10091,19 @@
             "type": "number",
             "example": 12
           },
+          "evidenceTotal": {
+            "type": "number",
+            "description": "All scored calls for this metric",
+            "example": 48
+          },
+          "evidencePage": {
+            "type": "number",
+            "example": 1
+          },
+          "evidencePageSize": {
+            "type": "number",
+            "example": 20
+          },
           "evidence": {
             "type": "array",
             "items": {
@@ -10103,6 +10116,9 @@
           "origin",
           "average",
           "sampleSize",
+          "evidenceTotal",
+          "evidencePage",
+          "evidencePageSize",
           "evidence"
         ]
       },

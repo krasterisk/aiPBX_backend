@@ -3,7 +3,6 @@ import {
     buildOperatorEvidence,
     readAssessment,
     resolveEvidenceMaxCalls,
-    EVIDENCE_PER_METRIC,
 } from './operator-evidence';
 
 describe('operator-evidence', () => {
@@ -88,7 +87,7 @@ describe('operator-evidence', () => {
             expect(result.metrics[0].evidence).toHaveLength(1);
         });
 
-        it('caps each metric evidence at 5 and orders worst-scoring calls first by default', () => {
+        it('pages evidence from worst to best and reports the full total', () => {
             const records = Array.from({ length: 6 }, (_, i) => baseRecord({
                 channelId: `ch-${i}`,
                 createdAt: `2026-07-0${i + 1}T12:00:00.000Z`,
@@ -100,10 +99,84 @@ describe('operator-evidence', () => {
                 },
             }));
 
-            const result = buildOperatorEvidence(records, { operatorName: 'Иван', order: 'worst' });
-            expect(result.metrics[0].evidence).toHaveLength(EVIDENCE_PER_METRIC);
-            expect(result.metrics[0].evidence[0].value).toBe(10);
-            expect(result.metrics[0].evidence[4].value).toBe(50);
+            const page1 = buildOperatorEvidence(records, {
+                operatorName: 'Иван',
+                order: 'worst',
+                evidencePage: 1,
+                evidencePageSize: 5,
+            });
+            expect(page1.metrics[0].evidenceTotal).toBe(6);
+            expect(page1.metrics[0].evidencePage).toBe(1);
+            expect(page1.metrics[0].evidencePageSize).toBe(5);
+            expect(page1.metrics[0].evidence).toHaveLength(5);
+            expect(page1.metrics[0].evidence[0].value).toBe(10);
+            expect(page1.metrics[0].evidence[4].value).toBe(50);
+
+            const page2 = buildOperatorEvidence(records, {
+                operatorName: 'Иван',
+                order: 'worst',
+                evidencePage: 2,
+                evidencePageSize: 5,
+            });
+            expect(page2.metrics[0].evidence).toHaveLength(1);
+            expect(page2.metrics[0].evidence[0].value).toBe(60);
+            expect(page2.metrics[0].average).toBe(page1.metrics[0].average);
+        });
+
+        it('includes a scored call that has no quote and sorts it with the misses', () => {
+            const records = [
+                baseRecord({
+                    channelId: 'asked',
+                    createdAt: '2026-07-02T12:00:00.000Z',
+                    metrics: {
+                        custom_metrics: { lead_source: true },
+                        _assessments: {
+                            lead_source: { rationale: 'Спросил источник.' },
+                        },
+                    },
+                }),
+                baseRecord({
+                    channelId: 'missed',
+                    createdAt: '2026-07-03T12:00:00.000Z',
+                    metrics: {
+                        custom_metrics: { lead_source: false },
+                    },
+                }),
+            ];
+
+            const result = buildOperatorEvidence(records, {
+                operatorName: 'Иван',
+                customMetricIds: ['lead_source'],
+                metricId: 'lead_source',
+            });
+            const metric = result.metrics.find(m => m.metricId === 'lead_source');
+            expect(metric?.evidenceTotal).toBe(2);
+            expect(metric?.evidence.map(item => item.channelId)).toEqual(['missed', 'asked']);
+            expect(metric?.average).toBe(50);
+        });
+
+        it('fills the evidence page only for the requested metric', () => {
+            const records = [baseRecord({
+                metrics: {
+                    greeting_quality: 40,
+                    closing_quality: 90,
+                    _assessments: {
+                        greeting_quality: { quote: 'Алло' },
+                        closing_quality: { quote: 'До свидания' },
+                    },
+                },
+            })];
+
+            const result = buildOperatorEvidence(records, {
+                operatorName: 'Иван',
+                metricId: 'greeting_quality',
+            });
+            const greeting = result.metrics.find(m => m.metricId === 'greeting_quality');
+            const closing = result.metrics.find(m => m.metricId === 'closing_quality');
+            expect(greeting?.evidence).toHaveLength(1);
+            expect(closing?.evidence).toEqual([]);
+            expect(closing?.evidenceTotal).toBe(1);
+            expect(closing?.average).toBe(90);
         });
 
         it('labels a project-defined metric from snapshot metadata', () => {

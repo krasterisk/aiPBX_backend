@@ -10,6 +10,7 @@ export const API_KEY_SCOPES = {
     MODELS_READ: 'models:read',
     HELPDESK_TOOLS: 'helpdesk:tools',
     TTS_SYNTHESIZE: 'tts:synthesize',
+    STT_TRANSCRIBE: 'stt:transcribe',
     VOICE_SESSION: 'voice:session',
 } as const;
 

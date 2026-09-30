@@ -1970,6 +1970,9 @@ export class OperatorAnalyticsService {
             withoutProject?: string | boolean;
             limit?: number;
             order?: 'worst' | 'best';
+            metricId?: string;
+            evidencePage?: number;
+            evidencePageSize?: number;
         },
         isAdmin: boolean,
         realUserId: string | null,
@@ -2026,6 +2029,9 @@ export class OperatorAnalyticsService {
             sampleCapped,
             defaultKeys,
             includeCustomMetrics,
+            metricId: query.metricId,
+            evidencePage: query.evidencePage != null ? Number(query.evidencePage) : undefined,
+            evidencePageSize: query.evidencePageSize != null ? Number(query.evidencePageSize) : undefined,
         });
 
         this.logOperatorEvidenceAccess(actorUserId, operatorName || 'all', eligibleRecords.length);

@@ -2513,7 +2513,7 @@ describe('OperatorAnalyticsService', () => {
             expect(typeof call.where.assistantName).toBe('string');
         });
 
-        it('omits metrics whose sampled calls carry neither quote nor rationale', async () => {
+        it('keeps a scored metric when the assessment has no quote', async () => {
             mockAiCdrRepo.findAll.mockResolvedValue([
                 {
                     channelId: '1',
@@ -2536,10 +2536,16 @@ describe('OperatorAnalyticsService', () => {
                 null,
             );
 
-            expect(result.metrics.map(m => m.metricId)).toEqual(['script_compliance']);
+            expect(result.metrics.map(m => m.metricId).sort()).toEqual([
+                'greeting_quality',
+                'script_compliance',
+            ]);
+            const greeting = result.metrics.find(m => m.metricId === 'greeting_quality');
+            expect(greeting?.evidence[0]).toMatchObject({ value: 80, channelId: '1' });
+            expect(greeting?.evidence[0].quote).toBeUndefined();
         });
 
-        it('returns at most five evidence items per metric', async () => {
+        it('returns the requested evidence page and the full total', async () => {
             mockAiCdrRepo.findAll.mockResolvedValue(
                 Array.from({ length: 6 }, (_, i) => ({
                     channelId: String(i + 1),
@@ -2556,12 +2562,14 @@ describe('OperatorAnalyticsService', () => {
             );
 
             const result = await service.getOperatorEvidence(
-                { operatorName: 'Иван' },
+                { operatorName: 'Иван', evidencePage: 1, evidencePageSize: 5 },
                 true,
                 null,
             );
 
             expect(result.metrics[0].evidence).toHaveLength(5);
+            expect(result.metrics[0].evidenceTotal).toBe(6);
+            expect(result.metrics[0].evidence[0].value).toBe(10);
         });
 
         it('sets sampleCapped when repository returns exactly the cap', async () => {

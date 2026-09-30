@@ -93,7 +93,6 @@ import { InsightsCacheService } from './insights-cache.service';
 import {
     averageOperatorScore,
     buildOperatorEvidence,
-    resolveEvidenceMaxCalls,
 } from './lib/operator-evidence';
 import { buildInsightsPrompt } from './lib/insights-prompt';
 import { extractLlmJsonContent } from './lib/llm-json';
@@ -1980,7 +1979,6 @@ export class OperatorAnalyticsService {
     ) {
         const scoped = this.scopeProjectQuery(query);
         const operatorName = query.operatorName?.trim() || '';
-        const cap = resolveEvidenceMaxCalls(query.limit);
         const order = query.order ?? 'worst';
 
         const filters = {
@@ -1999,34 +1997,30 @@ export class OperatorAnalyticsService {
             (v) => this.likeOp(v),
         );
 
-        const rows = await this.aiCdrRepository.findAll({
-            where,
-            include: [{ model: AiAnalytics, as: 'analytics' }],
-            order: [['createdAt', 'DESC']],
-            limit: cap,
-        });
-
-        const eligibleRecords = rows.filter(r => {
+        // Same call set as the dashboard metric: the whole filtered period, not the last 300.
+        const aggregationRecords = await this.loadDashboardCdrPages(where);
+        const eligibleRecords = aggregationRecords.filter(r => {
             const quality = (r.analytics?.metrics as any)?._quality?.quality as TranscriptionQualityLevel | undefined;
             return quality !== 'low' && quality !== 'unusable';
         });
+        const recordsForDerived = eligibleRecords.length > 0 ? eligibleRecords : aggregationRecords;
 
         let customMetricIds: string[] = [];
         let defaultKeys: readonly string[] | undefined;
         let includeCustomMetrics = false;
+        let project: OperatorProject | null = null;
         if (scoped.projectId) {
-            const project = await this.projectRepository.findByPk(scoped.projectId);
+            project = await this.projectRepository.findByPk(scoped.projectId);
             customMetricIds = project?.customMetricsSchema?.map(m => m.id) ?? [];
             defaultKeys = resolveVisibleDefaultMetrics(project);
             includeCustomMetrics = true;
         }
 
-        const sampleCapped = rows.length >= cap;
-        const result = buildOperatorEvidence(eligibleRecords, {
+        const result = buildOperatorEvidence(recordsForDerived, {
             operatorName: operatorName || 'all',
             order,
             customMetricIds,
-            sampleCapped,
+            sampleCapped: false,
             defaultKeys,
             includeCustomMetrics,
             metricId: query.metricId,
@@ -2034,7 +2028,17 @@ export class OperatorAnalyticsService {
             evidencePageSize: query.evidencePageSize != null ? Number(query.evidencePageSize) : undefined,
         });
 
-        this.logOperatorEvidenceAccess(actorUserId, operatorName || 'all', eligibleRecords.length);
+        if (project?.customMetricsSchema?.length) {
+            const aggregated = this.aggregateCustomMetrics(recordsForDerived, project.customMetricsSchema);
+            for (const metric of result.metrics) {
+                const value = aggregated[metric.metricId]?.value;
+                if (typeof value === 'number') {
+                    metric.average = value;
+                }
+            }
+        }
+
+        this.logOperatorEvidenceAccess(actorUserId, operatorName || 'all', recordsForDerived.length);
 
         return result;
     }

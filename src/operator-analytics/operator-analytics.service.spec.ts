@@ -2572,10 +2572,9 @@ describe('OperatorAnalyticsService', () => {
             expect(result.metrics[0].evidence[0].value).toBe(10);
         });
 
-        it('sets sampleCapped when repository returns exactly the cap', async () => {
-            const cap = 300;
+        it('uses the whole period and does not cap the sample at 300', async () => {
             mockAiCdrRepo.findAll.mockResolvedValue(
-                Array.from({ length: cap }, (_, i) => ({
+                Array.from({ length: 300 }, (_, i) => ({
                     channelId: String(i + 1),
                     createdAt: new Date('2026-07-01'),
                     analytics: {
@@ -2593,8 +2592,52 @@ describe('OperatorAnalyticsService', () => {
                 null,
             );
 
-            expect(result.sampleCapped).toBe(true);
-            expect(mockAiCdrRepo.findAll.mock.calls[0][0].limit).toBe(cap);
+            expect(result.sampleCapped).toBe(false);
+            expect(result.metrics[0].evidenceTotal).toBe(300);
+            expect(mockAiCdrRepo.findAll.mock.calls[0][0].limit).toBe(2000);
+        });
+
+        it('sets a boolean custom metric average to the same yes-rate as the dashboard', async () => {
+            mockProjectRepo.findByPk.mockResolvedValue({
+                ...mockProject,
+                customMetricsSchema: [
+                    { id: 'lead_source', name: 'Источник обращения', type: 'boolean' },
+                ],
+            });
+            const calls = [
+                ...Array.from({ length: 2 }, (_, i) => ({
+                    channelId: `yes-${i}`,
+                    createdAt: new Date('2026-07-01'),
+                    analytics: { metrics: { custom_metrics: { lead_source: true } } },
+                })),
+                ...Array.from({ length: 3 }, (_, i) => ({
+                    channelId: `no-${i}`,
+                    createdAt: new Date('2026-07-02'),
+                    analytics: { metrics: { custom_metrics: { lead_source: false } } },
+                })),
+                {
+                    channelId: 'empty',
+                    createdAt: new Date('2026-07-03'),
+                    analytics: {
+                        metrics: {
+                            custom_metrics: { lead_source: null },
+                            _assessments: { lead_source: { rationale: 'Не оценивалось.' } },
+                        },
+                    },
+                },
+            ];
+            mockAiCdrRepo.findAll.mockResolvedValue(calls);
+
+            const result = await service.getOperatorEvidence(
+                { operatorName: 'Иван', projectId: 1, metricId: 'lead_source' },
+                true,
+                null,
+            );
+
+            const metric = result.metrics.find(m => m.metricId === 'lead_source');
+            expect(metric?.average).toBe(40);
+            expect(metric?.evidenceTotal).toBe(6);
+            expect(result.sampleCapped).toBe(false);
         });
 
         it('skips anonymised records whose metrics are absent without throwing', async () => {

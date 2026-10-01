@@ -68,8 +68,8 @@ describe('insights-schema', () => {
         expect(result[1].evidence.metric).toBeUndefined();
     });
 
-    it('INSIGHTS_PROMPT_VERSION equals 2026-06-18.2', () => {
-        expect(INSIGHTS_PROMPT_VERSION).toBe('2026-06-18.2');
+    it('INSIGHTS_PROMPT_VERSION equals 2026-10-01.1', () => {
+        expect(INSIGHTS_PROMPT_VERSION).toBe('2026-10-01.1');
     });
 
     it('buildInsightsJsonSchema evidence has all keys in required (OpenAI strict)', () => {

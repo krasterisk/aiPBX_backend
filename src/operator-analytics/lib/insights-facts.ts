@@ -50,7 +50,7 @@ export interface InsightsFacts {
         top: Array<{ operatorName: string; averageScore: number; callsCount: number }>;
     };
     trends: Array<{ metric: string; from: number; to: number; delta: number; periodLabel: string }>;
-    customMetrics: Array<{ id: string; type: string; summary: string }>;
+    customMetrics: Array<{ name: string; type: string; summary: string }>;
     dataQuality: { excludedLowQualityCount: number };
     focusMetrics: string[];
     sampleSize: number;
@@ -100,13 +100,38 @@ const FAILURE_REASON_TOP = 8;
 const FAILURE_REASON_UNIQUE_CAP = 20;
 const FAILURE_CHANNEL_IDS = 3;
 
+const DEFAULT_METRIC_NAMES: Record<string, string> = {
+    greeting_quality: 'Качество приветствия',
+    script_compliance: 'Следование скрипту',
+    politeness_empathy: 'Вежливость и эмпатия',
+    active_listening: 'Активное слушание',
+    objection_handling: 'Работа с возражениями',
+    product_knowledge: 'Знание продукта',
+    problem_resolution: 'Решение проблемы',
+    speech_clarity_pace: 'Темп речи',
+    closing_quality: 'Качество завершения',
+    avgScore: 'Средний балл',
+    successRate: 'Доля успешных обращений',
+    csat: 'Удовлетворённость клиента (CSAT)',
+    customer_sentiment: 'Эмоциональный настрой клиента',
+    sentiment: 'Эмоциональный настрой клиента',
+    success: 'Итог обращения',
+};
+
+function metricDisplayName(id: string, project?: OperatorProject | null): string {
+    const custom = project?.customMetricsSchema?.find(metric => metric.id === id)?.name?.trim();
+    if (custom) return custom;
+    return DEFAULT_METRIC_NAMES[id] || id;
+}
+
 function rankMetrics(
     aggregatedMetrics: Record<string, number>,
     focusMetrics: string[],
+    nameOf: (id: string) => string,
 ): InsightsFacts['metricRanking'] {
     const entries = Object.entries(aggregatedMetrics)
         .filter(([metric]) => !focusMetrics.length || focusMetrics.includes(metric))
-        .map(([metric, value]) => ({ metric, value }))
+        .map(([metric, value]) => ({ metric: nameOf(metric), value }))
         .sort((a, b) => a.value - b.value);
 
     return {
@@ -159,22 +184,24 @@ function buildTrends(timeSeries?: DashboardSnapshot['timeSeries']): InsightsFact
 }
 
 function summarizeCustomMetrics(
-    customMetricsAggregated?: DashboardSnapshot['customMetricsAggregated'],
+    customMetricsAggregated: DashboardSnapshot['customMetricsAggregated'],
+    nameOf: (id: string) => string,
 ): InsightsFacts['customMetrics'] {
     if (!customMetricsAggregated) return [];
 
     return Object.entries(customMetricsAggregated).map(([id, agg]) => {
+        const name = nameOf(id);
         if (agg.type === 'boolean' && agg.distribution) {
             const trueCount = agg.distribution.true ?? agg.distribution['true'] ?? 0;
             const falseCount = agg.distribution.false ?? agg.distribution['false'] ?? 0;
             const total = trueCount + falseCount;
             const pct = total > 0 ? Math.round((trueCount / total) * 100) : 0;
-            return { id, type: agg.type, summary: `${id} true=${pct}%` };
+            return { name, type: agg.type, summary: `${name} true=${pct}%` };
         }
         if (typeof agg.value === 'number') {
-            return { id, type: agg.type, summary: `${id} avg=${agg.value}` };
+            return { name, type: agg.type, summary: `${name} avg=${agg.value}` };
         }
-        return { id, type: agg.type, summary: `${id} aggregated` };
+        return { name, type: agg.type, summary: `${name} aggregated` };
     });
 }
 
@@ -322,12 +349,15 @@ export function collectFailureReasons(records: FailureReasonSource[]): {
     };
 }
 
-function worstMetricOf(aggregatedMetrics: Record<string, number> | undefined): { metric: string; value: number } | undefined {
+function worstMetricOf(
+    aggregatedMetrics: Record<string, number> | undefined,
+    nameOf: (id: string) => string = id => id,
+): { metric: string; value: number } | undefined {
     const entries = Object.entries(aggregatedMetrics || [])
         .filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1]));
     if (!entries.length) return undefined;
     entries.sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
-    return { metric: entries[0][0], value: entries[0][1] };
+    return { metric: nameOf(entries[0][0]), value: entries[0][1] };
 }
 
 function periodSnapshot(
@@ -377,6 +407,7 @@ export function buildInsightsFacts(
     comparison?: PeriodComparison | null,
 ): InsightsFacts {
     const focusMetrics = (project?.visibleDefaultMetrics || []) as DefaultMetricKey[];
+    const nameOf = (id: string) => metricDisplayName(id, project);
     const sampleSize = dashboard.totalAnalyzed;
     const operatorOutliers = buildOperatorOutliers(dashboard.agentScorecards);
 
@@ -400,19 +431,37 @@ export function buildInsightsFacts(
             avgDuration: dashboard.averageDuration,
             sentiment: dashboard.sentimentDistribution,
         },
-        metricRanking: rankMetrics(dashboard.aggregatedMetrics, focusMetrics),
+        metricRanking: rankMetrics(dashboard.aggregatedMetrics, focusMetrics, nameOf),
         operatorOutliers: filteredOutliers,
         trends: buildTrends(dashboard.timeSeries),
-        customMetrics: summarizeCustomMetrics(dashboard.customMetricsAggregated),
+        customMetrics: summarizeCustomMetrics(dashboard.customMetricsAggregated, nameOf),
         dataQuality: { excludedLowQualityCount: dashboard.excludedLowQualityCount ?? 0 },
-        focusMetrics: [...focusMetrics],
+        focusMetrics: focusMetrics.map(nameOf),
         sampleSize,
         lowConfidence: sampleSize < minCalls,
         unsuccessful: {
             count: dashboard.unsuccessfulCount ?? 0,
             reasons: dashboard.failureReasons ?? [],
         },
-        comparison: comparison ?? {
+        comparison: comparison
+            ? {
+                ...comparison,
+                current: {
+                    ...comparison.current,
+                    worstMetric: comparison.current.worstMetric
+                        ? { metric: nameOf(comparison.current.worstMetric.metric), value: comparison.current.worstMetric.value }
+                        : undefined,
+                },
+                previous: comparison.previous
+                    ? {
+                        ...comparison.previous,
+                        worstMetric: comparison.previous.worstMetric
+                            ? { metric: nameOf(comparison.previous.worstMetric.metric), value: comparison.previous.worstMetric.value }
+                            : undefined,
+                    }
+                    : undefined,
+            }
+            : {
             empty: true,
             current: {
                 label: '',
@@ -420,7 +469,7 @@ export function buildInsightsFacts(
                 successRate: dashboard.successRate,
                 avgScore: dashboard.averageScore,
                 unsuccessfulCount: dashboard.unsuccessfulCount ?? 0,
-                worstMetric: worstMetricOf(dashboard.aggregatedMetrics),
+                worstMetric: worstMetricOf(dashboard.aggregatedMetrics, nameOf),
             },
         },
     };

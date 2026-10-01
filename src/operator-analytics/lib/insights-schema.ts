@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import { z } from 'zod';
 
-export const INSIGHTS_PROMPT_VERSION = '2026-10-01.1';
+export const INSIGHTS_PROMPT_VERSION = '2026-10-01.2';
 
 export type InsightPriority = 'high' | 'medium' | 'low';
 export type InsightType = 'strength' | 'gap' | 'trend' | 'outlier' | 'quality';

@@ -46,9 +46,24 @@ describe('insights-facts', () => {
 
     it('buildInsightsFacts produces metric ranking worst/best', () => {
         const facts = buildInsightsFacts(dashboardFixture, { visibleDefaultMetrics: ['greeting_quality', 'politeness_empathy'] } as any);
-        expect(facts.metricRanking.worst?.metric).toBe('greeting_quality');
+        expect(facts.metricRanking.worst?.metric).toBe('Качество приветствия');
         expect(facts.metricRanking.worst?.value).toBe(58);
-        expect(facts.metricRanking.best?.metric).toBe('politeness_empathy');
+        expect(facts.metricRanking.best?.metric).toBe('Вежливость и эмпатия');
+    });
+
+    it('uses the project metric name instead of the raw id', () => {
+        const facts = buildInsightsFacts(
+            {
+                ...dashboardFixture,
+                customMetricsAggregated: {
+                    patient_address_form: { type: 'boolean', value: 68.67 },
+                },
+            },
+            { customMetricsSchema: [{ id: 'patient_address_form', name: 'Обращение к пациенту', type: 'boolean', description: '' }] } as any,
+        );
+        expect(facts.customMetrics[0].name).toBe('Обращение к пациенту');
+        expect(facts.customMetrics[0].summary).toContain('Обращение к пациенту');
+        expect(facts.customMetrics[0].summary).not.toContain('patient_address_form');
     });
 
     it('buildInsightsFacts produces operator outliers (min 3 calls)', () => {

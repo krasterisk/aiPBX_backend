@@ -625,6 +625,8 @@ export function buildAnalysisPrompt(
     ctx: AnalysisBuildContext,
     options?: {
         systemPrompt?: string | null;
+        /** When set, replaces the built-in success rule for this project. */
+        successPrompt?: string | null;
         qualityHintConfidence?: number;
         /**
          * Speakers from stereo L/R:
@@ -689,6 +691,11 @@ export function buildAnalysisPrompt(
         ? `\nBUSINESS CONTEXT: ${options.systemPrompt}`
         : '';
 
+    const projectSuccessPrompt = options?.successPrompt?.trim();
+    const successRule = projectSuccessPrompt
+        ? `SUCCESS: Use this project rule for the success boolean. ${projectSuccessPrompt} success must still be true or false. Write the success assessment rationale in the transcript language and quote the supporting turn.`
+        : SUCCESS_INSTRUCTION;
+
     const qualityHintBlock = options?.qualityHintConfidence != null
         ? `\nLOW STT CONFIDENCE (${options.qualityHintConfidence}): if unreliable, set insufficient_content=true, analysis_confidence<0.4; do not invent scores.`
         : '';
@@ -726,7 +733,7 @@ export function buildAnalysisPrompt(
         FULL_SCORE_INSTRUCTION,
         SCOPE_INSTRUCTION,
         BUSINESS_CONTEXT_INSTRUCTION,
-        SUCCESS_INSTRUCTION,
+        successRule,
         CSAT_INSTRUCTION,
         PROCESS_VS_OUTCOME_INSTRUCTION,
         OUT_OF_SCOPE_EXAMPLE,

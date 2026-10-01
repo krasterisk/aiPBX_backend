@@ -22,6 +22,8 @@ export interface DashboardSnapshot {
         averageScore: number;
         successRate: number;
     }>;
+    unsuccessfulCount?: number;
+    failureReasons?: FailureReasonFact[];
 }
 
 export interface InsightsFactsQuery {
@@ -53,7 +55,50 @@ export interface InsightsFacts {
     focusMetrics: string[];
     sampleSize: number;
     lowConfidence: boolean;
+    unsuccessful: {
+        count: number;
+        reasons: FailureReasonFact[];
+    };
+    comparison: PeriodComparison;
 }
+
+export interface FailureReasonFact {
+    reason: string;
+    count: number;
+    shareOfUnsuccessful: number;
+    channelIds: string[];
+}
+
+export interface PeriodMetricSnapshot {
+    label: string;
+    calls: number;
+    successRate: number;
+    avgScore: number;
+    unsuccessfulCount: number;
+    worstMetric?: { metric: string; value: number };
+}
+
+export interface PeriodComparison {
+    empty: boolean;
+    current: PeriodMetricSnapshot;
+    previous?: PeriodMetricSnapshot;
+    deltas?: {
+        calls: number;
+        successRatePp: number;
+        avgScore: number;
+        unsuccessfulCount: number;
+    };
+}
+
+export interface FailureReasonSource {
+    channelId?: string | number;
+    analytics?: { metrics?: Record<string, unknown> };
+}
+
+const FAILURE_REASON_MAX = 240;
+const FAILURE_REASON_TOP = 8;
+const FAILURE_REASON_UNIQUE_CAP = 20;
+const FAILURE_CHANNEL_IDS = 3;
 
 function rankMetrics(
     aggregatedMetrics: Record<string, number>,
@@ -139,11 +184,197 @@ export function resolveInsightsMinCalls(): number {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INSIGHTS_MIN_CALLS;
 }
 
+function parseUtcDay(iso: string): Date | null {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!match) return null;
+    const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatUtcDay(date: Date): string {
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${date.getUTCFullYear()}-${month}-${day}`;
+}
+
+function addUtcDays(date: Date, days: number): Date {
+    const next = new Date(date.getTime());
+    next.setUTCDate(next.getUTCDate() + days);
+    return next;
+}
+
+function inclusiveUtcDays(start: Date, end: Date): number {
+    return Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+}
+
+function lastUtcDayOfMonth(year: number, monthIndex: number): number {
+    return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+}
+
+function isFullCalendarMonth(start: Date, end: Date): boolean {
+    return start.getUTCFullYear() === end.getUTCFullYear()
+        && start.getUTCMonth() === end.getUTCMonth()
+        && start.getUTCDate() === 1
+        && end.getUTCDate() === lastUtcDayOfMonth(end.getUTCFullYear(), end.getUTCMonth());
+}
+
+function isFullCalendarYear(start: Date, end: Date): boolean {
+    return start.getUTCFullYear() === end.getUTCFullYear()
+        && start.getUTCMonth() === 0
+        && start.getUTCDate() === 1
+        && end.getUTCMonth() === 11
+        && end.getUTCDate() === 31;
+}
+
+/**
+ * Previous window for insight comparison.
+ * A full calendar month or year maps to the previous calendar month or year.
+ * Any other range, including one day and seven days, maps to the equal-length
+ * window that ends the day before the selected start.
+ */
+export function resolveComparisonPeriod(
+    startDate?: string,
+    endDate?: string,
+): { startDate: string; endDate: string } | null {
+    if (!startDate || !endDate) return null;
+    const start = parseUtcDay(startDate);
+    const end = parseUtcDay(endDate);
+    if (!start || !end || end.getTime() < start.getTime()) return null;
+
+    if (isFullCalendarMonth(start, end)) {
+        const previousStart = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1));
+        const previousEnd = new Date(Date.UTC(
+            previousStart.getUTCFullYear(),
+            previousStart.getUTCMonth(),
+            lastUtcDayOfMonth(previousStart.getUTCFullYear(), previousStart.getUTCMonth()),
+        ));
+        return { startDate: formatUtcDay(previousStart), endDate: formatUtcDay(previousEnd) };
+    }
+
+    if (isFullCalendarYear(start, end)) {
+        const year = start.getUTCFullYear() - 1;
+        return { startDate: `${year}-01-01`, endDate: `${year}-12-31` };
+    }
+
+    const length = inclusiveUtcDays(start, end);
+    const previousEnd = addUtcDays(start, -1);
+    const previousStart = addUtcDays(previousEnd, -(length - 1));
+    return { startDate: formatUtcDay(previousStart), endDate: formatUtcDay(previousEnd) };
+}
+
+function normalizeFailureReason(text: string): string {
+    return text.replace(/[«»"'`]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function displayFailureReason(text: string): string {
+    const trimmed = text.replace(/\s+/g, ' ').trim();
+    if (trimmed.length <= FAILURE_REASON_MAX) return trimmed;
+    return `${trimmed.slice(0, FAILURE_REASON_MAX - 1)}…`;
+}
+
+export function collectFailureReasons(records: FailureReasonSource[]): {
+    unsuccessfulCount: number;
+    reasons: FailureReasonFact[];
+} {
+    const groups = new Map<string, { reason: string; count: number; channelIds: string[] }>();
+    let unsuccessfulCount = 0;
+
+    for (const record of records) {
+        const metrics = record.analytics?.metrics;
+        if (!metrics || metrics.success !== false) continue;
+        unsuccessfulCount += 1;
+
+        const assessment = (metrics._assessments as Record<string, { rationale?: string }> | undefined)?.success;
+        const rationale = typeof assessment?.rationale === 'string' ? assessment.rationale.trim() : '';
+        if (!rationale) continue;
+
+        const key = normalizeFailureReason(rationale);
+        if (!key) continue;
+        const channelId = record.channelId != null ? String(record.channelId) : '';
+        const existing = groups.get(key);
+        if (!existing) {
+            groups.set(key, {
+                reason: displayFailureReason(rationale),
+                count: 1,
+                channelIds: channelId ? [channelId] : [],
+            });
+            continue;
+        }
+        existing.count += 1;
+        if (channelId && existing.channelIds.length < FAILURE_CHANNEL_IDS && !existing.channelIds.includes(channelId)) {
+            existing.channelIds.push(channelId);
+        }
+    }
+
+    const ranked = [...groups.values()].sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason));
+    const allUnique = ranked.length > 0 && ranked.every(item => item.count === 1);
+    const limited = ranked.slice(0, allUnique ? FAILURE_REASON_UNIQUE_CAP : FAILURE_REASON_TOP);
+    const denom = unsuccessfulCount || 1;
+
+    return {
+        unsuccessfulCount,
+        reasons: limited.map(item => ({
+            reason: item.reason,
+            count: item.count,
+            shareOfUnsuccessful: parseFloat(((item.count / denom) * 100).toFixed(1)),
+            channelIds: item.channelIds,
+        })),
+    };
+}
+
+function worstMetricOf(aggregatedMetrics: Record<string, number> | undefined): { metric: string; value: number } | undefined {
+    const entries = Object.entries(aggregatedMetrics || [])
+        .filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1]));
+    if (!entries.length) return undefined;
+    entries.sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
+    return { metric: entries[0][0], value: entries[0][1] };
+}
+
+function periodSnapshot(
+    dashboard: DashboardSnapshot,
+    label: string,
+    unsuccessfulCount: number,
+): PeriodMetricSnapshot {
+    return {
+        label,
+        calls: dashboard.totalAnalyzed,
+        successRate: dashboard.successRate,
+        avgScore: dashboard.averageScore,
+        unsuccessfulCount,
+        worstMetric: worstMetricOf(dashboard.aggregatedMetrics),
+    };
+}
+
+export function buildPeriodComparison(
+    current: DashboardSnapshot,
+    previous: DashboardSnapshot | null,
+    currentLabel: string,
+    previousLabel: string | null,
+): PeriodComparison {
+    const currentSnapshot = periodSnapshot(current, currentLabel, current.unsuccessfulCount ?? 0);
+    if (!previous || previous.totalAnalyzed <= 0 || !previousLabel) {
+        return { empty: true, current: currentSnapshot };
+    }
+    const previousSnapshot = periodSnapshot(previous, previousLabel, previous.unsuccessfulCount ?? 0);
+    return {
+        empty: false,
+        current: currentSnapshot,
+        previous: previousSnapshot,
+        deltas: {
+            calls: current.totalAnalyzed - previous.totalAnalyzed,
+            successRatePp: parseFloat((current.successRate - previous.successRate).toFixed(2)),
+            avgScore: parseFloat((current.averageScore - previous.averageScore).toFixed(2)),
+            unsuccessfulCount: (current.unsuccessfulCount ?? 0) - (previous.unsuccessfulCount ?? 0),
+        },
+    };
+}
+
 export function buildInsightsFacts(
     dashboard: DashboardSnapshot,
     project?: OperatorProject | null,
     query?: InsightsFactsQuery,
     minCalls = resolveInsightsMinCalls(),
+    comparison?: PeriodComparison | null,
 ): InsightsFacts {
     const focusMetrics = (project?.visibleDefaultMetrics || []) as DefaultMetricKey[];
     const sampleSize = dashboard.totalAnalyzed;
@@ -177,5 +408,20 @@ export function buildInsightsFacts(
         focusMetrics: [...focusMetrics],
         sampleSize,
         lowConfidence: sampleSize < minCalls,
+        unsuccessful: {
+            count: dashboard.unsuccessfulCount ?? 0,
+            reasons: dashboard.failureReasons ?? [],
+        },
+        comparison: comparison ?? {
+            empty: true,
+            current: {
+                label: '',
+                calls: dashboard.totalAnalyzed,
+                successRate: dashboard.successRate,
+                avgScore: dashboard.averageScore,
+                unsuccessfulCount: dashboard.unsuccessfulCount ?? 0,
+                worstMetric: worstMetricOf(dashboard.aggregatedMetrics),
+            },
+        },
     };
 }

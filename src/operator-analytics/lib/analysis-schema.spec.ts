@@ -383,4 +383,17 @@ describe('analysis-schema', () => {
             expect(parsed.metrics.topic_tag_ids).toBeUndefined();
         });
     });
+
+    it('replaces the built-in success rule when the project sets one', () => {
+        const prompt = buildAnalysisPrompt('Алло', ctx, {
+            successPrompt: 'true только если записали на приём. false если запись не состоялась.',
+        });
+        expect(prompt).toContain('true только если записали на приём');
+        expect(prompt).not.toContain('success=false only for operator-caused failure');
+    });
+
+    it('keeps the built-in success rule when the project prompt is empty', () => {
+        const prompt = buildAnalysisPrompt('Алло', ctx, { successPrompt: '   ' });
+        expect(prompt).toContain('success=false only for operator-caused failure');
+    });
 });

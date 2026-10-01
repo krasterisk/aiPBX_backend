@@ -347,6 +347,12 @@ export class CreateProjectDto {
     @MaxLength(1000)
     systemPrompt?: string;
 
+    @ApiPropertyOptional({ description: 'Project rule for call success (max 2000 chars). Empty keeps the built-in rule.' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    successPrompt?: string;
+
     @ApiPropertyOptional({ type: [MetricDefinitionDto], description: 'Custom metrics definitions' })
     @IsOptional()
     @IsArray()
@@ -435,6 +441,12 @@ export class UpdateProjectDto {
     @IsString()
     @MaxLength(1000)
     systemPrompt?: string;
+
+    @ApiPropertyOptional({ description: 'Project rule for call success (max 2000 chars). Empty keeps the built-in rule.' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    successPrompt?: string;
 
     @ApiPropertyOptional({ type: [MetricDefinitionDto], description: 'Custom metrics definitions' })
     @IsOptional()

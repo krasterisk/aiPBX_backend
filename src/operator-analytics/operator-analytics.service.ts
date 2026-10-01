@@ -87,7 +87,13 @@ import {
     OperatorInsightsResponse,
     parseAndValidateInsightsResponse,
 } from './lib/insights-schema';
-import { buildInsightsFacts, resolveInsightsMinCalls } from './lib/insights-facts';
+import {
+    buildInsightsFacts,
+    buildPeriodComparison,
+    collectFailureReasons,
+    resolveComparisonPeriod,
+    resolveInsightsMinCalls,
+} from './lib/insights-facts';
 import { enrichInsightsWithChannelIds } from './lib/insights-drilldown';
 import { InsightsCacheService } from './insights-cache.service';
 import {
@@ -2095,6 +2101,8 @@ export class OperatorAnalyticsService {
                 timeSeries: { monthly: [], daily: [] },
                 excludedLowQualityCount: 0,
                 agentScorecards: [],
+                unsuccessfulCount: 0,
+                failureReasons: [],
                 ...(tagStats !== undefined ? { tagStats } : {}),
             };
         }
@@ -2222,6 +2230,7 @@ export class OperatorAnalyticsService {
         }
 
         const agentScorecards = this.buildAgentScorecards(recordsForDerived, projectScore);
+        const failure = collectFailureReasons(recordsForDerived);
 
         return {
             totalAnalyzed,
@@ -2239,6 +2248,8 @@ export class OperatorAnalyticsService {
             insightsAvailable: aggregationCount >= resolveInsightsMinCalls(),
             excludedLowQualityCount,
             agentScorecards,
+            unsuccessfulCount: failure.unsuccessfulCount,
+            failureReasons: failure.reasons,
             ...(tagStats !== undefined ? { tagStats } : {}),
         };
     }
@@ -2606,6 +2617,7 @@ export class OperatorAnalyticsService {
             description?: string;
             templateId?: string;
             systemPrompt?: string;
+            successPrompt?: string;
             customMetricsSchema?: MetricDefinition[];
             callTaxonomy?: TagDefinition[];
             visibleDefaultMetrics?: string[];
@@ -2636,6 +2648,7 @@ export class OperatorAnalyticsService {
 
         // Explicit body values override template values
         if (data.systemPrompt !== undefined) createData.systemPrompt = data.systemPrompt || null;
+        if (data.successPrompt !== undefined) createData.successPrompt = data.successPrompt || null;
         if (data.customMetricsSchema !== undefined) createData.customMetricsSchema = data.customMetricsSchema;
         if (data.callTaxonomy !== undefined) {
             this.validateCallTaxonomy(data.callTaxonomy);
@@ -2680,6 +2693,7 @@ export class OperatorAnalyticsService {
             name?: string;
             description?: string;
             systemPrompt?: string;
+            successPrompt?: string;
             customMetricsSchema?: MetricDefinition[];
             callTaxonomy?: TagDefinition[];
             visibleDefaultMetrics?: string[];
@@ -2703,6 +2717,7 @@ export class OperatorAnalyticsService {
         if (data.name !== undefined) project.name = data.name.trim();
         if (data.description !== undefined) project.description = data.description;
         if (data.systemPrompt !== undefined) project.systemPrompt = data.systemPrompt || null;
+        if (data.successPrompt !== undefined) project.successPrompt = data.successPrompt || null;
         if (data.customMetricsSchema !== undefined) {
             project.customMetricsSchema = data.customMetricsSchema;
             project.currentSchemaVersion = (project.currentSchemaVersion || 1) + 1;
@@ -3032,7 +3047,22 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             ? await this.projectRepository.findByPk(query.projectId)
             : null);
 
-        const facts = buildInsightsFacts(dashboard, project, query, minCalls);
+        const periodLabel = `${query.startDate || 'all time'} — ${query.endDate || 'now'}`;
+        const comparisonRange = resolveComparisonPeriod(query.startDate, query.endDate);
+        const previousDashboard = comparisonRange
+            ? await this.getDashboard(
+                { ...query, startDate: comparisonRange.startDate, endDate: comparisonRange.endDate },
+                isAdmin,
+                realUserId,
+            )
+            : null;
+        const comparison = buildPeriodComparison(
+            dashboard,
+            previousDashboard,
+            periodLabel,
+            comparisonRange ? `${comparisonRange.startDate} — ${comparisonRange.endDate}` : null,
+        );
+        const facts = buildInsightsFacts(dashboard, project, query, minCalls, comparison);
         const factsDigest = computeFactsDigest(facts);
         const tenantUserId = query.userId || realUserId || 'admin-all';
         const cacheKey = this.buildInsightsCacheKey(tenantUserId, query, factsDigest);
@@ -3048,7 +3078,6 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             return buildOperatorInsightsResponse([], dashboard.totalAnalyzed, true, factsDigest);
         }
 
-        const periodLabel = `${query.startDate || 'all time'} — ${query.endDate || 'now'}`;
         const promptMessages = buildInsightsPrompt(
             facts,
             project ? { name: project.name, systemPrompt: project.systemPrompt } : undefined,
@@ -4062,6 +4091,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         const jsonSchema = buildOpenAiJsonSchema(ctx, schemaOptions);
         const prompt = buildAnalysisPrompt(transcription, ctx, {
             systemPrompt: project?.systemPrompt,
+            successPrompt: project?.successPrompt,
             qualityHintConfidence: qualityHint?.confidence,
             stereoDiarization: options?.stereoDiarization,
             channelDiarized: options?.channelDiarized,

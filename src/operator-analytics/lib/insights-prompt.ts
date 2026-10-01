@@ -41,6 +41,15 @@ export function buildInsightsPrompt(
         'When citing a metric, set evidence.metric and evidence.value from facts.',
         'Do not give generic advice without a number from the facts.',
         'Separate observation (what the data shows) from recommendation (concrete action).',
+        'facts.trends is movement inside the selected period only. Do not treat it as a comparison with the previous period.',
+        facts.unsuccessful.reasons.length
+            ? 'Include one insight with type "gap" about unsuccessful calls. Name the first facts.unsuccessful.reasons item, its count, and shareOfUnsuccessful. Recommendation must be one concrete operator action. Do not invent reasons.'
+            : facts.unsuccessful.count > 0
+                ? 'Unsuccessful calls have no stored reasons. Do not invent a cause. You may cite facts.unsuccessful.count only.'
+                : '',
+        facts.comparison.empty
+            ? 'facts.comparison.empty is true. Do not say this period is better or worse than a previous period.'
+            : 'Include one insight with type "trend" using facts.comparison.deltas only. State which of calls, successRatePp, avgScore, or unsuccessfulCount rose or fell versus the previous period, and one action. Do not claim a change that is absent from deltas.',
         facts.lowConfidence
             ? 'Include at least one insight with type "quality" noting the small sample size caveat.'
             : '',

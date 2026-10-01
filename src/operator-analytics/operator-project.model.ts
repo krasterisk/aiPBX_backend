@@ -10,6 +10,7 @@ export interface OperatorProjectCreationAttrs {
     description?: string;
     isDefault?: boolean;
     systemPrompt?: string;
+    successPrompt?: string;
     customMetricsSchema?: MetricDefinition[];
     callTaxonomy?: TagDefinition[];
     visibleDefaultMetrics?: DefaultMetricKey[];
@@ -54,6 +55,10 @@ export class OperatorProject extends Model<OperatorProject, OperatorProjectCreat
     @ApiProperty({ description: 'Business context prompt for LLM (max 1000 chars)' })
     @Column({ type: DataType.TEXT, allowNull: true })
     systemPrompt: string;
+
+    @ApiProperty({ description: 'Project rule for the success boolean (max 2000 chars). Empty uses the built-in rule.' })
+    @Column({ type: DataType.TEXT, allowNull: true })
+    successPrompt: string;
 
     @ApiProperty({ description: 'Custom metrics schema definitions' })
     @Column({ type: DataType.JSON, allowNull: false, defaultValue: [] })

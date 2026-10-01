@@ -9750,6 +9750,10 @@
             "type": "string",
             "description": "Business context prompt for LLM (max 1000 chars)"
           },
+          "successPrompt": {
+            "type": "string",
+            "description": "Project rule for call success (max 2000 chars). Empty keeps the built-in rule."
+          },
           "customMetricsSchema": {
             "description": "Custom metrics definitions",
             "type": "array",
@@ -9826,6 +9830,10 @@
           "systemPrompt": {
             "type": "string",
             "description": "Business context prompt for LLM (max 1000 chars)"
+          },
+          "successPrompt": {
+            "type": "string",
+            "description": "Project rule for call success (max 2000 chars). Empty keeps the built-in rule."
           },
           "customMetricsSchema": {
             "description": "Custom metrics definitions",

@@ -1,13 +1,9 @@
 import type { AiCdr } from '../../ai-cdr/ai-cdr.model';
 import type { TagDefinition, TagStat } from '../interfaces/operator-metrics.interface';
+import { ALL_DEFAULT_METRIC_KEYS } from '../interfaces/operator-metrics.interface';
+import { averageOperatorScore, type OperatorScoreOptions } from './operator-evidence';
 
 export const TAG_STATS_MAX_ENTRIES = 50;
-
-const NUMERIC_KEYS = [
-    'greeting_quality', 'script_compliance', 'politeness_empathy',
-    'active_listening', 'objection_handling', 'product_knowledge',
-    'problem_resolution', 'speech_clarity_pace', 'closing_quality',
-] as const;
 
 function readCallTags(metrics: Record<string, unknown> | undefined): {
     tagIds: string[];
@@ -32,26 +28,11 @@ function resolveTagName(
     return tagId;
 }
 
-function computePeriodAverageScore(records: AiCdr[]): number | null {
-    const sums: Record<string, number> = {};
-    NUMERIC_KEYS.forEach(k => { sums[k] = 0; });
-    let scored = 0;
-
-    for (const r of records) {
-        const m = r.analytics?.metrics as Record<string, unknown> | undefined;
-        if (!m) continue;
-        scored++;
-        NUMERIC_KEYS.forEach(k => { sums[k] += (Number(m[k]) || 0); });
-    }
-
-    if (scored === 0) return null;
-    const denom = scored;
-    return parseFloat(
-        (NUMERIC_KEYS.reduce((s, k) => s + sums[k] / denom, 0) / NUMERIC_KEYS.length).toFixed(2),
-    );
-}
-
-export function buildTagStats(records: AiCdr[], taxonomy: TagDefinition[]): TagStat[] {
+export function buildTagStats(
+    records: AiCdr[],
+    taxonomy: TagDefinition[],
+    scoreOptions: OperatorScoreOptions = { defaultKeys: ALL_DEFAULT_METRIC_KEYS },
+): TagStat[] {
     const byTag = new Map<string, AiCdr[]>();
     const snapshotNames = new Map<string, string>();
 
@@ -67,12 +48,12 @@ export function buildTagStats(records: AiCdr[], taxonomy: TagDefinition[]): TagS
         }
     }
 
-    const periodAverageScore = computePeriodAverageScore(records);
+    const periodAverageScore = records.some(r => r.analytics?.metrics)
+        ? averageOperatorScore(records, scoreOptions)
+        : null;
     const periodTotal = records.length || 1;
 
     const stats: TagStat[] = Array.from(byTag.entries()).map(([tagId, rows]) => {
-        const sums: Record<string, number> = {};
-        NUMERIC_KEYS.forEach(k => { sums[k] = 0; });
         let successCount = 0;
         let positiveCount = 0;
         let neutralCount = 0;
@@ -83,7 +64,6 @@ export function buildTagStats(records: AiCdr[], taxonomy: TagDefinition[]): TagS
             const m = r.analytics?.metrics as Record<string, unknown> | undefined;
             if (!m) continue;
             scored++;
-            NUMERIC_KEYS.forEach(k => { sums[k] += (Number(m[k]) || 0); });
             if (m.success) successCount++;
             const sentiment = (r.analytics?.sentiment || m.customer_sentiment || '').toString().toLowerCase();
             if (sentiment === 'positive') positiveCount++;
@@ -92,11 +72,7 @@ export function buildTagStats(records: AiCdr[], taxonomy: TagDefinition[]): TagS
         }
 
         const denom = scored || 1;
-        const averageScore = scored > 0
-            ? parseFloat(
-                (NUMERIC_KEYS.reduce((s, k) => s + sums[k] / denom, 0) / NUMERIC_KEYS.length).toFixed(2),
-            )
-            : 0;
+        const averageScore = averageOperatorScore(rows, scoreOptions);
 
         const stat: TagStat = {
             tagId,

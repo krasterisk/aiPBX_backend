@@ -1502,6 +1502,19 @@ describe('OperatorAnalyticsService', () => {
             );
         });
 
+        it('keeps topic scores consistent with the project headline score', async () => {
+            setupDashboardWithRecords(Array.from({ length: 8 }, () => dashboardRecord({
+                metrics: { greeting_quality: 90, closing_quality: 91 },
+            })), { visibleDefaultMetrics: ['greeting_quality', 'closing_quality'] });
+
+            const result = await service.getDashboard({ projectId: 1 }, true, null);
+
+            expect(result.averageScore).toBe(90.5);
+            expect(result.tagStats).toEqual([
+                expect.objectContaining({ callsCount: 8, averageScore: 90.5, deltaVsPeriodAverage: 0 }),
+            ]);
+        });
+
         it('does not add extra repository calls when taxonomy is present', async () => {
             setupDashboardWithRecords([dashboardRecord()], { callTaxonomy: [] });
             await service.getDashboard({ projectId: 1 }, true, null);

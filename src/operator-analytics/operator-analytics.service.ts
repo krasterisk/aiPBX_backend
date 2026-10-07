@@ -2213,9 +2213,6 @@ export class OperatorAnalyticsService {
             if (project?.customMetricsSchema?.length) {
                 customMetricsAggregated = this.aggregateCustomMetrics(recordsForDerived, project.customMetricsSchema);
             }
-            if (project?.callTaxonomy?.length) {
-                tagStats = buildTagStats(recordsForDerived, project.callTaxonomy);
-            }
         }
 
         const projectScore = project
@@ -2227,6 +2224,10 @@ export class OperatorAnalyticsService {
 
         if (projectScore) {
             averageScore = averageOperatorScore(recordsForDerived, projectScore);
+        }
+
+        if (project?.callTaxonomy?.length) {
+            tagStats = buildTagStats(recordsForDerived, project.callTaxonomy, projectScore);
         }
 
         const agentScorecards = this.buildAgentScorecards(recordsForDerived, projectScore);

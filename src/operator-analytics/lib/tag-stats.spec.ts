@@ -62,6 +62,47 @@ describe('tag-stats', () => {
         expect(stats[0].averageScore).toBe(80);
     });
 
+    it('does not dilute eight high-scoring calls with disabled metrics', () => {
+        const records = Array.from({ length: 8 }, () => ({
+            analytics: {
+                metrics: {
+                    greeting_quality: 90,
+                    closing_quality: 91,
+                    _topics: { tags: ['billing'] },
+                },
+            },
+        } as AiCdr));
+
+        const stats = buildTagStats(records, taxonomy, {
+            defaultKeys: ['greeting_quality', 'closing_quality'],
+            includeCustomMetrics: true,
+        });
+
+        expect(stats[0]).toMatchObject({ callsCount: 8, averageScore: 90.5, deltaVsPeriodAverage: 0 });
+    });
+
+    it('uses project scoring for both the topic and the period including custom metrics', () => {
+        const records = [
+            makeRecord(['billing'], {}, {
+                greeting_quality: 90,
+                custom_metrics: { checklist: true, numeric: 80, notApplicable: null },
+            }),
+            makeRecord(['returns'], {}, {
+                greeting_quality: 60,
+                custom_metrics: { checklist: false, numeric: 40, notApplicable: null },
+            }),
+        ];
+
+        const stats = buildTagStats(records, taxonomy, {
+            defaultKeys: ['greeting_quality'],
+            includeCustomMetrics: true,
+        });
+
+        expect(stats.find(s => s.tagId === 'billing')).toMatchObject({
+            averageScore: 90, deltaVsPeriodAverage: 28.33,
+        });
+    });
+
     it('computes successRate with guarded denominator and two-decimal rounding', () => {
         const records = [
             makeRecord(['billing'], {}, { success: true }),

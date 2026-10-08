@@ -176,7 +176,7 @@ const CLOSING_QUALITY_RUBRIC = buildCompactRubric(
  * specific prompt revision. Stored on each record (DB column + metrics._model).
  * Format: YYYY-MM-DD.N (date of change + same-day revision counter).
  */
-export const PROMPT_VERSION = '2026-09-22.1';
+export const PROMPT_VERSION = '2026-10-08.1';
 
 export interface MetricAssessment {
     rationale: string;
@@ -222,6 +222,7 @@ export interface AnalysisBuildContext {
     visibleDefaultMetrics: DefaultMetricKey[];
     customMetrics: AnalysisCustomMetric[];
     taxonomyTags: AnalysisTaxonomyTag[];
+    singleTopic?: boolean;
 }
 
 /** Max auto theme tags per call (aligned with operator_call_tags / PATCH cap). */
@@ -404,6 +405,7 @@ export function buildAnalysisContext(
         visibleDefaultMetrics: resolveVisibleDefaultMetrics(project),
         customMetrics,
         taxonomyTags,
+        singleTopic: project?.singleTopic === true,
     };
 }
 
@@ -493,9 +495,11 @@ export function buildZodAnalysisSchema(ctx: AnalysisBuildContext, options?: Anal
     }
 
     if (ctx.taxonomyTags.length) {
-        // Structural only — membership/cap enforced by sanitizeTopicTagIds
-        // so a bad id never fails the whole analysis (Ollama / non-strict paths).
-        shape.topic_tag_ids = z.array(z.string());
+        // Single-topic mode validates membership and cardinality before sanitization.
+        // Multi-topic mode keeps its tolerant sanitization for non-strict providers.
+        shape.topic_tag_ids = ctx.singleTopic
+            ? z.array(z.enum(ctx.taxonomyTags.map(t => t.id) as [string, ...string[]])).length(1)
+            : z.array(z.string());
     }
 
     return z.object(shape);
@@ -600,7 +604,10 @@ export function buildOpenAiJsonSchema(ctx: AnalysisBuildContext, options?: Analy
         properties.topic_tag_ids = {
             type: 'array',
             items: { type: 'string', enum: taxonomyIds },
-            description: 'Zero or more theme ids from the project taxonomy that fit this call',
+            description: ctx.singleTopic
+                ? 'Exactly one theme id from the project taxonomy'
+                : 'Zero or more theme ids from the project taxonomy that fit this call',
+            ...(ctx.singleTopic ? { minItems: 1, maxItems: 1 } : {}),
         };
         required.push('topic_tag_ids');
     }
@@ -681,7 +688,9 @@ export function buildAnalysisPrompt(
         }).join('\n');
         taxonomyPromptBlock = [
             '',
-            'Call themes (topic_tag_ids): assign zero or more ids that truly fit this call. Prefer precision over coverage; [] if none fit. Only use ids listed below.',
+            ctx.singleTopic
+                ? 'Call themes (topic_tag_ids): assign EXACTLY ONE id from the list below. Apply the project classification rules and their priorities to the WHOLE call. Themes are mutually exclusive. Never return multiple ids or []. This project setting overrides any instruction allowing multiple themes.'
+                : 'Call themes (topic_tag_ids): assign zero or more ids that truly fit this call. Prefer precision over coverage; [] if none fit. Only use ids listed below.',
             themeLines,
         ].join('\n');
         taxonomyJsonLine = ',\n  "topic_tag_ids": ["<id>", ...]';

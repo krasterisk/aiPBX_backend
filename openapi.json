@@ -9810,6 +9810,11 @@
             "items": {
               "type": "string"
             }
+          },
+          "singleTopic": {
+            "type": "boolean",
+            "example": false,
+            "description": "Require exactly one automatic topic when taxonomy is configured. Defaults to false."
           }
         },
         "required": [
@@ -9891,6 +9896,11 @@
             "items": {
               "type": "string"
             }
+          },
+          "singleTopic": {
+            "type": "boolean",
+            "example": false,
+            "description": "Require exactly one automatic topic when taxonomy is configured. Defaults to false."
           }
         }
       },

@@ -13,6 +13,7 @@ export interface OperatorProjectCreationAttrs {
     successPrompt?: string;
     customMetricsSchema?: MetricDefinition[];
     callTaxonomy?: TagDefinition[];
+    singleTopic?: boolean;
     visibleDefaultMetrics?: DefaultMetricKey[];
     dashboardConfig?: DashboardConfig;
     webhookUrl?: string;
@@ -67,6 +68,10 @@ export class OperatorProject extends Model<OperatorProject, OperatorProjectCreat
     @ApiProperty({ description: 'Call topic taxonomy (controlled tag vocabulary)' })
     @Column({ type: DataType.JSON, allowNull: false, defaultValue: [] })
     callTaxonomy: TagDefinition[];
+
+    @ApiProperty({ default: false, description: 'Require exactly one automatic topic when taxonomy is configured' })
+    @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
+    singleTopic: boolean;
 
     @ApiProperty({ example: 1, description: 'Current schema version (auto-incremented)' })
     @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1 })

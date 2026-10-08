@@ -1255,7 +1255,6 @@ export class OperatorAnalyticsService {
         await record.update({ status: AnalyticsStatus.PROCESSING, errorMessage: null });
 
         const channelIdStrEarly = String(recordId);
-        await this.deleteAutoCallTags(channelIdStrEarly);
         const manualTagIds = await this.loadManualTagIds(channelIdStrEarly);
 
         try {
@@ -1269,6 +1268,10 @@ export class OperatorAnalyticsService {
         if (record.projectId) {
             project = await this.projectRepository.findByPk(record.projectId);
         }
+        if (project?.singleTopic && manualTagIds.length > 1) {
+            throw new HttpException('Remove conflicting manual topics before reanalysis', HttpStatus.BAD_REQUEST);
+        }
+        await this.deleteAutoCallTags(channelIdStrEarly);
         const schemaVersion = project?.currentSchemaVersion ?? null;
         await this.persistSchemaVersion(record, schemaVersion);
 
@@ -1334,7 +1337,8 @@ export class OperatorAnalyticsService {
 
         await record.update({ status: AnalyticsStatus.COMPLETED });
 
-        const autoTagIds = topicTagIds;
+        // A manual correction remains authoritative in single-topic mode.
+        const autoTagIds = project?.singleTopic && manualTagIds.length ? [] : topicTagIds;
         const topicsBlock = this.buildTopicsBlock(sttResult.text, project, manualTagIds, autoTagIds);
         const finalDiarizationSource = this.resolveDiarizationSource(
             channelDiarizedJson,
@@ -1686,17 +1690,23 @@ export class OperatorAnalyticsService {
         const record = await this.assertRecordAccess(channelId, actorUserId, isAdmin);
 
         let taxonomy: TagDefinition[] = [];
+        let singleTopic = false;
         if (record.projectId) {
             const project = await this.projectRepository.findByPk(record.projectId);
             if (!project) {
                 throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
             }
             taxonomy = project.callTaxonomy ?? [];
+            singleTopic = project.singleTopic === true;
         }
 
         const taxonomyIds = new Set(taxonomy.map(t => t.id));
         const allowFreeForm = taxonomy.length === 0;
         const uniqueTagIds = [...new Set((tagIds ?? []).map(id => String(id).trim()).filter(Boolean))];
+
+        if (singleTopic && uniqueTagIds.length > 1) {
+            throw new HttpException('This project allows only one call topic', HttpStatus.BAD_REQUEST);
+        }
 
         if (uniqueTagIds.length > 10) {
             throw new HttpException('At most 10 tags are allowed', HttpStatus.BAD_REQUEST);
@@ -2509,7 +2519,15 @@ export class OperatorAnalyticsService {
         }
 
         const taxonomy = project?.callTaxonomy ?? [];
-        const mergedTagIds = this.mergeTagIds(llmTagIds, manualTagIds);
+        if (project?.singleTopic && manualTagIds.length > 1) {
+            throw new HttpException('Remove conflicting manual topics before reanalysis', HttpStatus.BAD_REQUEST);
+        }
+        const mergedTagIds = project?.singleTopic && manualTagIds.length === 1
+            ? manualTagIds
+            : this.mergeTagIds(llmTagIds, manualTagIds);
+        if (project?.singleTopic && taxonomy.length && mergedTagIds.length !== 1) {
+            throw new HttpException('Expected exactly one call topic', HttpStatus.BAD_REQUEST);
+        }
         if (mergedTagIds.length) {
             block.tags = mergedTagIds;
             block.tag_names = this.buildTagNameSnapshot(mergedTagIds, taxonomy);
@@ -2621,6 +2639,7 @@ export class OperatorAnalyticsService {
             successPrompt?: string;
             customMetricsSchema?: MetricDefinition[];
             callTaxonomy?: TagDefinition[];
+            singleTopic?: boolean;
             visibleDefaultMetrics?: string[];
             webhookUrl?: string;
             webhookEvents?: string[];
@@ -2650,6 +2669,7 @@ export class OperatorAnalyticsService {
         // Explicit body values override template values
         if (data.systemPrompt !== undefined) createData.systemPrompt = data.systemPrompt || null;
         if (data.successPrompt !== undefined) createData.successPrompt = data.successPrompt || null;
+        if (data.singleTopic !== undefined) createData.singleTopic = data.singleTopic;
         if (data.customMetricsSchema !== undefined) createData.customMetricsSchema = data.customMetricsSchema;
         if (data.callTaxonomy !== undefined) {
             this.validateCallTaxonomy(data.callTaxonomy);
@@ -2697,6 +2717,7 @@ export class OperatorAnalyticsService {
             successPrompt?: string;
             customMetricsSchema?: MetricDefinition[];
             callTaxonomy?: TagDefinition[];
+            singleTopic?: boolean;
             visibleDefaultMetrics?: string[];
             webhookUrl?: string;
             webhookEvents?: string[];
@@ -2719,6 +2740,7 @@ export class OperatorAnalyticsService {
         if (data.description !== undefined) project.description = data.description;
         if (data.systemPrompt !== undefined) project.systemPrompt = data.systemPrompt || null;
         if (data.successPrompt !== undefined) project.successPrompt = data.successPrompt || null;
+        if (data.singleTopic !== undefined) project.singleTopic = data.singleTopic;
         if (data.customMetricsSchema !== undefined) {
             project.customMetricsSchema = data.customMetricsSchema;
             project.currentSchemaVersion = (project.currentSchemaVersion || 1) + 1;
@@ -4144,9 +4166,11 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
                 },
                 {
                     role: 'user',
-                    content: llmDiarize
+                    content: (ctx.singleTopic && ctx.taxonomyTags.length
+                        ? 'topic_tag_ids must contain exactly one valid taxonomy id. Resolve competing themes using the project rules; do not return multiple ids or an empty array. '
+                        : '') + (llmDiarize
                         ? 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields, per-metric assessments (rationale + quote), and diarized_text as short operator/customer turns (not one blob). Rationale and summary must be in the transcript language.'
-                        : 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields and per-metric assessments (rationale + quote). Rationale and summary must be in the transcript language.',
+                        : 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields and per-metric assessments (rationale + quote). Rationale and summary must be in the transcript language.'),
                 },
             ]);
         }

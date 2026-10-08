@@ -16,6 +16,12 @@ describe('project prompt validation', () => {
     };
     const options = { whitelist: true, forbidNonWhitelisted: true };
 
+    it.each([CreateProjectDto, UpdateProjectDto, UpdateSchemaDto])('validates the single-topic option', async (Dto) => {
+        expect(await validate(plainToInstance<object, object>(Dto, { name: 'Клиника', ...schema, singleTopic: true }))).toEqual([]);
+        const errors = await validate(plainToInstance<object, object>(Dto, { name: 'Клиника', ...schema, singleTopic: 'true' }));
+        expect(errors.some(error => error.property === 'singleTopic')).toBe(true);
+    });
+
     it('accepts long prompts when creating a project', async () => {
         const dto = plainToInstance(CreateProjectDto, { name: 'Клиника', ...schema, successPrompt: longPrompt });
         expect(await validate(dto, options)).toEqual([]);

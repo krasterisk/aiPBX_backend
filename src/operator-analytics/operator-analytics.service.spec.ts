@@ -2280,6 +2280,50 @@ describe('OperatorAnalyticsService', () => {
         });
     });
 
+    describe('single-topic enforcement', () => {
+        it('persists the setting when creating a project', async () => {
+            await service.createProject('1', { name: 'Клиника', singleTopic: true });
+            expect(mockProjectRepo.create).toHaveBeenCalledWith(expect.objectContaining({ singleTopic: true }));
+        });
+        it('preserves the setting on unrelated edits and allows disabling it', async () => {
+            const saved = { ...mockProject, singleTopic: true, save: jest.fn().mockResolvedValue(undefined) };
+            mockProjectRepo.findOne.mockResolvedValue(saved);
+            await service.updateProject(1, '1', { description: 'Updated' });
+            expect(saved.singleTopic).toBe(true);
+            await service.updateProject(1, '1', { singleTopic: false });
+            expect(saved.singleTopic).toBe(false);
+        });
+        const project = { singleTopic: true, visibleDefaultMetrics: ['greeting_quality'],
+            callTaxonomy: [{ id: 'booking', name: 'Запрос на запись', aliases: [] }, { id: 'other', name: 'Другое', aliases: [] }] } as any;
+        const reply = (tags: string[]) => ({ content: JSON.stringify({ assessments: {}, greeting_quality: 100,
+            customer_sentiment: 'Positive', csat: 5, summary: 'Записан', success: true,
+            analysis_confidence: 0.9, insufficient_content: false, topic_tag_ids: tags }), model: 'test' });
+
+        it('retries competing topics and accepts the corrected result', async () => {
+            const chat = jest.spyOn(service as any, 'chatWithFallback')
+                .mockResolvedValueOnce(reply(['booking', 'other'])).mockResolvedValueOnce(reply(['booking']));
+            const result = await (service as any).analyzeTranscription('Запишите на УЗИ', undefined, project, undefined, { llmDiarize: false });
+            expect(result.topicTagIds).toEqual(['booking']);
+            expect(chat).toHaveBeenCalledTimes(2);
+            expect((chat.mock.calls[1][0] as any[]).at(-1).content).toContain('exactly one valid taxonomy id');
+            chat.mockRestore();
+        });
+        it('fails rather than saving competing topics after the repair also fails', async () => {
+            const chat = jest.spyOn(service as any, 'chatWithFallback').mockResolvedValue(reply(['booking', 'other']));
+            await expect((service as any).analyzeTranscription('Запишите', undefined, project, undefined, { llmDiarize: false }))
+                .rejects.toThrow('topic_tag_ids');
+            expect(chat).toHaveBeenCalledTimes(2);
+            chat.mockRestore();
+        });
+        it('preserves a manual correction instead of adding an automatic topic', () => {
+            expect((service as any).buildTopicsBlock('обычный текст', project, ['other'], ['booking']).tags).toEqual(['other']);
+        });
+        it('rejects existing conflicting manual topics', () => {
+            expect(() => (service as any).buildTopicsBlock('обычный текст', project, ['booking', 'other'], ['booking']))
+                .toThrow('conflicting manual topics');
+        });
+    });
+
     describe('taxonomy tagging', () => {
         const taxonomy = [
             { id: 'billing', name: 'Счета', aliases: ['счёт'] },
@@ -2364,6 +2408,13 @@ describe('OperatorAnalyticsService', () => {
                 metrics: { _topics: { keywords: ['kw'] } },
                 update: jest.fn().mockResolvedValue(undefined),
             });
+        });
+
+        it('rejects multiple manual topics before writing in single-topic mode', async () => {
+            mockProjectRepo.findByPk.mockResolvedValue({ ...mockProject, callTaxonomy: taxonomy, singleTopic: true });
+            await expect(service.updateCallTags('7', '9', false, ['billing', 'returns'])).rejects.toThrow('only one call topic');
+            expect(mockCallTagRepo.destroy).not.toHaveBeenCalled();
+            expect(mockCallTagRepo.create).not.toHaveBeenCalled();
         });
 
         it('stores manual tags and updates analytics JSON', async () => {

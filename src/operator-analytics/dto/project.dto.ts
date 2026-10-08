@@ -101,6 +101,11 @@ export class UpdateSchemaDto {
     @ArrayMaxSize(20)
     callTaxonomy?: TagDefinitionDto[];
 
+    @ApiPropertyOptional({ example: false, description: 'Require exactly one automatic topic when taxonomy is configured. Defaults to false.' })
+    @IsOptional()
+    @IsBoolean()
+    singleTopic?: boolean;
+
     @ApiPropertyOptional({ description: 'Business context for LLM' })
     @IsOptional()
     @IsString()
@@ -363,6 +368,11 @@ export class CreateProjectDto {
     @ArrayMaxSize(20)
     callTaxonomy?: TagDefinitionDto[];
 
+    @ApiPropertyOptional({ example: false, description: 'Require exactly one automatic topic when taxonomy is configured. Defaults to false.' })
+    @IsOptional()
+    @IsBoolean()
+    singleTopic?: boolean;
+
     @ApiPropertyOptional({ description: 'Which default metrics to show' })
     @IsOptional()
     @IsArray()
@@ -455,6 +465,11 @@ export class UpdateProjectDto {
     @Type(() => TagDefinitionDto)
     @ArrayMaxSize(20)
     callTaxonomy?: TagDefinitionDto[];
+
+    @ApiPropertyOptional({ example: false, description: 'Require exactly one automatic topic when taxonomy is configured. Defaults to false.' })
+    @IsOptional()
+    @IsBoolean()
+    singleTopic?: boolean;
 
     @ApiPropertyOptional({ description: 'Which default metrics to show' })
     @IsOptional()

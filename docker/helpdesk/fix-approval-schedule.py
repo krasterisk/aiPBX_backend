@@ -10,6 +10,7 @@ for n in w['nodes']:
 w['versionId']=str(uuid.uuid4())
 f=pathlib.Path('approval-fast.json');f.write_text(json.dumps(items));f.chmod(0o600)
 subprocess.run(['docker','compose','cp',str(f),'n8n:/tmp/approval-fast.json'],check=True)
+subprocess.run(['docker','compose','exec','-T','-u','root','n8n','chown','node:node','/tmp/approval-fast.json'],check=True)
 run(['import:workflow','--input=/tmp/approval-fast.json'])
 run(['publish:workflow','--id=helpdeskApproval01'])
 subprocess.run(['docker','compose','restart','n8n'],check=True)

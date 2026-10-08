@@ -52,11 +52,11 @@ export class OperatorProject extends Model<OperatorProject, OperatorProjectCreat
     @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
     isDefault: boolean;
 
-    @ApiProperty({ description: 'Business context prompt for LLM (max 1000 chars)' })
+    @ApiProperty({ description: 'Business context prompt for LLM' })
     @Column({ type: DataType.TEXT, allowNull: true })
     systemPrompt: string;
 
-    @ApiProperty({ description: 'Project rule for the success boolean (max 2000 chars). Empty uses the built-in rule.' })
+    @ApiProperty({ description: 'Project rule for the success boolean. Empty uses the built-in rule.' })
     @Column({ type: DataType.TEXT, allowNull: true })
     successPrompt: string;
 

@@ -31,7 +31,6 @@ export class TagDefinitionDto {
     @ApiPropertyOptional({ example: 'Клиент просит вернуть товар или деньги' })
     @IsOptional()
     @IsString()
-    @MaxLength(500)
     description?: string;
 }
 
@@ -54,7 +53,6 @@ class MetricDefinitionDto {
 
     @ApiProperty({ example: 'Did the operator attempt to upsell additional services?' })
     @IsString()
-    @MaxLength(500)
     description: string;
 
     @ApiPropertyOptional({ example: ['low', 'medium', 'high'] })
@@ -103,10 +101,9 @@ export class UpdateSchemaDto {
     @ArrayMaxSize(20)
     callTaxonomy?: TagDefinitionDto[];
 
-    @ApiPropertyOptional({ description: 'Business context for LLM (max 1000 chars)' })
+    @ApiPropertyOptional({ description: 'Business context for LLM' })
     @IsOptional()
     @IsString()
-    @MaxLength(1000)
     systemPrompt?: string;
 
     @ApiPropertyOptional({ description: 'Which default metrics to show' })
@@ -153,7 +150,6 @@ export class GenerateSchemaDto {
     @ApiPropertyOptional({ description: 'Optional system prompt for context' })
     @IsOptional()
     @IsString()
-    @MaxLength(1000)
     systemPrompt?: string;
 }
 
@@ -341,16 +337,14 @@ export class CreateProjectDto {
     @IsString()
     templateId?: string;
 
-    @ApiPropertyOptional({ description: 'Business context prompt for LLM (max 1000 chars)' })
+    @ApiPropertyOptional({ description: 'Business context prompt for LLM' })
     @IsOptional()
     @IsString()
-    @MaxLength(1000)
     systemPrompt?: string;
 
-    @ApiPropertyOptional({ description: 'Project rule for call success (max 2000 chars). Empty keeps the built-in rule.' })
+    @ApiPropertyOptional({ description: 'Project rule for call success. Empty keeps the built-in rule.' })
     @IsOptional()
     @IsString()
-    @MaxLength(2000)
     successPrompt?: string;
 
     @ApiPropertyOptional({ type: [MetricDefinitionDto], description: 'Custom metrics definitions' })
@@ -436,16 +430,14 @@ export class UpdateProjectDto {
     @MaxLength(500)
     description?: string;
 
-    @ApiPropertyOptional({ description: 'Business context prompt for LLM (max 1000 chars)' })
+    @ApiPropertyOptional({ description: 'Business context prompt for LLM' })
     @IsOptional()
     @IsString()
-    @MaxLength(1000)
     systemPrompt?: string;
 
-    @ApiPropertyOptional({ description: 'Project rule for call success (max 2000 chars). Empty keeps the built-in rule.' })
+    @ApiPropertyOptional({ description: 'Project rule for call success. Empty keeps the built-in rule.' })
     @IsOptional()
     @IsString()
-    @MaxLength(2000)
     successPrompt?: string;
 
     @ApiPropertyOptional({ type: [MetricDefinitionDto], description: 'Custom metrics definitions' })

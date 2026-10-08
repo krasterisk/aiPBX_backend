@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-import pathlib, json, secrets, urllib.request, urllib.error, http.cookiejar, re, subprocess, datetime
+import pathlib, json, secrets, string, urllib.request, urllib.error, http.cookiejar, re, subprocess, datetime
 p=pathlib.Path('/opt/aipbx-helpdesk')
 def env(path):
     return {k.strip():v.strip().strip('\"').strip("'") for k,v in (l.split('=',1) for l in path.read_text(encoding='utf-8-sig').splitlines() if '=' in l and not l.lstrip().startswith('#'))}
 e=env(p/'integrations.env')
 a=p/'access.env'
 if not a.exists():
-    a.write_text('N8N_OWNER_EMAIL='+e['YANDEX_EMAIL']+'\nN8N_OWNER_PASSWORD=Aa1!'+secrets.token_urlsafe(24)+'\n'); a.chmod(0o600)
+    password = ''.join(secrets.choice(chars) for chars in (string.ascii_uppercase, string.ascii_lowercase, string.digits)) + secrets.token_urlsafe(24)
+    a.write_text(f"N8N_OWNER_EMAIL={e['YANDEX_EMAIL']}\nN8N_OWNER_PASSWORD={password}\n"); a.chmod(0o600)
 v=env(a)
 opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 def call(route,data=None):

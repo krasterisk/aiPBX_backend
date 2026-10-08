@@ -2,6 +2,19 @@ import unittest,os,email
 from unittest.mock import patch,MagicMock
 import bridge
 
+class RoutingTests(unittest.TestCase):
+    def test_read_tools_and_mixed_products(self):
+        self.assertEqual(bridge.routing.validate_plan({'reads':['cabinet']}),['cabinet'])
+        self.assertEqual(bridge.routing.validate_plan({'reads':['cabinet','analytics_project']}),['cabinet','analytics_project'])
+        self.assertEqual(bridge.routing.validate_plan({'reads':[]}),[])
+    def test_model_cannot_supply_tenant_or_arbitrary_tools(self):
+        for value in [{'reads':['send_email']},{'reads':['cabinet'],'clientId':99},{'reads':['cabinet','cabinet']},{'reads':'cabinet'}]:
+            with self.assertRaises(ValueError):bridge.routing.validate_plan(value)
+    def test_cabinet_context_accepts_missing_project(self):
+        with patch.dict(os.environ,{'AIPBX_API_URL':'https://example.test/api','AIPBX_API_KEY':'test'}),patch('bridge.call',return_value={'found':True,'clientId':'1','contextScope':'cabinet','projectId':None}) as request:
+            self.assertTrue(bridge.client_context(None,'client@example.test','cabinet')['found'])
+            self.assertEqual(request.call_args.args[1],{'email':'client@example.test','scope':'cabinet'})
+
 class SafetyTests(unittest.TestCase):
     def setUp(self):
         self.env=patch.dict(os.environ,{'TELEGRAM_APPROVER_USER_ID':'123','TELEGRAM_APPROVAL_CHAT_ID':'-456','YANDEX_EMAIL':'desk@example.test','PROCESSING_ENABLED':'false'})

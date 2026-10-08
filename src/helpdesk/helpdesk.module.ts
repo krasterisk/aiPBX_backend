@@ -28,6 +28,8 @@ import { Role } from '../roles/roles.model';
 import { OperatorProject } from '../operator-analytics/operator-project.model';
 import { OperatorAnalytics } from '../operator-analytics/operator-analytics.model';
 import { AiCdr } from '../ai-cdr/ai-cdr.model';
+import { Assistant } from '../assistants/assistants.model';
+import { Rates } from '../currency/rates.model';
 import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
 @Module({
     imports: [
@@ -37,7 +39,7 @@ import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
             HelpdeskTicketStatusHistory,
             HelpdeskClientContext,
             HelpdeskPbxConnection,
-            HelpdeskSettings, User, Role, OperatorProject, OperatorAnalytics, AiCdr, AiAnalytics,
+            HelpdeskSettings, User, Role, OperatorProject, OperatorAnalytics, AiCdr, AiAnalytics, Assistant, Rates,
         ]),
         AccountingModule,
         MailerModule,

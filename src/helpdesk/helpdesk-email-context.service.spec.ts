@@ -6,17 +6,40 @@ describe('HelpdeskEmailContextService', () => {
     const projects = { findAll: jest.fn() };
     const transcripts = { findAll: jest.fn() };
     const calls = { findAll: jest.fn() };
+    const assistants = { findAll: jest.fn() };
+    const rates = { findOne: jest.fn() };
     let service: HelpdeskEmailContextService;
     const admin = { id: 1, banned: false, isActivated: true, roles: [{ value: 'ADMIN' }] };
     const project = { id: 7, userId: '20', name: 'Sales', webhookHeaders: { Authorization: 'secret' }, callTaxonomy: [{ id: 'topic' }] };
     beforeEach(() => {
         jest.resetAllMocks();
-        service = new HelpdeskEmailContextService(users as never, projects as never, transcripts as never, calls as never);
-        users.findByPk.mockResolvedValueOnce(admin).mockResolvedValue({ id: 20, banned: false, vpbx_user_id: null });
+        process.env.TENANT_CURRENCY = 'USD';
+        assistants.findAll.mockResolvedValue([{ id: 4, name: 'Reception', apiKey: 'secret' }]);
+        service = new HelpdeskEmailContextService(users as never, projects as never, transcripts as never, calls as never, assistants as never, rates as never);
+        users.findByPk.mockResolvedValueOnce(admin).mockResolvedValue({ id: 20, banned: false, vpbx_user_id: null, balance: 2.5 });
         users.findAll.mockResolvedValue([{ id: 21, email: 'user@example.test', vpbx_user_id: 20, banned: false }]);
         projects.findAll.mockResolvedValue([project]);
         transcripts.findAll.mockResolvedValue([{ id: 8, transcription: 'x'.repeat(9000), get: () => new Date() }]);
         calls.findAll.mockResolvedValue([{ channelId: '8', analytics: { summary: 'summary', metrics: { success: true } }, get: () => new Date() }]);
+    });
+    it('returns assistants and balance without requiring any analytics project', async () => {
+        const result = await service.getContext(1, { email: 'user@example.test', scope: 'cabinet' });
+        expect(result).toMatchObject({ found: true, contextScope: 'cabinet', projectId: null,
+            balance: { amount: 2.5, currency: 'USD', available: true }, assistantLiveStatusVerified: false });
+        expect('assistants' in result && result.assistants?.[0]).not.toHaveProperty('apiKey');
+        expect(assistants.findAll).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 20 } }));
+        expect(projects.findAll).not.toHaveBeenCalled(); expect(calls.findAll).not.toHaveBeenCalled();
+    });
+    it('converts USD storage into tenant currency using verified rates', async () => {
+        process.env.TENANT_CURRENCY = 'RUB';
+        rates.findOne.mockResolvedValueOnce({ rate: 90 }).mockResolvedValueOnce({ rate: 1 });
+        expect(await service.getContext(1, { email: 'user@example.test', scope: 'cabinet' }))
+            .toMatchObject({ balance: { amount: 225, currency: 'RUB', available: true } });
+    });
+    it('does not label USD storage as RUB when exchange rates are missing', async () => {
+        process.env.TENANT_CURRENCY = 'RUB'; rates.findOne.mockResolvedValue(null);
+        expect(await service.getContext(1, { email: 'user@example.test', scope: 'cabinet' }))
+            .toMatchObject({ balance: { amount: null, currency: 'RUB', available: false } });
     });
     it('rejects missing API key owner before any lookup', async () => {
         await expect(service.getContext(undefined, { email: 'user@example.test' })).rejects.toThrow(ForbiddenException);

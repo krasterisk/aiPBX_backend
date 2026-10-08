@@ -1,18 +1,19 @@
+import network
 #!/usr/bin/env python3
-import pathlib, json, urllib.request, urllib.error, imaplib, smtplib, ssl, re
+import pathlib, json, urllib.request, urllib.error, imaplib, smtplib, ssl, re, os
 p=pathlib.Path('/opt/aipbx-helpdesk/integrations.env')
-e={}
-for line in p.read_text(encoding='utf-8-sig').splitlines():
+e=dict(os.environ)
+for line in (p.read_text(encoding='utf-8-sig').splitlines() if p.exists() else []):
     if '=' in line and not line.lstrip().startswith('#'):
         k,v=line.split('=',1); e[k.strip()]=v.strip().strip('\"').strip("'")
+os.environ['TELEGRAM_PROXY']=e.get('TELEGRAM_PROXY','')
 def check(name, fn):
     try:
         fn(); print(name+': PASS',flush=True)
     except Exception as x:
         print(name+': FAIL '+type(x).__name__+(' HTTP '+str(x.code) if isinstance(x,urllib.error.HTTPError) else ''),flush=True)
 def request(url, data=None, headers=None):
-    req=urllib.request.Request(url,data=json.dumps(data).encode() if data is not None else None,headers=headers or {})
-    with urllib.request.urlopen(req,timeout=25) as r: return json.load(r)
+    return network.json_request(url,data,headers)
 def imap():
     with imaplib.IMAP4_SSL('imap.yandex.ru',993,timeout=25) as c:
         c.login(e['YANDEX_EMAIL'],e['YANDEX_APP_PASSWORD']); assert c.select('INBOX',readonly=True)[0]=='OK'

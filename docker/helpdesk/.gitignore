@@ -3,3 +3,4 @@ integrations.env
 access.env
 backups/
 __pycache__/
+exposed-token.sha256

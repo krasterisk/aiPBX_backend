@@ -1,3 +1,4 @@
+import network
 import pathlib,urllib.request,urllib.error,json,os
 v={}
 for l in pathlib.Path('/opt/aipbx-helpdesk/integrations.env').read_text(encoding='utf-8-sig').splitlines():

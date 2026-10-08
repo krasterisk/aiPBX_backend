@@ -1,3 +1,4 @@
+import network
 import pathlib,subprocess,os,urllib.request,urllib.error,json
 p=pathlib.Path('/opt/aipbx-helpdesk');os.chdir(p)
 e=dict(l.split('=',1) for l in (p/'integrations.env').read_text(encoding='utf-8-sig').splitlines() if '=' in l)

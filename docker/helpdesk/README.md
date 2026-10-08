@@ -37,3 +37,5 @@ Daily backup timer: `aipbx-helpdesk-backup.timer`, 03:20 Asia/Krasnoyarsk with u
 Restore into a fresh isolated stack: restore configuration/encryption key first, restore each database dump using pg_restore, unpack n8n-files into the named n8n volume with node ownership, and validate owner login and health before enabling processing. Original PostgreSQL 16 volume and migration dumps are retained as recovery evidence from the initial installation; current runtime uses PostgreSQL 17.
 
 No live customer email send has been used as a test. End-to-end acceptance requires a new test email and the configured human's approval of its concrete reply.
+
+Telegram egress uses TELEGRAM_PROXY from the existing backend configuration. SOCKS5 URLs use proxy-side DNS (socks5h). The adapter limits direct Telegram connection attempts and prefers the working IPv6 route when no proxy is configured. Proxy credentials stay in integrations.env, outside Git. A dedicated helpdesk bot is required because the original bot has an active webhook; it is preserved. Run check-proxy.py inside the bridge container with PYTHONPATH=/app.

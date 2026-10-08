@@ -64,6 +64,17 @@ class DatabaseTests(unittest.TestCase):
             bridge.decide(self.tid,bridge.digest('approved body'),'approve','123')
             self.assertEqual(smtp.return_value.__enter__.return_value.send_message.call_count,1)
         with bridge.db() as c:self.assertEqual(c.execute('SELECT status FROM tickets WHERE id=%s',(self.tid,)).fetchone()['status'],'send_uncertain')
+    def test_pending_preview_retries_after_telegram_transport_failure(self):
+        with patch('bridge.notify',side_effect=RuntimeError('transport unavailable')):
+            with self.assertRaises(RuntimeError):bridge.notify_pending()
+        with bridge.db() as c:
+            row=c.execute('SELECT notified_revision FROM tickets WHERE id=%s',(self.tid,)).fetchone()
+            self.assertEqual(row['notified_revision'],0)
+        with patch('bridge.notify') as notification:
+            bridge.notify_pending();self.assertGreater(notification.call_count,0)
+        with bridge.db() as c:
+            row=c.execute('SELECT notified_revision FROM tickets WHERE id=%s',(self.tid,)).fetchone()
+            self.assertEqual(row['notified_revision'],1)
     def test_rejection_and_duplicate_ingestion(self):
         with patch('bridge.smtplib.SMTP_SSL') as smtp:
             bridge.decide(self.tid,bridge.digest('approved body'),'reject','123');smtp.assert_not_called()
@@ -71,6 +82,36 @@ class DatabaseTests(unittest.TestCase):
             c.execute("INSERT INTO tickets(mail_key,sender,subject,message_id,refs,body) VALUES('test','x@example.test','test','','','test') ON CONFLICT(mail_key) DO NOTHING")
             self.assertEqual(c.execute('SELECT count(*) AS n FROM tickets').fetchone()['n'],1)
 
+class NetworkTests(unittest.TestCase):
+    def test_telegram_prefers_ipv6_and_bounds_each_connect(self):
+        import network,socket
+        ipv4=(socket.AF_INET,socket.SOCK_STREAM,6,'',('127.0.0.1',443))
+        ipv6=(socket.AF_INET6,socket.SOCK_STREAM,6,'',('::1',443,0,0))
+        with patch('network.socket.getaddrinfo',return_value=[ipv4,ipv6]),patch('network.socket.socket') as factory:
+            connection=network.telegram_connection(('api.telegram.org',443),30)
+            factory.assert_called_once_with(socket.AF_INET6,socket.SOCK_STREAM,6)
+            self.assertEqual(factory.return_value.settimeout.call_args_list[0].args,(5,))
+            self.assertIs(connection,factory.return_value)
+    def test_other_hosts_use_original_connection(self):
+        import network
+        with patch('network._original_connection') as original:
+            network.telegram_connection(('smtp.yandex.ru',465),20)
+            original.assert_called_once()
+    def test_configured_proxy_is_used_only_for_telegram(self):
+        import network
+        with patch.dict(os.environ,{'TELEGRAM_PROXY':'socks5://proxy.example.test:1080'}),patch('requests.Session') as factory:
+            session=factory.return_value.__enter__.return_value
+            session.request.return_value.status_code=200
+            session.request.return_value.json.return_value={'ok':True}
+            self.assertEqual(network.json_request('https://api.telegram.org/botfake/getMe',{}),{'ok':True})
+            self.assertFalse(session.trust_env)
+            self.assertEqual(session.request.call_args.kwargs['proxies']['https'],'socks5h://proxy.example.test:1080')
+    def test_telegram_api_error_does_not_include_token_url(self):
+        import network
+        with patch.dict(os.environ,{'TELEGRAM_PROXY':'http://proxy.example.test:8080'}),patch('requests.Session') as factory:
+            factory.return_value.__enter__.return_value.request.return_value.status_code=400
+            with self.assertRaises(network.TelegramAPIError) as failure:
+                network.json_request('https://api.telegram.org/botFAKE_SECRET/getChat',{})
+            self.assertNotIn('FAKE_SECRET',str(failure.exception))
+            self.assertEqual(failure.exception.code,400)
 if __name__=='__main__':unittest.main(verbosity=2)
-
-

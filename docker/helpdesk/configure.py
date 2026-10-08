@@ -48,4 +48,3 @@ if '# aipbx-helpdesk managed location' not in old:
         conf.write_text(old); raise RuntimeError('nginx test failed, original restored')
     subprocess.run(['systemctl','reload','nginx'],check=True)
 print('nginx helpdesk proxy: configured')
-

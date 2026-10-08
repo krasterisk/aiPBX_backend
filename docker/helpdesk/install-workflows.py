@@ -30,4 +30,3 @@ try:
 finally:
     creds.unlink(missing_ok=True)
     subprocess.run(['docker','compose','exec','-T','-u','root','n8n','rm','-f','/tmp/helpdesk-credentials.json','/tmp/helpdesk-workflows.json'],check=False)
-

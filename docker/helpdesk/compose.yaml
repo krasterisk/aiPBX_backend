@@ -63,7 +63,7 @@ services:
     environment:
       DATABASE_URL: postgresql://helpdesk:${POSTGRES_PASSWORD}@postgres:5432/helpdesk
       BRIDGE_TOKEN: ${BRIDGE_TOKEN}
-      PROCESSING_ENABLED: 'false'
+      PROCESSING_ENABLED: 'true'
     volumes: ['./client-projects.json:/app/client-projects.json:ro']
     depends_on:
       postgres: {condition: service_healthy}

@@ -1,3 +1,4 @@
+import network
 """Internal n8n adapter. Fail closed on unmapped clients, API errors and stale approvals."""
 import os, json, hashlib, hmac, re, ssl, imaplib, smtplib, email, urllib.request
 from email import policy
@@ -17,6 +18,8 @@ CREATE TABLE IF NOT EXISTS tickets (
  status text NOT NULL DEFAULT 'received', revision integer NOT NULL DEFAULT 0,
  draft text, draft_hash text, context jsonb, approved_by text, outgoing_id text,
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS notified_revision integer NOT NULL DEFAULT 0;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS mapping_notified boolean NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS revisions (
  ticket_id bigint REFERENCES tickets(id), revision integer, body text NOT NULL,
  hash text NOT NULL, PRIMARY KEY(ticket_id,revision));
@@ -40,10 +43,7 @@ def authorized(user,chat):
 def approval_valid(ticket,version_hash):
     return ticket['status']=='pending_approval' and hmac.compare_digest(ticket['draft_hash'] or '',version_hash)
 def call(url,data=None,headers=None):
-    request=urllib.request.Request(url,data=json.dumps(data).encode() if data is not None else None,headers=headers or {})
-    with urllib.request.urlopen(request,timeout=30) as response:
-        result=json.load(response)
-    return result
+    return network.json_request(url,data,headers)
 
 def telegram(method,data):
     result=call('https://api.telegram.org/bot'+os.environ['TELEGRAM_BOT_TOKEN']+'/'+method,data,{'Content-Type':'application/json'})
@@ -114,7 +114,8 @@ def poll_mail():
                 status='ignored' if auto or sender==os.environ['YANDEX_EMAIL'].lower() else 'received'
                 c.execute('INSERT INTO tickets(mail_key,sender,subject,message_id,refs,body,status) VALUES(%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(mail_key) DO NOTHING',(key,sender,subject,mid,refs,body,status))
                 set_state(c,'imap_uid',uid); c.commit(); processed+=1
-        prepare_drafts()
+        try:prepare_drafts()
+        finally:notify_pending()
         return {'status':'ok','ingested':processed}
 
 def verified_mapping(sender):
@@ -145,8 +146,6 @@ def prepare_drafts():
         if not context.get('found'):
             with db() as c:
                 c.execute("UPDATE tickets SET status='needs_mapping',client_id=%s,context=%s::jsonb,updated_at=now() WHERE id=%s AND status='received'",(context.get('clientId'),json.dumps(context),ticket['id']));audit(c,ticket['id'],'mapping_required')
-            choices=', '.join(str(p['id'])+': '+p['name'] for p in context.get('projects',[]))
-            notify(f"Письмо #{ticket['id']}: {ticket['subject']}\nОт: {ticket['sender']}\nНужна привязка кабинета/проекта. {choices}\nВыбор проекта: /project {ticket['id']} ID. Отправка заблокирована.")
             continue
         mapping={'clientId':context['clientId'],'projectId':context['projectId'],'verified':True}
         with db() as c:
@@ -162,6 +161,15 @@ def prepare_drafts():
             save_revision(c,ticket['id'],draft,1)
         preview(ticket['id'])
 
+def notify_pending():
+    with db() as c:
+        rows=c.execute("SELECT * FROM tickets WHERE (status='needs_mapping' AND NOT mapping_notified) OR (status='pending_approval' AND notified_revision < revision) ORDER BY id LIMIT 10").fetchall()
+    for t in rows:
+        if t['status']=='pending_approval':preview(t['id']);continue
+        context=t['context'] or {}
+        choices=', '.join(str(p['id'])+': '+p['name'] for p in context.get('projects',[]))
+        notify(f"Письмо #{t['id']}: {t['subject']}\nОт: {t['sender']}\nНужна привязка кабинета/проекта. {choices}\nВыбор проекта: /project {t['id']} ID. Отправка заблокирована.")
+        with db() as c:c.execute("UPDATE tickets SET mapping_notified=true WHERE id=%s AND status='needs_mapping'",(t['id'],))
 def save_revision(c,tid,text,revision):
     version=digest(text)
     c.execute("UPDATE tickets SET draft=%s,draft_hash=%s,revision=%s,status='pending_approval',updated_at=now() WHERE id=%s",(text,version,revision,tid))
@@ -171,6 +179,8 @@ def preview(tid):
     notify(f"Черновик #{tid}, версия {t['revision']}\nКому: {t['sender']}\nТема: {t['subject']}\nПроект: {t['project_id']}\nИзменить: /edit {tid} {t['revision']} новый текст\nПравило из письма: /rule {tid} текст договорённости")
     for i in range(0,len(t['draft']),3000):notify(f"#{tid} v{t['revision']} [{i//3000+1}]\n"+t['draft'][i:i+3000])
     notify(f"Согласовать полный текст #{tid} v{t['revision']} ({t['draft_hash']})?",[[{'text':'Одобрить и отправить','callback_data':f"approve:{tid}:{t['draft_hash']}"},{'text':'Отклонить','callback_data':f"reject:{tid}:{t['draft_hash']}"}]])
+
+    with db() as c:c.execute('UPDATE tickets SET notified_revision=%s WHERE id=%s AND revision=%s',(t['revision'],tid,t['revision']))
 
 def reply_message(t):
     m=EmailMessage();m['From']=os.environ['YANDEX_EMAIL'];m['To']=t['sender']
@@ -279,4 +289,3 @@ class Handler(BaseHTTPRequestHandler):
 if __name__=='__main__':
     with db() as c:c.execute(SCHEMA)
     ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
-

@@ -1,0 +1,8 @@
+[Unit]
+Description=Daily aiPBX helpdesk backup
+[Timer]
+OnCalendar=*-*-* 03:20:00 Asia/Krasnoyarsk
+Persistent=true
+RandomizedDelaySec=300
+[Install]
+WantedBy=timers.target

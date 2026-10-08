@@ -21,6 +21,14 @@ import { HelpdeskToolsService } from './helpdesk-tools.service';
 import { HelpdeskController } from './helpdesk.controller';
 import { HelpdeskToolsController } from './helpdesk-tools.controller';
 
+import { HelpdeskEmailContextController } from './helpdesk-email-context.controller';
+import { HelpdeskEmailContextService } from './helpdesk-email-context.service';
+import { User } from '../users/users.model';
+import { Role } from '../roles/roles.model';
+import { OperatorProject } from '../operator-analytics/operator-project.model';
+import { OperatorAnalytics } from '../operator-analytics/operator-analytics.model';
+import { AiCdr } from '../ai-cdr/ai-cdr.model';
+import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
 @Module({
     imports: [
         SequelizeModule.forFeature([
@@ -29,7 +37,7 @@ import { HelpdeskToolsController } from './helpdesk-tools.controller';
             HelpdeskTicketStatusHistory,
             HelpdeskClientContext,
             HelpdeskPbxConnection,
-            HelpdeskSettings,
+            HelpdeskSettings, User, Role, OperatorProject, OperatorAnalytics, AiCdr, AiAnalytics,
         ]),
         AccountingModule,
         MailerModule,
@@ -38,8 +46,9 @@ import { HelpdeskToolsController } from './helpdesk-tools.controller';
         HttpModule,
         forwardRef(() => AuthModule),
     ],
-    controllers: [HelpdeskController, HelpdeskToolsController],
+    controllers: [HelpdeskController, HelpdeskToolsController, HelpdeskEmailContextController],
     providers: [
+        HelpdeskEmailContextService,
         HelpdeskService,
         HelpdeskAlfawebhookService,
         HelpdeskLlmContextService,

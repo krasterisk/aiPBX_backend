@@ -1,0 +1,9 @@
+[Unit]
+Description=aiPBX helpdesk n8n and history backup
+Requires=docker.service
+After=docker.service
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/aipbx-helpdesk
+ExecStart=/usr/bin/python3 /opt/aipbx-helpdesk/backup.py
+UMask=0077

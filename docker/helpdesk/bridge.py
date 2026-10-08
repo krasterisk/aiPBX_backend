@@ -151,7 +151,12 @@ def prepare_drafts():
         if context.get('found') and 'analytics_project' in reads:
             project_context=client_context(mapping,ticket['sender'],'analytics')
             if project_context.get('clientId') and str(project_context['clientId'])!=str(context['clientId']):raise RuntimeError('Context cabinet mismatch')
-            context={**project_context,'cabinet':context} if project_context.get('found') else project_context
+            if project_context.get('found'):
+                context={**project_context,'cabinet':context}
+            elif 'cabinet' in reads:
+                context['analyticsUnavailable']=project_context
+            else:
+                context=project_context
         context['readPlan']=reads
         if not context.get('found'):
             with db() as c:

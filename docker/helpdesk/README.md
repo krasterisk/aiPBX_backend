@@ -39,3 +39,12 @@ Restore into a fresh isolated stack: restore configuration/encryption key first,
 No live customer email send has been used as a test. End-to-end acceptance requires a new test email and the configured human's approval of its concrete reply.
 
 Telegram egress uses TELEGRAM_PROXY from the existing backend configuration. SOCKS5 URLs use proxy-side DNS (socks5h). The adapter limits direct Telegram connection attempts and prefers the working IPv6 route when no proxy is configured. Proxy credentials stay in integrations.env, outside Git. A dedicated helpdesk bot is required because the original bot has an active webhook; it is preserved. Run check-proxy.py inside the bridge container with PYTHONPATH=/app.
+
+## Product routing (2026-10-08)
+The runtime guide is knowledge/products.md: a short reviewed overview, not the repository or a full documentation dump. routing.py asks DeepSeek for a JSON read plan from a closed tool list: cabinet and analytics_project. This is adapter-mediated reading, not native function calling or MCP. The model cannot choose tenants, URLs, credentials or recipients. The adapter validates the plan and calls the scoped API with email from the original envelope.
+
+API scope=cabinet returns the owner's balance in tenant currency and up to 50 assistant configurations, with an explicit unverified live-status flag. No analytics project is required. scope=analytics retains project selection and tenant checks. General product questions do not require a project. Mixed questions can receive cabinet facts plus a clarification for unavailable project information. Account history/rules use the internal cabinet sentinel separately from analytics project IDs.
+
+Both model stages receive the short guide; the drafting stage separately receives JSON email/context/history/approved rules. DeepSeek JSON mode follows https://api-docs.deepseek.com/guides/json_mode/. No documentation search or MCP discovery is implemented. The guide is version-controlled and should be updated from verified product changes.
+
+Execution metadata is retained for success/error with 168-hour pruning. Workflows contain only tick status/counts, not email text. This fixes uncompleted metadata observed with save=none; historical running rows are retained as diagnostic evidence.

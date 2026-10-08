@@ -46,8 +46,8 @@ services:
       N8N_PUBLIC_API_DISABLED: 'true'
       EXECUTIONS_DATA_PRUNE: 'true'
       EXECUTIONS_DATA_MAX_AGE: '168'
-      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
-      EXECUTIONS_DATA_SAVE_ON_ERROR: none
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
       GENERIC_TIMEZONE: Asia/Krasnoyarsk
       TZ: Asia/Krasnoyarsk
       NODE_OPTIONS: --max-old-space-size=512

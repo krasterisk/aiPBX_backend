@@ -25,6 +25,22 @@ class SafetyTests(unittest.TestCase):
             with patch('bridge.decide') as decision,patch('bridge.notify'):
                 bridge.handle_update({'callback_query':{'from':{'id':actor},'message':{'chat':{'id':chat}},'data':'approve:1:'+'a'*20}})
                 decision.assert_not_called()
+    def test_expired_callback_does_not_hide_approval_or_rejection(self):
+        for action in ['approve','reject']:
+            events=[]
+            def ack(*args):
+                events.append('ack');raise bridge.network.TelegramAPIError(400)
+            def decision(*args):events.append('decision');return 'result'
+            with patch('bridge.telegram',side_effect=ack),patch('bridge.decide',side_effect=decision) as decide,patch('bridge.notify') as notify:
+                bridge.handle_update({'callback_query':{'id':'expired','from':{'id':123},'message':{'chat':{'id':-456}},'data':action+':1:'+'a'*20}})
+                self.assertEqual(events,['ack','decision'])
+                decide.assert_called_once_with(1,'a'*20,action,'123')
+                notify.assert_called_once_with('#1: result')
+    def test_acknowledgement_precedes_smtp_decision(self):
+        events=[]
+        with patch('bridge.telegram',side_effect=lambda *args:events.append('ack')),patch('bridge.decide',side_effect=lambda *args:events.append('decision') or 'result'),patch('bridge.notify',side_effect=lambda *args:events.append('notify')):
+            bridge.handle_update({'callback_query':{'id':'fresh','from':{'id':123},'message':{'chat':{'id':-456}},'data':'approve:1:'+'a'*20}})
+        self.assertEqual(events,['ack','decision','notify'])
     def test_disabled_approval_cannot_send(self):
         with patch('bridge.db') as db,patch('bridge.smtplib.SMTP_SSL') as smtp:
             bridge.decide(1,'a'*20,'approve','123');db.assert_not_called();smtp.assert_not_called()

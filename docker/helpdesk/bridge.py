@@ -210,6 +210,8 @@ def decide(tid,version,action,actor):
     if not enabled():return 'Обработка отключена.'
     with db() as c:
         t=c.execute('SELECT * FROM tickets WHERE id=%s FOR UPDATE',(tid,)).fetchone()
+        if t and t['status']=='sent':return 'Это письмо уже отправлено. Повторной отправки не будет.'
+        if t and t['status']=='rejected':return 'Этот черновик уже отклонён.'
         if not t or not approval_valid(t,version):return 'Эта версия устарела или уже обработана.'
         if action=='reject':
             c.execute("UPDATE tickets SET status='rejected',updated_at=now() WHERE id=%s",(tid,));audit(c,tid,'rejected',actor);return 'Отклонено.'
@@ -237,8 +239,13 @@ def handle_update(update):
     if callback:
         match=re.fullmatch(r'(approve|reject):(\d+):([a-f0-9]{20})',callback.get('data',''))
         if not match:return
-        action,tid,version=match.groups();response=decide(int(tid),version,action,str(actor))
-        telegram('answerCallbackQuery',{'callback_query_id':callback['id'],'text':response[:180]})
+        action,tid,version=match.groups()
+        # Acknowledge before SMTP. An expired callback must not hide durable results
+        # or poison the update cursor. Delivery feedback is a separate chat message.
+        try:telegram('answerCallbackQuery',{'callback_query_id':callback['id'],'text':'Нажатие принято, проверяю версию…'})
+        except Exception as error:
+            print(json.dumps({'event':'callback_ack_failed','error_type':type(error).__name__}),flush=True)
+        response=decide(int(tid),version,action,str(actor))
         notify(f'#{tid}: {response}')
         return
     text=message.get('text','')

@@ -48,3 +48,6 @@ API scope=cabinet returns the owner's balance in tenant currency and up to 50 as
 Both model stages receive the short guide; the drafting stage separately receives JSON email/context/history/approved rules. DeepSeek JSON mode follows https://api-docs.deepseek.com/guides/json_mode/. No documentation search or MCP discovery is implemented. The guide is version-controlled and should be updated from verified product changes.
 
 Execution metadata is retained for success/error with 168-hour pruning. Workflows contain only tick status/counts, not email text. This fixes uncompleted metadata observed with save=none; historical running rows are retained as diagnostic evidence.
+
+## Telegram callback handling
+Approval polling runs every 5 seconds; inbox polling remains every minute. Callback acknowledgement happens before durable decisions/SMTP. Expired or failed acknowledgements are logged without tokens and do not stop the decision/result message or poison the update cursor. Sent/rejected tickets return explicit status on repeated clicks; no duplicate send. Unit regression tests cover expired callbacks for both actions and acknowledgement order, in addition to isolated-database idempotent SMTP tests.

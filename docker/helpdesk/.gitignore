@@ -4,3 +4,11 @@ access.env
 backups/
 __pycache__/
 exposed-token.sha256
+private/
+*.env
+*.pyc
+*.dump
+prior-source.tar
+nginx-before-*.conf
+import-credentials.json
+approval-*.json

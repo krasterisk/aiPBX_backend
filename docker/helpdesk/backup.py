@@ -12,6 +12,8 @@ with (f/'n8n-files.tar.gz').open('wb') as out:
 with tarfile.open(f/'configuration.tar.gz','w:gz') as archive:
     for name in ['.env','integrations.env','access.env','compose.yaml','client-projects.json','bridge.py','Dockerfile','init.sql','backup.py']:
         archive.add(p/name,arcname=name)
+    for name in ['private','ui','knowledge','network.py','routing.py','registry.py','connectors.py','web.py','ticketing.py','tests.py','tests_registry.py','.dockerignore']:
+        if (p/name).exists():archive.add(p/name,arcname=name)
     for nginx in p.glob('nginx-before-*.conf'):archive.add(nginx,arcname=nginx.name)
 (f/'SHA256SUMS').write_text(''.join(hashlib.sha256(x.read_bytes()).hexdigest()+'  '+x.name+'\n' for x in sorted(f.iterdir()) if x.is_file()))
 for item in f.iterdir():item.chmod(0o600)

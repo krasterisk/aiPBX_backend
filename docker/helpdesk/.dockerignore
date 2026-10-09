@@ -1,0 +1,15 @@
+*
+!Dockerfile
+!bridge.py
+!network.py
+!routing.py
+!registry.py
+!connectors.py
+!web.py
+!ticketing.py
+!tests.py
+!tests_registry.py
+!knowledge/
+!knowledge/**
+!ui/
+!ui/**

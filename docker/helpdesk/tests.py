@@ -143,4 +143,9 @@ class NetworkTests(unittest.TestCase):
                 network.json_request('https://api.telegram.org/botFAKE_SECRET/getChat',{})
             self.assertNotIn('FAKE_SECRET',str(failure.exception))
             self.assertEqual(failure.exception.code,400)
+def load_tests(loader,tests,pattern):
+    import tests_registry
+    tests.addTests(loader.loadTestsFromModule(tests_registry))
+    return tests
+
 if __name__=='__main__':unittest.main(verbosity=2)

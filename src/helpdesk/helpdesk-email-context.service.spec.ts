@@ -92,4 +92,15 @@ describe('HelpdeskEmailContextService', () => {
         expect(await service.getContext(1, { email: 'user@example.test' })).toMatchObject({ found: false, reason: 'cabinet_unavailable' });
         expect(projects.findAll).not.toHaveBeenCalled();
     });
+    it('support capabilities require explicit scope and never read conversations', async () => {
+        const result = await service.getSupportContext(1,{email:'user@example.test',cabinetId:20,projectId:7});
+        expect(result).toMatchObject({found:true,clientId:'20',projectId:7,reporting:{patientRegistryConfigured:false}});
+        expect(projects.findAll).toHaveBeenCalledWith(expect.objectContaining({where:{userId:'20',id:7}}));
+        expect(calls.findAll).not.toHaveBeenCalled();expect(transcripts.findAll).not.toHaveBeenCalled();
+        expect(JSON.stringify(result)).not.toContain('secret');
+        users.findByPk.mockResolvedValueOnce(admin);
+        await expect(service.getSupportContext(1,{email:'user@example.test',cabinetId:21,projectId:7})).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(service.getSupportContext(1,{email:'user@example.test'})).rejects.toBeInstanceOf(BadRequestException);
+    });
+
 });

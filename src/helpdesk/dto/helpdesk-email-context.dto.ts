@@ -15,4 +15,8 @@ export class HelpdeskEmailContextDto {
     @IsInt()
     @Min(1)
     projectId?: number;
+
+    @ApiPropertyOptional({description:'Confirmed cabinet ID in the helpdesk binding'})
+    @IsOptional() @IsInt() @Min(1)
+    cabinetId?:number;
 }

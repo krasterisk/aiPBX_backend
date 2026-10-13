@@ -26,57 +26,11 @@ export class HelpdeskEmailContextService {
     ) {}
 
     async getContext(actorId: number | undefined, dto: HelpdeskEmailContextDto) {
-        // Scope alone must never let a regular customer's key enumerate other cabinets.
-        if (!actorId) throw new ForbiddenException('ADMIN-owned API key required');
-        const actor = await this.users.findByPk(actorId, {
-            attributes: ['id', 'banned', 'isActivated'],
-            include: [{ model: Role, attributes: ['value'], through: { attributes: [] } }],
-        });
-        if (!actor || actor.banned || !actor.isActivated || !actor.roles?.some(role => role.value === 'ADMIN')) {
-            throw new ForbiddenException('Active ADMIN-owned API key required');
-        }
-        const sender = dto?.email?.trim().toLowerCase();
-        if (!sender || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(sender) || sender.length > 254) {
-            throw new BadRequestException('Valid email required');
-        }
-        if (dto.projectId != null && (!Number.isSafeInteger(dto.projectId) || dto.projectId <= 0)) {
-            throw new BadRequestException('Positive integer projectId required');
-        }
-        if (dto.scope != null && !['cabinet', 'analytics'].includes(dto.scope)) throw new BadRequestException('Invalid context scope');
-        const accounts = await this.users.findAll({
-            where: where(fn('LOWER', fn('TRIM', col('email'))), sender),
-            attributes: ['id', 'email', 'vpbx_user_id', 'banned'],
-            limit: 2,
-        });
-        if (accounts.length !== 1) {
-            return { found: false, ambiguous: accounts.length > 1, reason: accounts.length ? 'multiple_accounts' : 'unknown_email' };
-        }
-        const account = accounts[0];
-        if (account.banned) return { found: false, ambiguous: false, reason: 'account_unavailable' };
-        const ownerId = account.vpbx_user_id ?? account.id;
-        const owner = await this.users.findByPk(ownerId, { attributes: ['id', 'vpbx_user_id', 'banned', 'balance'] });
-        // Reject broken/nested ownership rather than broadening a tenant query.
-        if (!owner || owner.banned || owner.vpbx_user_id != null) {
-            return { found: false, ambiguous: false, reason: 'cabinet_unavailable' };
-        }
-        const clientId = String(ownerId);
-        if (dto.scope === 'cabinet') return this.cabinetContext(actorId, owner);
-        const projectRows = await this.projects.findAll({
-            where: { userId: clientId, ...(dto.projectId != null ? { id: dto.projectId } : {}) },
-            attributes: ['id', 'userId', 'name', 'description', 'systemPrompt', 'successPrompt', 'customMetricsSchema', 'callTaxonomy', 'currentSchemaVersion'],
-            order: [['id', 'ASC']],
-            limit: 2,
-        });
-        if (projectRows.length !== 1) {
-            return {
-                found: false,
-                ambiguous: projectRows.length > 1,
-                clientId,
-                reason: projectRows.length ? 'multiple_projects' : 'project_not_found',
-                projects: projectRows.map(project => ({ id: project.id, name: project.name })),
-            };
-        }
-        const project = projectRows[0];
+        const resolved = await this.resolveProject(actorId,dto);
+        if (!resolved.found) return {found:false as const,ambiguous:resolved.ambiguous,reason:resolved.reason,clientId:resolved.clientId,projects:resolved.projects};
+        const { owner, clientId, project } = resolved;
+        if (dto.scope === 'cabinet') return this.cabinetContext(actorId!, owner);
+        if (!project) throw new BadRequestException('Project required');
         const scope = { userId: clientId, projectId: project.id };
         const [transcripts, calls] = await Promise.all([
             this.transcripts.findAll({
@@ -114,6 +68,77 @@ export class HelpdeskEmailContextService {
                 sentiment: call.analytics?.sentiment ?? null, csat: call.analytics?.csat ?? null,
                 metrics: call.analytics?.metrics ?? null,
             })),
+        };
+    }
+
+    private async resolveProject(actorId: number | undefined, dto: HelpdeskEmailContextDto) {
+        // Scope alone must never let a regular customer's key enumerate other cabinets.
+        if (!actorId) throw new ForbiddenException('ADMIN-owned API key required');
+        const actor = await this.users.findByPk(actorId, {
+            attributes: ['id', 'banned', 'isActivated'],
+            include: [{ model: Role, attributes: ['value'], through: { attributes: [] } }],
+        });
+        if (!actor || actor.banned || !actor.isActivated || !actor.roles?.some(role => role.value === 'ADMIN')) {
+            throw new ForbiddenException('Active ADMIN-owned API key required');
+        }
+        const sender = dto?.email?.trim().toLowerCase();
+        if (!sender || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(sender) || sender.length > 254) {
+            throw new BadRequestException('Valid email required');
+        }
+        if (dto.cabinetId != null && (!Number.isSafeInteger(dto.cabinetId) || dto.cabinetId <= 0)) throw new BadRequestException('Positive integer cabinetId required');
+        if (dto.projectId != null && (!Number.isSafeInteger(dto.projectId) || dto.projectId <= 0)) {
+            throw new BadRequestException('Positive integer projectId required');
+        }
+        if (dto.scope != null && !['cabinet', 'analytics'].includes(dto.scope)) throw new BadRequestException('Invalid context scope');
+        const accounts = await this.users.findAll({
+            where: where(fn('LOWER', fn('TRIM', col('email'))), sender),
+            attributes: ['id', 'email', 'vpbx_user_id', 'banned'],
+            limit: 2,
+        });
+        if (accounts.length !== 1) {
+            return { found: false as const, ambiguous: accounts.length > 1, reason: accounts.length ? 'multiple_accounts' : 'unknown_email' };
+        }
+        const account = accounts[0];
+        if (account.banned) return { found: false as const, ambiguous: false, reason: 'account_unavailable' };
+        const ownerId = account.vpbx_user_id ?? account.id;
+        const owner = await this.users.findByPk(ownerId, { attributes: ['id', 'vpbx_user_id', 'banned', 'balance'] });
+        // Reject broken/nested ownership rather than broadening a tenant query.
+        if (!owner || owner.banned || owner.vpbx_user_id != null) {
+            return { found: false as const, ambiguous: false, reason: 'cabinet_unavailable' };
+        }
+        const clientId = String(ownerId);
+        if (dto.cabinetId != null && dto.cabinetId !== ownerId) throw new ForbiddenException('Configured cabinet mismatch');
+        if (dto.scope === 'cabinet') return { found: true as const, owner, clientId, project: null };
+        const projectRows = await this.projects.findAll({
+            where: { userId: clientId, ...(dto.projectId != null ? { id: dto.projectId } : {}) },
+            attributes: ['id', 'userId', 'name', 'description', 'systemPrompt', 'successPrompt', 'customMetricsSchema', 'callTaxonomy', 'currentSchemaVersion'],
+            order: [['id', 'ASC']],
+            limit: 2,
+        });
+        if (projectRows.length !== 1) {
+            return {
+                found: false as const,
+                ambiguous: projectRows.length > 1,
+                clientId,
+                reason: projectRows.length ? 'multiple_projects' : 'project_not_found',
+                projects: projectRows.map(project => ({ id: project.id, name: project.name })),
+            };
+        }
+        const project = projectRows[0];
+        return { found: true as const, owner, clientId, project };
+    }
+
+    async getSupportContext(actorId: number | undefined, dto: HelpdeskEmailContextDto) {
+        if (!dto.cabinetId || !dto.projectId || dto.scope === 'cabinet') throw new BadRequestException('Explicit cabinet and project required');
+        const resolved = await this.resolveProject(actorId,{...dto,scope:'analytics'});
+        if (!resolved.found) return {found:false as const,ambiguous:resolved.ambiguous,reason:resolved.reason,clientId:resolved.clientId,projects:resolved.projects};
+        const project = resolved.project!;
+        return {
+            found:true, product:'aipbx', clientId:resolved.clientId, projectId:project.id,
+            capabilities:{transcription:true,controlledTopicVocabulary:true,customMetrics:true,
+                dailyUniquePatientReport:'requires_report_verification',primaryRepeatPatients:'requires_patient_registry'},
+            reporting:{schemaVersion:project.currentSchemaVersion,metricsSchema:project.customMetricsSchema??[],callTaxonomy:project.callTaxonomy??[],
+                patientRegistryConfigured:false,identityRule:'Repeated calls do not establish patient status'},
         };
     }
 

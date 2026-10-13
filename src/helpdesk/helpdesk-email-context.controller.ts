@@ -13,6 +13,12 @@ import { HelpdeskEmailContextService } from './helpdesk-email-context.service';
 export class HelpdeskEmailContextController {
     constructor(private readonly service: HelpdeskEmailContextService) {}
 
+    @Post('analytics-support-context')
+    @ApiOperation({summary:'Read scoped analytics capabilities/settings without transcripts or calls'})
+    getSupportContext(@Body() body:HelpdeskEmailContextDto,@Req() request:{apiKeyUserId?:number}) {
+        return this.service.getSupportContext(request.apiKeyUserId,body);
+    }
+
     @Post('email-project-context')
     @ApiOperation({ summary: 'Read email-matched cabinet/project context (ADMIN-owned helpdesk API key)' })
     getContext(@Body() body: HelpdeskEmailContextDto, @Req() request: { apiKeyUserId?: number }) {

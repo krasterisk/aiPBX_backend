@@ -216,10 +216,11 @@ export class HelpdeskEmailContextService {
         const startDate=calendarDate(start);const endDate=calendarDate(end);
         // Reuse the actual dashboard, forced to the verified owner/project, not the key's admin scope.
         // This read does not call insights, analysis, transcription or other paid providers.
-        const data=await this.reporting.getProjectDashboard(dto.projectId,String(dto.cabinetId),false,{startDate,endDate,...(dto.operatorName?{operatorName:dto.operatorName}:{})});
+        const query={startDate,endDate,...(dto.operatorName?{operatorNameExact:dto.operatorName}:{})};
+        const data=await this.reporting.getProjectDashboard(dto.projectId,String(dto.cabinetId),false,query);
         const agents=data.agentScorecards??[];const topics=data.tagStats??[];
         return {found:true,clientId:context.clientId,projectId:context.projectId,aggregatesOnly:true,
-            period:{days:period,start:startDate,end:endDate,timeBasis:'reporting_server_calendar',timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone},operatorFilter:dto.operatorName??null,
+            period:{days:period,start:startDate,end:endDate,timeBasis:'reporting_server_calendar',timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone},operatorFilter:dto.operatorName??null,operatorFilterMode:dto.operatorName?'exact':null,
             totals:{analyzed:data.totalAnalyzed,excludedLowQuality:data.excludedLowQualityCount??0,successRate:data.successRate},
             operators:agents.slice(0,30).map(a=>({name:a.operatorName,calls:a.callsCount,successRate:a.successRate})),
             topics:topics.slice(0,50).map(t=>({id:t.tagId,name:t.name,calls:t.callsCount,successRate:t.successRate})),

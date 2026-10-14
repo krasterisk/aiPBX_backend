@@ -159,7 +159,8 @@ describe('HelpdeskEmailContextService', () => {
             agentScorecards:[{operatorName:'201',callsCount:10,successRate:60,secret:'PRIVATE'}],tagStats:[{tagId:'tag',name:'Appointment',callsCount:8,successRate:50}],
             transcripts:['PRIVATE_PATIENT'],recordings:['PRIVATE_AUDIO'],project:{apiKey:'PRIVATE_KEY'}});
         const result=await service.getReportingSummary(1,{cabinetId:20,projectId:7,periodDays:7,operatorName:'201'});
-        expect(reporting.getProjectDashboard).toHaveBeenCalledWith(7,'20',false,expect.objectContaining({operatorName:'201'}));
+        expect(reporting.getProjectDashboard).toHaveBeenCalledWith(7,'20',false,expect.objectContaining({operatorNameExact:'201'}));
+        expect(result.operatorFilterMode).toBe('exact');
         expect(result).toMatchObject({aggregatesOnly:true,clientId:'20',projectId:7,totals:{analyzed:12,excludedLowQuality:2},operators:[{name:'201',calls:10}],topics:[{name:'Appointment',calls:8}]});
         expect(JSON.stringify(result)).not.toContain('PRIVATE');
         expect(result.period.days).toBe(7);
@@ -180,10 +181,10 @@ describe('HelpdeskEmailContextService', () => {
             for(const d of dates) expect(Number.isFinite(d.getTime())).toBe(true);
             expect(query.startDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
             expect(query.endDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-            expect(where.userId).toBe('20');expect(where.projectId).toBe(7);
+            expect(where.userId).toBe('20');expect(where.projectId).toBe(7);expect(where.assistantName).toBe('201');
             return {totalAnalyzed:0,agentScorecards:[],tagStats:[]};
         });
-        const result=await service.getReportingSummary(1,{cabinetId:20,projectId:7,periodDays:14});
+        const result=await service.getReportingSummary(1,{cabinetId:20,projectId:7,periodDays:14,operatorName:'201'});
         expect(result.period.timeBasis).toBe('reporting_server_calendar');
         expect(result.period.timeZone).toBeTruthy();
     });

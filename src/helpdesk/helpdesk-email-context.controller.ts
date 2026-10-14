@@ -2,7 +2,7 @@ import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../api-keys/api-key.guard';
 import { API_KEY_SCOPES, RequireApiKeyScope } from '../api-keys/api-key-scope.decorator';
-import { HelpdeskEmailContextDto, HelpdeskIdentityCandidatesDto, HelpdeskBoundSupportDto } from './dto/helpdesk-email-context.dto';
+import { HelpdeskEmailContextDto, HelpdeskIdentityCandidatesDto, HelpdeskBoundSupportDto, HelpdeskReportingSummaryDto } from './dto/helpdesk-email-context.dto';
 import { HelpdeskEmailContextService } from './helpdesk-email-context.service';
 
 @ApiTags('Helpdesk Tools')
@@ -22,6 +22,11 @@ export class HelpdeskEmailContextController {
     @ApiOperation({summary:'Read metadata of an explicitly selected cabinet/project'})
     getBoundSupport(@Body() body:HelpdeskBoundSupportDto,@Req() request:{apiKeyUserId?:number}) {
         return this.service.getBoundSupportContext(request.apiKeyUserId,body);
+    }
+    @Post('bound-reporting-summary')
+    @ApiOperation({summary:'Read existing scoped dashboard aggregates without call records, audio or transcripts'})
+    getReportingSummary(@Body() body:HelpdeskReportingSummaryDto,@Req() request:{apiKeyUserId?:number}) {
+        return this.service.getReportingSummary(request.apiKeyUserId,body);
     }
 
     @Post('analytics-support-context')

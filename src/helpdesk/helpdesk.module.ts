@@ -31,6 +31,7 @@ import { AiCdr } from '../ai-cdr/ai-cdr.model';
 import { Assistant } from '../assistants/assistants.model';
 import { Rates } from '../currency/rates.model';
 import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
+import { OperatorAnalyticsModule } from '../operator-analytics/operator-analytics.module';
 @Module({
     imports: [
         SequelizeModule.forFeature([
@@ -47,6 +48,7 @@ import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
         ApiKeyModule,
         HttpModule,
         forwardRef(() => AuthModule),
+        forwardRef(() => OperatorAnalyticsModule),
     ],
     controllers: [HelpdeskController, HelpdeskToolsController, HelpdeskEmailContextController],
     providers: [

@@ -8,6 +8,7 @@ describe('HelpdeskEmailContextService', () => {
     const calls = { findAll: jest.fn() };
     const assistants = { findAll: jest.fn() };
     const rates = { findOne: jest.fn() };
+    const reporting = { getProjectDashboard: jest.fn() };
     let service: HelpdeskEmailContextService;
     const admin = { id: 1, banned: false, isActivated: true, roles: [{ value: 'ADMIN' }] };
     const project = { id: 7, userId: '20', name: 'Sales', webhookHeaders: { Authorization: 'secret' }, callTaxonomy: [{ id: 'topic' }] };
@@ -15,7 +16,7 @@ describe('HelpdeskEmailContextService', () => {
         jest.resetAllMocks();
         process.env.TENANT_CURRENCY = 'USD';
         assistants.findAll.mockResolvedValue([{ id: 4, name: 'Reception', apiKey: 'secret' }]);
-        service = new HelpdeskEmailContextService(users as never, projects as never, transcripts as never, calls as never, assistants as never, rates as never);
+        service = new HelpdeskEmailContextService(users as never, projects as never, transcripts as never, calls as never, assistants as never, rates as never, reporting as never);
         users.findByPk.mockResolvedValueOnce(admin).mockResolvedValue({ id: 20, banned: false, vpbx_user_id: null, balance: 2.5 });
         users.findAll.mockResolvedValue([{ id: 21, email: 'user@example.test', vpbx_user_id: 20, banned: false }]);
         projects.findAll.mockResolvedValue([project]);
@@ -143,6 +144,43 @@ describe('HelpdeskEmailContextService', () => {
         await expect(service.getBoundSupportContext(1,{cabinetId:20,projectId:999})).rejects.toBeInstanceOf(ForbiddenException);
         users.findByPk.mockReset().mockResolvedValueOnce(admin).mockResolvedValue({id:20,banned:false,vpbx_user_id:30});
         await expect(service.getBoundSupportContext(1,{cabinetId:20,projectId:7})).rejects.toBeInstanceOf(ForbiddenException);
+    });
+    it('distinguishes target topics, conversion success and unusable recording quality', async () => {
+        const result=await service.getBoundSupportContext(1,{cabinetId:20,projectId:7});
+        expect(result.capabilities.operatorTopicBreakdown).toBe(true);
+        expect(result.reporting.guide.concepts.targetCall).toContain('не показатель success');
+        expect(result.reporting.guide.qualityExcludedLevels).toEqual(['low','unusable']);
+        expect(result.capabilities.perOperatorSuccessRules).toBe(false);
+    });
+    it('reuses the dashboard as the selected owner, only exposes bounded aggregates', async () => {
+        reporting.getProjectDashboard.mockResolvedValue({totalAnalyzed:12,excludedLowQualityCount:2,successRate:60,
+            agentScorecards:[{operatorName:'201',callsCount:10,successRate:60,secret:'PRIVATE'}],tagStats:[{tagId:'tag',name:'Appointment',callsCount:8,successRate:50}],
+            transcripts:['PRIVATE_PATIENT'],recordings:['PRIVATE_AUDIO'],project:{apiKey:'PRIVATE_KEY'}});
+        const result=await service.getReportingSummary(1,{cabinetId:20,projectId:7,periodDays:7,operatorName:'201'});
+        expect(reporting.getProjectDashboard).toHaveBeenCalledWith(7,'20',false,expect.objectContaining({operatorName:'201'}));
+        expect(result).toMatchObject({aggregatesOnly:true,clientId:'20',projectId:7,totals:{analyzed:12,excludedLowQuality:2},operators:[{name:'201',calls:10}],topics:[{name:'Appointment',calls:8}]});
+        expect(JSON.stringify(result)).not.toContain('PRIVATE');
+        expect(result.period.days).toBe(7);
+        expect(transcripts.findAll).not.toHaveBeenCalled();expect(calls.findAll).not.toHaveBeenCalled();
+    });
+    it('rejects broad periods and wildcard operator filters before reading the dashboard', async () => {
+        for (const value of [{periodDays:365},{periodDays:7,operatorName:'%'}]) {
+            users.findByPk.mockReset().mockResolvedValueOnce(admin).mockResolvedValue({id:20,banned:false,vpbx_user_id:null});
+            await expect(service.getReportingSummary(1,{cabinetId:20,projectId:7,...value})).rejects.toBeInstanceOf(BadRequestException);
+        }
+        expect(reporting.getProjectDashboard).not.toHaveBeenCalled();
+    });
+    it('does not read reporting data for a foreign project or non-admin key owner', async () => {
+        projects.findAll.mockResolvedValue([]);
+        await expect(service.getReportingSummary(1,{cabinetId:20,projectId:99})).rejects.toBeInstanceOf(ForbiddenException);
+        users.findByPk.mockReset().mockResolvedValue({...admin,roles:[{value:'USER'}]});
+        await expect(service.getReportingSummary(1,{cabinetId:20,projectId:7})).rejects.toBeInstanceOf(ForbiddenException);
+        expect(reporting.getProjectDashboard).not.toHaveBeenCalled();
+    });
+    it('explicitly marks truncated lists while preserving existing aggregate values', async () => {
+        reporting.getProjectDashboard.mockResolvedValue({totalAnalyzed:100,successRate:70,agentScorecards:Array.from({length:35},(_,i)=>({operatorName:String(i),callsCount:2,successRate:50})),tagStats:[]});
+        const result=await service.getReportingSummary(1,{cabinetId:20,projectId:7});
+        expect(result.truncated).toBe(true);expect(result.operators).toHaveLength(30);expect(result.totals.analyzed).toBe(100);
     });
 
 });

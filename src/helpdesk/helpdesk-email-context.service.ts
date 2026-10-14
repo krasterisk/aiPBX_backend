@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { col, fn, where, Op } from 'sequelize';
 import { User } from '../users/users.model';
@@ -10,7 +10,14 @@ import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
 import { Assistant } from '../assistants/assistants.model';
 import { Rates } from '../currency/rates.model';
 import { getTenantCurrency } from '../shared/tenant/tenant-currency';
-import { HelpdeskEmailContextDto, HelpdeskIdentityCandidatesDto, HelpdeskBoundSupportDto } from './dto/helpdesk-email-context.dto';
+import { HelpdeskEmailContextDto, HelpdeskIdentityCandidatesDto, HelpdeskBoundSupportDto, HelpdeskReportingSummaryDto } from './dto/helpdesk-email-context.dto';
+import { OperatorAnalyticsService } from '../operator-analytics/operator-analytics.service';
+
+const REPORTING_GUIDE={
+    concepts:{targetCall:'Тема обращения по настроенной классификации, не показатель success',success:'Результат разговора/конверсия по общей настройке проекта',lowQuality:'Низкое/непригодное качество распознавания; исключение из агрегатов не означает нецелевое обращение'},
+    navigation:['Речевая аналитика → нужный проект → период','Таблица операторов: количество звонков и процент успешных','Выберите оператора, затем нужную тему обращения, чтобы увидеть соответствующие звонки'],
+    operatorTopicBreakdown:true,topicFiltering:true,qualityExcludedLevels:['low','unusable'],
+};
 
 @Injectable()
 export class HelpdeskEmailContextService {
@@ -23,6 +30,7 @@ export class HelpdeskEmailContextService {
         @InjectModel(AiCdr) private readonly calls: typeof AiCdr,
         @InjectModel(Assistant) private readonly assistants: typeof Assistant,
         @InjectModel(Rates) private readonly rates: typeof Rates,
+        @Optional() private readonly reporting?: OperatorAnalyticsService,
     ) {}
 
     async getContext(actorId: number | undefined, dto: HelpdeskEmailContextDto) {
@@ -191,9 +199,28 @@ export class HelpdeskEmailContextService {
         if (rows.length!==1) throw new ForbiddenException('Project outside selected cabinet');
         const project=rows[0];
         return {found:true,product:'aipbx',clientId:String(dto.cabinetId),projectId:project.id,
-            capabilities:{operatorFilter:true,successFilter:true,projectDashboard:true,perOperatorSuccessRules:false},
+            capabilities:{operatorFilter:true,successFilter:true,projectDashboard:true,perOperatorSuccessRules:false,operatorTopicBreakdown:true,topicFilter:true,recordingQualityExclusion:true},
             reporting:{schemaVersion:project.currentSchemaVersion,metricsSchema:project.customMetricsSchema??[],callTaxonomy:project.callTaxonomy??[],successRule:project.successPrompt??null,
-                filterFields:['operatorNameExact','success','projectId','startDate','endDate'],successRuleScope:'project',patientRegistryConfigured:false}};
+                filterFields:['operatorNameExact','success','projectId','startDate','endDate'],successRuleScope:'project',patientRegistryConfigured:false,guide:REPORTING_GUIDE}};
+    }
+
+    async getReportingSummary(actorId:number|undefined,dto:HelpdeskReportingSummaryDto) {
+        const context=await this.getBoundSupportContext(actorId,dto);
+        const period=dto.periodDays??14;
+        if (![7,14,30].includes(period)||!Number.isInteger(period)||
+            (dto.operatorName!==undefined&&(typeof dto.operatorName!=='string'||!/^[\p{L}\p{N}_ .()\/+-]{1,80}$/u.test(dto.operatorName)))) throw new BadRequestException('Invalid reporting period or operator filter');
+        if (!this.reporting) throw new ServiceUnavailableException('Reporting adapter unavailable');
+        const end=new Date();const start=new Date(end.getTime()-period*86400000);
+        // Reuse the actual dashboard, forced to the verified owner/project, not the key's admin scope.
+        // This read does not call insights, analysis, transcription or other paid providers.
+        const data=await this.reporting.getProjectDashboard(dto.projectId,String(dto.cabinetId),false,{startDate:start.toISOString(),endDate:end.toISOString(),...(dto.operatorName?{operatorName:dto.operatorName}:{})});
+        const agents=data.agentScorecards??[];const topics=data.tagStats??[];
+        return {found:true,clientId:context.clientId,projectId:context.projectId,aggregatesOnly:true,
+            period:{days:period,start:start.toISOString(),end:end.toISOString(),timeBasis:'UTC'},operatorFilter:dto.operatorName??null,
+            totals:{analyzed:data.totalAnalyzed,excludedLowQuality:data.excludedLowQualityCount??0,successRate:data.successRate},
+            operators:agents.slice(0,30).map(a=>({name:a.operatorName,calls:a.callsCount,successRate:a.successRate})),
+            topics:topics.slice(0,50).map(t=>({id:t.tagId,name:t.name,calls:t.callsCount,successRate:t.successRate})),
+            truncated:agents.length>30||topics.length>50,guide:REPORTING_GUIDE};
     }
 
     private async cabinetContext(actorId: number, owner: User) {

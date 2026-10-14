@@ -34,3 +34,11 @@ export class HelpdeskBoundSupportDto {
     @ApiProperty() @IsInt() @Min(1) cabinetId: number;
     @ApiProperty() @IsInt() @Min(1) projectId: number;
 }
+
+export class HelpdeskReportingSummaryDto extends HelpdeskBoundSupportDto {
+    @ApiPropertyOptional({enum:[7,14,30],default:14}) @IsOptional() @IsInt() @IsIn([7,14,30])
+    periodDays?:number;
+    @ApiPropertyOptional() @IsOptional() @IsString() @MinLength(1) @MaxLength(80)
+    @Matches(/^[\p{L}\p{N}_ .()\/+-]{1,80}$/u)
+    operatorName?:string;
+}

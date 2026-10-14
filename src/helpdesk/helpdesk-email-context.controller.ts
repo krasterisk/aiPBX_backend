@@ -2,7 +2,7 @@ import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../api-keys/api-key.guard';
 import { API_KEY_SCOPES, RequireApiKeyScope } from '../api-keys/api-key-scope.decorator';
-import { HelpdeskEmailContextDto } from './dto/helpdesk-email-context.dto';
+import { HelpdeskEmailContextDto, HelpdeskIdentityCandidatesDto, HelpdeskBoundSupportDto } from './dto/helpdesk-email-context.dto';
 import { HelpdeskEmailContextService } from './helpdesk-email-context.service';
 
 @ApiTags('Helpdesk Tools')
@@ -12,6 +12,17 @@ import { HelpdeskEmailContextService } from './helpdesk-email-context.service';
 @Controller('helpdesk/tools')
 export class HelpdeskEmailContextController {
     constructor(private readonly service: HelpdeskEmailContextService) {}
+
+    @Post('identity-candidates')
+    @ApiOperation({summary:'Find identity candidates without calls, transcripts or credentials'})
+    getCandidates(@Body() body:HelpdeskIdentityCandidatesDto,@Req() request:{apiKeyUserId?:number}) {
+        return this.service.getIdentityCandidates(request.apiKeyUserId,body);
+    }
+    @Post('bound-support-context')
+    @ApiOperation({summary:'Read metadata of an explicitly selected cabinet/project'})
+    getBoundSupport(@Body() body:HelpdeskBoundSupportDto,@Req() request:{apiKeyUserId?:number}) {
+        return this.service.getBoundSupportContext(request.apiKeyUserId,body);
+    }
 
     @Post('analytics-support-context')
     @ApiOperation({summary:'Read scoped analytics capabilities/settings without transcripts or calls'})

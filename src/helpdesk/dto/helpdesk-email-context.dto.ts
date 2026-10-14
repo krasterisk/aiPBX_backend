@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsIn, IsInt, IsOptional, Min } from 'class-validator';
+import { IsEmail, IsIn, IsInt, IsOptional, Min, IsString, MinLength, MaxLength, Matches } from 'class-validator';
 
 export class HelpdeskEmailContextDto {
     @ApiProperty({ description: 'Exact sender email from the support mailbox' })
@@ -19,4 +19,18 @@ export class HelpdeskEmailContextDto {
     @ApiPropertyOptional({description:'Confirmed cabinet ID in the helpdesk binding'})
     @IsOptional() @IsInt() @Min(1)
     cabinetId?:number;
+}
+
+export class HelpdeskIdentityCandidatesDto {
+    @ApiPropertyOptional() @IsOptional() @IsEmail() @MaxLength(254)
+    contactEmail?: string;
+    @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(253)
+    @Matches(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i)
+    domain?: string;
+    @ApiPropertyOptional() @IsOptional() @IsString() @MinLength(2) @MaxLength(120)
+    company?: string;
+}
+export class HelpdeskBoundSupportDto {
+    @ApiProperty() @IsInt() @Min(1) cabinetId: number;
+    @ApiProperty() @IsInt() @Min(1) projectId: number;
 }

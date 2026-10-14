@@ -103,4 +103,46 @@ describe('HelpdeskEmailContextService', () => {
         await expect(service.getSupportContext(1,{email:'user@example.test'})).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    it('returns company/domain candidates without granting access or exposing records', async () => {
+        users.findAll.mockResolvedValue([{id:21,vpbx_user_id:20,password:'SECRET'}]);
+        const result=await service.getIdentityCandidates(1,{company:'Панацея',domain:'clinic.example.test',contactEmail:'support@clinic.example.test'});
+        expect(result.confirmed).toBe(false);
+        expect(result.requiresOwnerConfirmation).toBe(true);
+        expect(result.candidates[0].cabinetId).toBe(20);
+        expect(JSON.stringify(result)).not.toContain('SECRET');
+        expect(JSON.stringify(result)).not.toContain('transcription');
+        expect(transcripts.findAll).not.toHaveBeenCalled();
+        expect(calls.findAll).not.toHaveBeenCalled();
+    });
+    it('rejects broad wildcard selectors and public mail domains alone', async () => {
+        await expect(service.getIdentityCandidates(1,{company:'%'})).rejects.toBeInstanceOf(BadRequestException);
+        expect(projects.findAll).not.toHaveBeenCalled();
+        users.findByPk.mockReset().mockResolvedValue(admin);
+        await expect(service.getIdentityCandidates(1,{domain:'mail.ru'})).rejects.toBeInstanceOf(BadRequestException);
+        expect(users.findAll).not.toHaveBeenCalled();
+    });
+    it('requires active admin ownership for candidate enumeration', async () => {
+        users.findByPk.mockReset().mockResolvedValue({...admin,roles:[{value:'USER'}]});
+        await expect(service.getIdentityCandidates(1,{company:'Clinic'})).rejects.toBeInstanceOf(ForbiddenException);
+        expect(users.findAll).not.toHaveBeenCalled();
+        expect(projects.findAll).not.toHaveBeenCalled();
+    });
+    it('reads bound project metadata without requiring the unknown sender email', async () => {
+        const result=await service.getBoundSupportContext(1,{cabinetId:20,projectId:7});
+        expect(result.clientId).toBe('20');
+        expect(result.capabilities.operatorFilter).toBe(true);
+        expect(result.reporting.filterFields).toContain('success');
+        expect(projects.findAll).toHaveBeenCalledWith(expect.objectContaining({where:{userId:'20',id:7}}));
+        expect(users.findAll).not.toHaveBeenCalled();
+        expect(transcripts.findAll).not.toHaveBeenCalled();
+        expect(calls.findAll).not.toHaveBeenCalled();
+        expect(JSON.stringify(result)).not.toContain('secret');
+    });
+    it('rejects mismatched bound project and nested cabinet ownership', async () => {
+        projects.findAll.mockResolvedValue([]);
+        await expect(service.getBoundSupportContext(1,{cabinetId:20,projectId:999})).rejects.toBeInstanceOf(ForbiddenException);
+        users.findByPk.mockReset().mockResolvedValueOnce(admin).mockResolvedValue({id:20,banned:false,vpbx_user_id:30});
+        await expect(service.getBoundSupportContext(1,{cabinetId:20,projectId:7})).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
 });

@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
-import { col, fn, where } from 'sequelize';
+import { col, fn, where, Op } from 'sequelize';
 import { User } from '../users/users.model';
 import { Role } from '../roles/roles.model';
 import { OperatorProject } from '../operator-analytics/operator-project.model';
@@ -10,7 +10,7 @@ import { AiAnalytics } from '../ai-analytics/ai-analytics.model';
 import { Assistant } from '../assistants/assistants.model';
 import { Rates } from '../currency/rates.model';
 import { getTenantCurrency } from '../shared/tenant/tenant-currency';
-import { HelpdeskEmailContextDto } from './dto/helpdesk-email-context.dto';
+import { HelpdeskEmailContextDto, HelpdeskIdentityCandidatesDto, HelpdeskBoundSupportDto } from './dto/helpdesk-email-context.dto';
 
 @Injectable()
 export class HelpdeskEmailContextService {
@@ -71,7 +71,7 @@ export class HelpdeskEmailContextService {
         };
     }
 
-    private async resolveProject(actorId: number | undefined, dto: HelpdeskEmailContextDto) {
+    private async requireAdmin(actorId: number | undefined) {
         // Scope alone must never let a regular customer's key enumerate other cabinets.
         if (!actorId) throw new ForbiddenException('ADMIN-owned API key required');
         const actor = await this.users.findByPk(actorId, {
@@ -81,6 +81,10 @@ export class HelpdeskEmailContextService {
         if (!actor || actor.banned || !actor.isActivated || !actor.roles?.some(role => role.value === 'ADMIN')) {
             throw new ForbiddenException('Active ADMIN-owned API key required');
         }
+    }
+
+    private async resolveProject(actorId: number | undefined, dto: HelpdeskEmailContextDto) {
+        await this.requireAdmin(actorId);
         const sender = dto?.email?.trim().toLowerCase();
         if (!sender || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(sender) || sender.length > 254) {
             throw new BadRequestException('Valid email required');
@@ -140,6 +144,56 @@ export class HelpdeskEmailContextService {
             reporting:{schemaVersion:project.currentSchemaVersion,metricsSchema:project.customMetricsSchema??[],callTaxonomy:project.callTaxonomy??[],
                 patientRegistryConfigured:false,identityRule:'Repeated calls do not establish patient status'},
         };
+    }
+
+    async getIdentityCandidates(actorId: number | undefined, dto: HelpdeskIdentityCandidatesDto) {
+        await this.requireAdmin(actorId);
+        const conditions: any[] = [];
+        const email=dto?.contactEmail?.trim().toLowerCase();
+        const domain=dto?.domain?.trim().toLowerCase();
+        const company=dto?.company?.trim().toLowerCase();
+        if (email) {
+            if (email.length>254 || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(email)) throw new BadRequestException('Invalid contact');
+            conditions.push(where(fn('LOWER',fn('TRIM',col('email'))),email));
+        }
+        // Common mail providers cannot identify a company. A match still needs owner confirmation.
+        const publicDomains=new Set(['gmail.com','mail.ru','yandex.ru','ya.ru','outlook.com','hotmail.com','bk.ru','list.ru','inbox.ru']);
+        if (domain) {
+            if (domain.length>253 || !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain)) throw new BadRequestException('Invalid domain');
+            if (!publicDomains.has(domain)) conditions.push(where(fn('LOWER',fn('TRIM',col('email'))),{[Op.like]:'%@'+domain}));
+        }
+        if (company) {
+            if (company.length<2 || company.length>120 || !/^[\p{L}\p{N} .()-]+$/u.test(company)) throw new BadRequestException('Invalid company name');
+            conditions.push(where(fn('LOWER',col('name')),{[Op.like]:'%'+company+'%'}),where(fn('LOWER',col('username')),{[Op.like]:'%'+company+'%'}));
+        }
+        if (!conditions.length) throw new BadRequestException('Contact, company or company domain required');
+        const [accounts,projectMatches]=await Promise.all([
+            this.users.findAll({where:{[Op.or]:conditions,banned:false},attributes:['id','name','username','vpbx_user_id'],order:[['id','ASC']],limit:11}),
+            company ? this.projects.findAll({where:where(fn('LOWER',col('name')),{[Op.like]:'%'+company+'%'}),attributes:['userId'],order:[['id','ASC']],limit:11}) : Promise.resolve([]),
+        ]);
+        const ids=[...new Set([...accounts.map(a=>Number(a.vpbx_user_id??a.id)),...projectMatches.map(p=>Number(p.userId))])].filter(id=>Number.isSafeInteger(id)&&id>0);
+        const candidates: Array<{cabinetId:number;name:string;projects:Array<{id:number;name:string}>;projectsTruncated:boolean}> = [];
+        for (const id of ids.slice(0,5)) {
+            const owner=await this.users.findByPk(id,{attributes:['id','name','username','banned','vpbx_user_id']});
+            if (!owner || owner.banned || owner.vpbx_user_id!=null) continue;
+            const rows=await this.projects.findAll({where:{userId:String(id)},attributes:['id','name'],order:[['id','ASC']],limit:11});
+            candidates.push({cabinetId:id,name:(owner.name||owner.username||'').slice(0,120),projects:rows.slice(0,10).map(p=>({id:p.id,name:p.name?.slice(0,120)||''})),projectsTruncated:rows.length>10});
+        }
+        return {confirmed:false,requiresOwnerConfirmation:true,ambiguous:candidates.length>1,candidates,truncated:ids.length>5||accounts.length>10||projectMatches.length>10};
+    }
+
+    async getBoundSupportContext(actorId:number|undefined,dto:HelpdeskBoundSupportDto) {
+        await this.requireAdmin(actorId);
+        if (!Number.isSafeInteger(dto?.cabinetId)||dto.cabinetId<=0||!Number.isSafeInteger(dto?.projectId)||dto.projectId<=0) throw new BadRequestException('Explicit cabinet and project required');
+        const owner=await this.users.findByPk(dto.cabinetId,{attributes:['id','banned','vpbx_user_id']});
+        if (!owner||owner.banned||owner.vpbx_user_id!=null) throw new ForbiddenException('Cabinet unavailable');
+        const rows=await this.projects.findAll({where:{userId:String(dto.cabinetId),id:dto.projectId},attributes:['id','name','successPrompt','customMetricsSchema','callTaxonomy','currentSchemaVersion'],limit:2});
+        if (rows.length!==1) throw new ForbiddenException('Project outside selected cabinet');
+        const project=rows[0];
+        return {found:true,product:'aipbx',clientId:String(dto.cabinetId),projectId:project.id,
+            capabilities:{operatorFilter:true,successFilter:true,projectDashboard:true,perOperatorSuccessRules:false},
+            reporting:{schemaVersion:project.currentSchemaVersion,metricsSchema:project.customMetricsSchema??[],callTaxonomy:project.callTaxonomy??[],successRule:project.successPrompt??null,
+                filterFields:['operatorNameExact','success','projectId','startDate','endDate'],successRuleScope:'project',patientRegistryConfigured:false}};
     }
 
     private async cabinetContext(actorId: number, owner: User) {

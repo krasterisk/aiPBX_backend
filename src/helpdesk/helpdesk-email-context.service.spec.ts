@@ -1,5 +1,7 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { HelpdeskEmailContextService } from './helpdesk-email-context.service';
+import { buildDashboardCdrWhere } from '../operator-analytics/lib/dashboard-aggregation';
+import { Op } from 'sequelize';
 
 describe('HelpdeskEmailContextService', () => {
     const users = { findByPk: jest.fn(), findAll: jest.fn() };
@@ -169,6 +171,21 @@ describe('HelpdeskEmailContextService', () => {
             await expect(service.getReportingSummary(1,{cabinetId:20,projectId:7,...value})).rejects.toBeInstanceOf(BadRequestException);
         }
         expect(reporting.getProjectDashboard).not.toHaveBeenCalled();
+    });
+    it('passes calendar dates through the real dashboard query builder without invalid SQL dates', async () => {
+        reporting.getProjectDashboard.mockImplementation(async (projectId,userId,isAdmin,query) => {
+            const where=buildDashboardCdrWhere({...query,projectId},isAdmin,userId,(v)=>({[Op.like]:v}));
+            const dates=where.createdAt[Op.between] as Date[];
+            expect(dates).toHaveLength(2);
+            for(const d of dates) expect(Number.isFinite(d.getTime())).toBe(true);
+            expect(query.startDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+            expect(query.endDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+            expect(where.userId).toBe('20');expect(where.projectId).toBe(7);
+            return {totalAnalyzed:0,agentScorecards:[],tagStats:[]};
+        });
+        const result=await service.getReportingSummary(1,{cabinetId:20,projectId:7,periodDays:14});
+        expect(result.period.timeBasis).toBe('reporting_server_calendar');
+        expect(result.period.timeZone).toBeTruthy();
     });
     it('does not read reporting data for a foreign project or non-admin key owner', async () => {
         projects.findAll.mockResolvedValue([]);

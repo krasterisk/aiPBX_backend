@@ -6200,7 +6200,26 @@
     "/api/operator-analytics/cdrs": {
       "get": {
         "operationId": "OperatorAnalyticsController_getCdrs",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "withoutTopic",
+            "required": false,
+            "in": "query",
+            "description": "Calls without any stored topic",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "withoutOperator",
+            "required": false,
+            "in": "query",
+            "description": "Calls with a missing or unknown operator",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Paginated CDR list"
@@ -6223,7 +6242,20 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "Dashboard metrics"
+            "description": "Dashboard metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "operatorTopicStats": {
+                      "$ref": "#/components/schemas/OperatorTopicStatsDto"
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -10409,6 +10441,99 @@
         },
         "required": [
           "items"
+        ]
+      },
+      "OperatorTopicDto": {
+        "type": "object",
+        "properties": {
+          "tagId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Null means no topic"
+          },
+          "callsCount": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name; empty for the no-topic bucket"
+          }
+        },
+        "required": [
+          "tagId",
+          "callsCount",
+          "name"
+        ]
+      },
+      "OperatorTopicCellDto": {
+        "type": "object",
+        "properties": {
+          "tagId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Null means no topic"
+          },
+          "callsCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "tagId",
+          "callsCount"
+        ]
+      },
+      "OperatorTopicRowDto": {
+        "type": "object",
+        "properties": {
+          "operatorName": {
+            "type": "string",
+            "nullable": true,
+            "description": "Normalized name; null means no operator"
+          },
+          "callsCount": {
+            "type": "number",
+            "description": "Unique call count, including low-quality calls"
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperatorTopicCellDto"
+            }
+          }
+        },
+        "required": [
+          "operatorName",
+          "callsCount",
+          "topics"
+        ]
+      },
+      "OperatorTopicStatsDto": {
+        "type": "object",
+        "properties": {
+          "totalCalls": {
+            "type": "number"
+          },
+          "hasMultipleTopics": {
+            "type": "boolean"
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperatorTopicDto"
+            }
+          },
+          "operators": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperatorTopicRowDto"
+            }
+          }
+        },
+        "required": [
+          "totalCalls",
+          "hasMultipleTopics",
+          "topics",
+          "operators"
         ]
       }
     }

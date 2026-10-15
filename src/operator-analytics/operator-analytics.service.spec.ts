@@ -1536,6 +1536,34 @@ describe('OperatorAnalyticsService', () => {
             expect(withTaxonomy).toBe(withoutTaxonomy);
             expect(mockProjectRepo.findByPk).toHaveBeenCalledTimes(1);
         });
+
+        it('counts low-quality and unclassified calls in topics, operators and the matrix', async () => {
+            setupDashboardWithRecords([
+                dashboardRecord({ assistantName: 'Alice', tags: ['billing', 'billing'] }),
+                dashboardRecord({ assistantName: 'Alice', tags: ['returns'], metrics: { _quality: { quality: 'low' } } }),
+                dashboardRecord({ assistantName: 'Unknown Operator', tags: [], metrics: { _quality: { quality: 'unusable' } } }),
+            ]);
+            const result = await service.getDashboard({ projectId: 1 }, false, '42');
+            expect(result.operatorTopicStats?.totalCalls).toBe(3);
+            expect(result.operatorTopicStats?.operators).toEqual(expect.arrayContaining([
+                expect.objectContaining({ operatorName: 'Alice', callsCount: 2 }),
+                expect.objectContaining({ operatorName: null, callsCount: 1, topics: [{ tagId: null, callsCount: 1 }] }),
+            ]));
+            expect(result.tagStats).toEqual(expect.arrayContaining([
+                expect.objectContaining({ tagId: 'billing', callsCount: 1 }),
+                expect.objectContaining({ tagId: 'returns', callsCount: 1 }),
+            ]));
+            expect(result.agentScorecards).toEqual(expect.arrayContaining([
+                expect.objectContaining({ operatorName: 'Alice', callsCount: 2 }),
+                expect.objectContaining({ operatorName: 'Unknown Operator', callsCount: 1 }),
+            ]));
+        });
+
+        it('omits the matrix for a project without configured topics', async () => {
+            setupDashboardWithRecords([dashboardRecord()], { callTaxonomy: [] });
+            const result = await service.getDashboard({ projectId: 1 }, true, null);
+            expect(result.operatorTopicStats).toBeUndefined();
+        });
     });
 
     // ═════════════════════════════════════════════════════════════════
@@ -2125,15 +2153,16 @@ describe('OperatorAnalyticsService', () => {
             await service.getCdrs({ operatorNameExact: 'Иван' }, true, null);
 
             const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
-            expect(call.where.assistantName).toBe('Иван');
+            expect(call.where[Op.and][0].comparator).toBe('=');
+            expect(call.where[Op.and][0].logic).toBe('Иван');
         });
 
         it('excludes prefix operators when operatorNameExact is set', async () => {
             await service.getCdrs({ operatorNameExact: 'Иван' }, true, null);
 
             const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
-            expect(typeof call.where.assistantName).toBe('string');
-            expect(call.where.assistantName).toBe('Иван');
+            expect(call.where[Op.and][0].logic).toBe('Иван');
+            expect(call.where[Op.and][0].comparator).toBe('=');
         });
 
         it('filters by tagId within tenant scope', async () => {
@@ -2144,22 +2173,22 @@ describe('OperatorAnalyticsService', () => {
 
             await service.getCdrs({ tagId: 'returns', userId: '5' }, true, null);
 
-            expect(mockCallTagRepo.findAll).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    where: expect.objectContaining({ tagId: 'returns', userId: '5' }),
-                }),
-            );
+            expect(mockCallTagRepo.findAll).not.toHaveBeenCalled();
             const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
-            expect(call.where.channelId).toEqual({ [Op.in]: ['10', '11'] });
+            expect(call.where.userId).toBe('5');
+            expect(call.where[Op.and][0].attribute.fn).toBe('jsonb_exists');
+            expect(call.where[Op.and][0].attribute.args[1]).toBe('returns');
         });
 
-        it('returns nothing when tagId matches no rows in tenant scope', async () => {
+        it('scopes JSON topic matches to the authenticated tenant without querying tag rows', async () => {
             mockCallTagRepo.findAll.mockResolvedValue([]);
 
             await service.getCdrs({ tagId: 'foreign-tag' }, false, '42');
 
             const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
-            expect(call.where.channelId).toEqual({ [Op.in]: ['__no_matching_tag__'] });
+            expect(call.where.userId).toBe('42');
+            expect(call.where[Op.and][0].attribute.args[1]).toBe('foreign-tag');
+            expect(mockCallTagRepo.findAll).not.toHaveBeenCalled();
         });
 
         it('composes tagId filter with operatorNameExact and projectId', async () => {
@@ -2171,18 +2200,25 @@ describe('OperatorAnalyticsService', () => {
                 projectId: 1,
             }, false, '42');
 
-            expect(mockCallTagRepo.findAll).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    where: expect.objectContaining({
-                        tagId: 'billing',
-                        userId: '42',
-                        projectId: 1,
-                    }),
-                }),
-            );
             const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
-            expect(call.where.assistantName).toBe('Иван');
+            expect(call.where.userId).toBe('42');
+            expect(call.where[Op.and][0].logic).toBe('Иван');
+            expect(call.where[Op.and][1].attribute.args[1]).toBe('billing');
             expect(call.where.projectId).toBe(1);
+        });
+
+        it('combines missing topic/operator filters with tenant, period and pagination', async () => {
+            await service.getCdrs({ withoutOperator: 'true', withoutTopic: 'true', projectId: 1,
+                userId: '999', startDate: '2026-10-01', endDate: '2026-10-14', page: 2, limit: 20 }, false, '42');
+            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
+            expect(call.where.userId).toBe('42');
+            expect(call.where.projectId).toBe(1);
+            expect(call.where.createdAt).toBeDefined();
+            expect(call.where[Op.and]).toHaveLength(2);
+            expect(call.where[Op.and][0].logic[Op.in]).toEqual(['', 'Unknown Operator']);
+            expect(call.where[Op.and][1].attribute.fn).toBe('jsonb_array_length');
+            expect(call.offset).toBe(20);
+            expect(call.limit).toBe(20);
         });
 
         it('leaves search substring behaviour unchanged when tagId is set', async () => {

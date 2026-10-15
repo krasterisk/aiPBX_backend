@@ -4,7 +4,8 @@ import {
     HttpException, HttpStatus, Logger,
 } from '@nestjs/common';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
-import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth, ApiConsumes, ApiExtraModels, ApiQuery, getSchemaPath } from '@nestjs/swagger';
+import { OperatorTopicStatsDto } from './dto/operator-topic-stats.dto';
 import { OperatorAnalyticsService } from './operator-analytics.service';
 import { OperatorDigestService } from './operator-digest.service';
 import { OperatorAlertService } from './operator-alert.service';
@@ -667,6 +668,8 @@ export class OperatorAnalyticsController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Get CDR list of analyzed calls' })
+    @ApiQuery({ name: 'withoutTopic', required: false, type: Boolean, description: 'Calls without any stored topic' })
+    @ApiQuery({ name: 'withoutOperator', required: false, type: Boolean, description: 'Calls with a missing or unknown operator' })
     @ApiResponse({ status: 200, description: 'Paginated CDR list' })
     async getCdrs(
         @Req() req: RequestWithUser,
@@ -676,6 +679,8 @@ export class OperatorAnalyticsController {
             operatorName?: string;
             operatorNameExact?: string;
             tagId?: string;
+            withoutTopic?: string;
+            withoutOperator?: string;
             sentiment?: string;
             success?: string;
             projectId?: number;
@@ -699,7 +704,11 @@ export class OperatorAnalyticsController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Get aggregated dashboard data' })
-    @ApiResponse({ status: 200, description: 'Dashboard metrics' })
+    @ApiExtraModels(OperatorTopicStatsDto)
+    @ApiResponse({ status: 200, description: 'Dashboard metrics', schema: {
+        type: 'object', additionalProperties: true,
+        properties: { operatorTopicStats: { $ref: getSchemaPath(OperatorTopicStatsDto) } },
+    } })
     async getDashboard(
         @Req() req: RequestWithUser,
         @Query() query: {

@@ -35,6 +35,7 @@ import {
     isWithoutProject,
 } from './lib/dashboard-aggregation';
 import { buildTagStats } from './lib/tag-stats';
+import { buildOperatorTopicStats, normalizeOperatorName, operatorCallCondition, topicCallCondition } from './lib/operator-topic-stats';
 import { normalizeDigestConfig, type DigestConfig } from './interfaces/digest-config.interface';
 import { normalizeAlertConfig, type AlertConfig } from './interfaces/alert-config.interface';
 import { OperatorAlertService } from './operator-alert.service';
@@ -1804,6 +1805,8 @@ export class OperatorAnalyticsService {
         operatorName?: string;
         operatorNameExact?: string;
         tagId?: string;
+        withoutTopic?: string | boolean;
+        withoutOperator?: string | boolean;
         sentiment?: string;
         success?: string | boolean;
         projectId?: number;
@@ -1839,8 +1842,10 @@ export class OperatorAnalyticsService {
             where.createdAt = { [Op.lte]: new Date(`${query.endDate}T23:59:59`) };
         }
 
-        if (query.operatorNameExact) {
-            where.assistantName = query.operatorNameExact;
+        if (isWithoutProject(query.withoutOperator) || query.operatorNameExact === 'Unknown Operator') {
+            where[Op.and] = [operatorCallCondition(this.aiCdrRepository.sequelize.getDialect(), undefined, true)];
+        } else if (query.operatorNameExact) {
+            where[Op.and] = [operatorCallCondition(this.aiCdrRepository.sequelize.getDialect(), query.operatorNameExact)];
         } else if (query.operatorName) {
             where.assistantName = this.likeOp(`%${query.operatorName}%`);
         }
@@ -1851,25 +1856,10 @@ export class OperatorAnalyticsService {
             where.projectId = scoped.projectId;
         }
 
-        if (query.tagId) {
-            const tagWhere: Record<string, unknown> = { tagId: query.tagId };
-            if (!isAdmin) {
-                tagWhere.userId = realUserId;
-            } else if (query.userId) {
-                tagWhere.userId = query.userId;
-            }
-            if (scoped.withoutProject) {
-                tagWhere.projectId = null;
-            } else if (scoped.projectId) {
-                tagWhere.projectId = scoped.projectId;
-            }
-            const tagRows = await this.callTagRepository.findAll({
-                where: tagWhere,
-                attributes: ['channelId'],
-                limit: 5000,
-            });
-            const channelIds = tagRows.map(r => r.channelId);
-            this.applyChannelIdFilter(where, channelIds, '__no_matching_tag__');
+        if (query.tagId || isWithoutProject(query.withoutTopic)) {
+            where[Op.and] = [...(where[Op.and] || []), topicCallCondition(
+                this.aiCdrRepository.sequelize.getDialect(), query.tagId, isWithoutProject(query.withoutTopic),
+            )];
         }
 
         if (sentimentKey) {
@@ -2096,10 +2086,12 @@ export class OperatorAnalyticsService {
         const totalAnalyzed = await this.aiCdrRepository.count({ where });
         if (totalAnalyzed === 0) {
             let tagStats: TagStat[] | undefined;
+            let emptyTopics: ReturnType<typeof buildOperatorTopicStats> | undefined;
             if (scoped.projectId) {
                 const project = await this.projectRepository.findByPk(scoped.projectId);
                 if (project?.callTaxonomy?.length) {
                     tagStats = [];
+                    emptyTopics = buildOperatorTopicStats([], project.callTaxonomy);
                 }
             }
             return {
@@ -2114,6 +2106,7 @@ export class OperatorAnalyticsService {
                 unsuccessfulCount: 0,
                 failureReasons: [],
                 ...(tagStats !== undefined ? { tagStats } : {}),
+                ...(emptyTopics ? { operatorTopicStats: emptyTopics } : {}),
             };
         }
 
@@ -2237,11 +2230,23 @@ export class OperatorAnalyticsService {
         }
 
         if (project?.callTaxonomy?.length) {
-            tagStats = buildTagStats(recordsForDerived, project.callTaxonomy, projectScore);
+            tagStats = buildTagStats(recordsForDerived, project.callTaxonomy, projectScore, aggregationRecords);
         }
 
         const agentScorecards = this.buildAgentScorecards(recordsForDerived, projectScore);
         const failure = collectFailureReasons(recordsForDerived);
+        const operatorTopicStats = project?.callTaxonomy?.length
+            ? buildOperatorTopicStats(aggregationRecords, project.callTaxonomy)
+            : undefined;
+        // Counts include all calls even when their quality excludes them from scoring.
+        const allOperators = operatorTopicStats?.operators ?? buildOperatorTopicStats(aggregationRecords, []).operators;
+        for (const operator of allOperators) {
+            const name = operator.operatorName ?? 'Unknown Operator';
+            const card = agentScorecards.find(row => normalizeOperatorName(row.operatorName) === operator.operatorName);
+            if (card) card.callsCount = operator.callsCount;
+            else agentScorecards.push({ operatorName: name, callsCount: operator.callsCount, scoredCalls: 0, averageScore: 0, successRate: 0, avgCsat: null, negativeRate: 0 });
+        }
+        agentScorecards.sort((a, b) => b.callsCount - a.callsCount);
 
         return {
             totalAnalyzed,
@@ -2261,6 +2266,7 @@ export class OperatorAnalyticsService {
             agentScorecards,
             unsuccessfulCount: failure.unsuccessfulCount,
             failureReasons: failure.reasons,
+            ...(operatorTopicStats ? { operatorTopicStats } : {}),
             ...(tagStats !== undefined ? { tagStats } : {}),
         };
     }
@@ -2442,6 +2448,7 @@ export class OperatorAnalyticsService {
         records: AiCdr[],
         score?: { defaultKeys: readonly string[]; includeCustomMetrics: boolean },
     ): Array<{
+        scoredCalls?: number;
         operatorName: string;
         callsCount: number;
         averageScore: number;
@@ -2458,7 +2465,7 @@ export class OperatorAnalyticsService {
             ];
         const byOperator = new Map<string, AiCdr[]>();
         for (const r of records) {
-            const name = (r.assistantName || '').trim() || 'Unknown Operator';
+            const name = normalizeOperatorName(r.assistantName) ?? 'Unknown Operator';
             if (!byOperator.has(name)) byOperator.set(name, []);
             byOperator.get(name)!.push(r);
         }
@@ -2486,6 +2493,7 @@ export class OperatorAnalyticsService {
 
             const denom = scored || 1;
             return {
+                ...(scored === 0 ? { scoredCalls: 0 } : {}),
                 operatorName,
                 callsCount: rows.length,
                 averageScore: averageOperatorScore(rows, {

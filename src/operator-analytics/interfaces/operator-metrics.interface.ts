@@ -46,6 +46,7 @@ export interface TagDefinition {
 
 /** Per-theme statistics block on the operator analytics dashboard (D-16) */
 export interface TagStat {
+    scoredCalls?: number;
     tagId: string;
     name: string;
     callsCount: number;
@@ -61,6 +62,7 @@ export interface TagStat {
 }
 
 export interface AgentScorecard {
+    scoredCalls?: number;
     operatorName: string;
     callsCount: number;
     averageScore: number;
@@ -70,6 +72,7 @@ export interface AgentScorecard {
 }
 
 export interface OperatorDashboardResponse {
+    operatorTopicStats?: OperatorTopicStats;
     totalAnalyzed: number;
     totalCost: number;
     totalAmountCurrency?: number | null;
@@ -84,6 +87,17 @@ export interface OperatorDashboardResponse {
     excludedLowQualityCount?: number;
     agentScorecards?: AgentScorecard[];
     tagStats?: TagStat[];
+}
+
+export interface OperatorTopicStats {
+    totalCalls: number;
+    hasMultipleTopics: boolean;
+    topics: Array<{ tagId: string | null; name: string; callsCount: number }>;
+    operators: Array<{
+        operatorName: string | null;
+        callsCount: number;
+        topics: Array<{ tagId: string | null; callsCount: number }>;
+    }>;
 }
 
 /** Project-level custom metric definition (with id and enum support) */

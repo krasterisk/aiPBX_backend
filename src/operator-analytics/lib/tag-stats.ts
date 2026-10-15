@@ -2,6 +2,7 @@ import type { AiCdr } from '../../ai-cdr/ai-cdr.model';
 import type { TagDefinition, TagStat } from '../interfaces/operator-metrics.interface';
 import { ALL_DEFAULT_METRIC_KEYS } from '../interfaces/operator-metrics.interface';
 import { averageOperatorScore, type OperatorScoreOptions } from './operator-evidence';
+import { readTopicIds } from './operator-topic-stats';
 
 export const TAG_STATS_MAX_ENTRIES = 50;
 
@@ -32,17 +33,18 @@ export function buildTagStats(
     records: AiCdr[],
     taxonomy: TagDefinition[],
     scoreOptions: OperatorScoreOptions = { defaultKeys: ALL_DEFAULT_METRIC_KEYS },
+    countRecords: AiCdr[] = records,
 ): TagStat[] {
     const byTag = new Map<string, AiCdr[]>();
     const snapshotNames = new Map<string, string>();
 
-    for (const record of records) {
+    for (const record of countRecords) {
         const metrics = record.analytics?.metrics as Record<string, unknown> | undefined;
-        const { tagIds, tagNames } = readCallTags(metrics);
+        const { tagNames } = readCallTags(metrics);
         for (const [id, name] of Object.entries(tagNames)) {
             if (!snapshotNames.has(id)) snapshotNames.set(id, name);
         }
-        for (const tagId of tagIds) {
+        for (const tagId of readTopicIds(metrics)) {
             if (!byTag.has(tagId)) byTag.set(tagId, []);
             byTag.get(tagId)!.push(record);
         }
@@ -51,16 +53,18 @@ export function buildTagStats(
     const periodAverageScore = records.some(r => r.analytics?.metrics)
         ? averageOperatorScore(records, scoreOptions)
         : null;
-    const periodTotal = records.length || 1;
+    const periodTotal = countRecords.length || 1;
+    const scoreRecords = new Set(records);
 
     const stats: TagStat[] = Array.from(byTag.entries()).map(([tagId, rows]) => {
+        const scoredRows = rows.filter(row => scoreRecords.has(row));
         let successCount = 0;
         let positiveCount = 0;
         let neutralCount = 0;
         let negativeCount = 0;
         let scored = 0;
 
-        for (const r of rows) {
+        for (const r of scoredRows) {
             const m = r.analytics?.metrics as Record<string, unknown> | undefined;
             if (!m) continue;
             scored++;
@@ -72,9 +76,10 @@ export function buildTagStats(
         }
 
         const denom = scored || 1;
-        const averageScore = averageOperatorScore(rows, scoreOptions);
+        const averageScore = averageOperatorScore(scoredRows, scoreOptions);
 
         const stat: TagStat = {
+            ...(scored === 0 ? { scoredCalls: 0 } : {}),
             tagId,
             name: resolveTagName(tagId, taxonomy, snapshotNames),
             callsCount: rows.length,
@@ -88,7 +93,7 @@ export function buildTagStats(
             shareOfPeriodCalls: parseFloat(((rows.length / periodTotal) * 100).toFixed(2)),
         };
 
-        if (periodAverageScore != null) {
+        if (periodAverageScore != null && scored > 0) {
             stat.deltaVsPeriodAverage = parseFloat((averageScore - periodAverageScore).toFixed(2));
         }
 

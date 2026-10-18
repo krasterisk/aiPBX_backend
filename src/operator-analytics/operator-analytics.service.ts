@@ -88,18 +88,13 @@ import {
     OperatorInsightsResponse,
     parseAndValidateInsightsResponse,
 } from './lib/insights-schema';
-import {
-    buildInsightsFacts,
-    buildPeriodComparison,
-    collectFailureReasons,
-    resolveComparisonPeriod,
-    resolveInsightsMinCalls,
-} from './lib/insights-facts';
+import { buildInsightsFacts, resolveInsightsMinCalls } from './lib/insights-facts';
 import { enrichInsightsWithChannelIds } from './lib/insights-drilldown';
 import { InsightsCacheService } from './insights-cache.service';
 import {
     averageOperatorScore,
     buildOperatorEvidence,
+    resolveEvidenceMaxCalls,
 } from './lib/operator-evidence';
 import { buildInsightsPrompt } from './lib/insights-prompt';
 import { extractLlmJsonContent } from './lib/llm-json';
@@ -1256,6 +1251,7 @@ export class OperatorAnalyticsService {
         await record.update({ status: AnalyticsStatus.PROCESSING, errorMessage: null });
 
         const channelIdStrEarly = String(recordId);
+        await this.deleteAutoCallTags(channelIdStrEarly);
         const manualTagIds = await this.loadManualTagIds(channelIdStrEarly);
 
         try {
@@ -1269,10 +1265,6 @@ export class OperatorAnalyticsService {
         if (record.projectId) {
             project = await this.projectRepository.findByPk(record.projectId);
         }
-        if (project?.singleTopic && manualTagIds.length > 1) {
-            throw new HttpException('Remove conflicting manual topics before reanalysis', HttpStatus.BAD_REQUEST);
-        }
-        await this.deleteAutoCallTags(channelIdStrEarly);
         const schemaVersion = project?.currentSchemaVersion ?? null;
         await this.persistSchemaVersion(record, schemaVersion);
 
@@ -1338,8 +1330,7 @@ export class OperatorAnalyticsService {
 
         await record.update({ status: AnalyticsStatus.COMPLETED });
 
-        // A manual correction remains authoritative in single-topic mode.
-        const autoTagIds = project?.singleTopic && manualTagIds.length ? [] : topicTagIds;
+        const autoTagIds = topicTagIds;
         const topicsBlock = this.buildTopicsBlock(sttResult.text, project, manualTagIds, autoTagIds);
         const finalDiarizationSource = this.resolveDiarizationSource(
             channelDiarizedJson,
@@ -1691,23 +1682,17 @@ export class OperatorAnalyticsService {
         const record = await this.assertRecordAccess(channelId, actorUserId, isAdmin);
 
         let taxonomy: TagDefinition[] = [];
-        let singleTopic = false;
         if (record.projectId) {
             const project = await this.projectRepository.findByPk(record.projectId);
             if (!project) {
                 throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
             }
             taxonomy = project.callTaxonomy ?? [];
-            singleTopic = project.singleTopic === true;
         }
 
         const taxonomyIds = new Set(taxonomy.map(t => t.id));
         const allowFreeForm = taxonomy.length === 0;
         const uniqueTagIds = [...new Set((tagIds ?? []).map(id => String(id).trim()).filter(Boolean))];
-
-        if (singleTopic && uniqueTagIds.length > 1) {
-            throw new HttpException('This project allows only one call topic', HttpStatus.BAD_REQUEST);
-        }
 
         if (uniqueTagIds.length > 10) {
             throw new HttpException('At most 10 tags are allowed', HttpStatus.BAD_REQUEST);
@@ -1985,6 +1970,7 @@ export class OperatorAnalyticsService {
     ) {
         const scoped = this.scopeProjectQuery(query);
         const operatorName = query.operatorName?.trim() || '';
+        const cap = resolveEvidenceMaxCalls(query.limit);
         const order = query.order ?? 'worst';
 
         const filters = {
@@ -2003,48 +1989,42 @@ export class OperatorAnalyticsService {
             (v) => this.likeOp(v),
         );
 
-        // Same call set as the dashboard metric: the whole filtered period, not the last 300.
-        const aggregationRecords = await this.loadDashboardCdrPages(where);
-        const eligibleRecords = aggregationRecords.filter(r => {
+        const rows = await this.aiCdrRepository.findAll({
+            where,
+            include: [{ model: AiAnalytics, as: 'analytics' }],
+            order: [['createdAt', 'DESC']],
+            limit: cap,
+        });
+
+        const eligibleRecords = rows.filter(r => {
             const quality = (r.analytics?.metrics as any)?._quality?.quality as TranscriptionQualityLevel | undefined;
             return quality !== 'low' && quality !== 'unusable';
         });
-        const recordsForDerived = eligibleRecords.length > 0 ? eligibleRecords : aggregationRecords;
 
         let customMetricIds: string[] = [];
         let defaultKeys: readonly string[] | undefined;
         let includeCustomMetrics = false;
-        let project: OperatorProject | null = null;
         if (scoped.projectId) {
-            project = await this.projectRepository.findByPk(scoped.projectId);
+            const project = await this.projectRepository.findByPk(scoped.projectId);
             customMetricIds = project?.customMetricsSchema?.map(m => m.id) ?? [];
             defaultKeys = resolveVisibleDefaultMetrics(project);
             includeCustomMetrics = true;
         }
 
-        const result = buildOperatorEvidence(recordsForDerived, {
+        const sampleCapped = rows.length >= cap;
+        const result = buildOperatorEvidence(eligibleRecords, {
             operatorName: operatorName || 'all',
             order,
             customMetricIds,
-            sampleCapped: false,
+            sampleCapped,
             defaultKeys,
             includeCustomMetrics,
             metricId: query.metricId,
-            evidencePage: query.evidencePage != null ? Number(query.evidencePage) : undefined,
-            evidencePageSize: query.evidencePageSize != null ? Number(query.evidencePageSize) : undefined,
+            evidencePage: query.evidencePage,
+            evidencePageSize: query.evidencePageSize,
         });
 
-        if (project?.customMetricsSchema?.length) {
-            const aggregated = this.aggregateCustomMetrics(recordsForDerived, project.customMetricsSchema);
-            for (const metric of result.metrics) {
-                const value = aggregated[metric.metricId]?.value;
-                if (typeof value === 'number') {
-                    metric.average = value;
-                }
-            }
-        }
-
-        this.logOperatorEvidenceAccess(actorUserId, operatorName || 'all', recordsForDerived.length);
+        this.logOperatorEvidenceAccess(actorUserId, operatorName || 'all', eligibleRecords.length);
 
         return result;
     }
@@ -2103,8 +2083,6 @@ export class OperatorAnalyticsService {
                 timeSeries: { monthly: [], daily: [] },
                 excludedLowQualityCount: 0,
                 agentScorecards: [],
-                unsuccessfulCount: 0,
-                failureReasons: [],
                 ...(tagStats !== undefined ? { tagStats } : {}),
                 ...(emptyTopics ? { operatorTopicStats: emptyTopics } : {}),
             };
@@ -2527,15 +2505,7 @@ export class OperatorAnalyticsService {
         }
 
         const taxonomy = project?.callTaxonomy ?? [];
-        if (project?.singleTopic && manualTagIds.length > 1) {
-            throw new HttpException('Remove conflicting manual topics before reanalysis', HttpStatus.BAD_REQUEST);
-        }
-        const mergedTagIds = project?.singleTopic && manualTagIds.length === 1
-            ? manualTagIds
-            : this.mergeTagIds(llmTagIds, manualTagIds);
-        if (project?.singleTopic && taxonomy.length && mergedTagIds.length !== 1) {
-            throw new HttpException('Expected exactly one call topic', HttpStatus.BAD_REQUEST);
-        }
+        const mergedTagIds = this.mergeTagIds(llmTagIds, manualTagIds);
         if (mergedTagIds.length) {
             block.tags = mergedTagIds;
             block.tag_names = this.buildTagNameSnapshot(mergedTagIds, taxonomy);
@@ -2644,10 +2614,8 @@ export class OperatorAnalyticsService {
             description?: string;
             templateId?: string;
             systemPrompt?: string;
-            successPrompt?: string;
             customMetricsSchema?: MetricDefinition[];
             callTaxonomy?: TagDefinition[];
-            singleTopic?: boolean;
             visibleDefaultMetrics?: string[];
             webhookUrl?: string;
             webhookEvents?: string[];
@@ -2676,8 +2644,6 @@ export class OperatorAnalyticsService {
 
         // Explicit body values override template values
         if (data.systemPrompt !== undefined) createData.systemPrompt = data.systemPrompt || null;
-        if (data.successPrompt !== undefined) createData.successPrompt = data.successPrompt || null;
-        if (data.singleTopic !== undefined) createData.singleTopic = data.singleTopic;
         if (data.customMetricsSchema !== undefined) createData.customMetricsSchema = data.customMetricsSchema;
         if (data.callTaxonomy !== undefined) {
             this.validateCallTaxonomy(data.callTaxonomy);
@@ -2722,10 +2688,8 @@ export class OperatorAnalyticsService {
             name?: string;
             description?: string;
             systemPrompt?: string;
-            successPrompt?: string;
             customMetricsSchema?: MetricDefinition[];
             callTaxonomy?: TagDefinition[];
-            singleTopic?: boolean;
             visibleDefaultMetrics?: string[];
             webhookUrl?: string;
             webhookEvents?: string[];
@@ -2747,8 +2711,6 @@ export class OperatorAnalyticsService {
         if (data.name !== undefined) project.name = data.name.trim();
         if (data.description !== undefined) project.description = data.description;
         if (data.systemPrompt !== undefined) project.systemPrompt = data.systemPrompt || null;
-        if (data.successPrompt !== undefined) project.successPrompt = data.successPrompt || null;
-        if (data.singleTopic !== undefined) project.singleTopic = data.singleTopic;
         if (data.customMetricsSchema !== undefined) {
             project.customMetricsSchema = data.customMetricsSchema;
             project.currentSchemaVersion = (project.currentSchemaVersion || 1) + 1;
@@ -3078,22 +3040,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             ? await this.projectRepository.findByPk(query.projectId)
             : null);
 
-        const periodLabel = `${query.startDate || 'all time'} — ${query.endDate || 'now'}`;
-        const comparisonRange = resolveComparisonPeriod(query.startDate, query.endDate);
-        const previousDashboard = comparisonRange
-            ? await this.getDashboard(
-                { ...query, startDate: comparisonRange.startDate, endDate: comparisonRange.endDate },
-                isAdmin,
-                realUserId,
-            )
-            : null;
-        const comparison = buildPeriodComparison(
-            dashboard,
-            previousDashboard,
-            periodLabel,
-            comparisonRange ? `${comparisonRange.startDate} — ${comparisonRange.endDate}` : null,
-        );
-        const facts = buildInsightsFacts(dashboard, project, query, minCalls, comparison);
+        const facts = buildInsightsFacts(dashboard, project, query, minCalls);
         const factsDigest = computeFactsDigest(facts);
         const tenantUserId = query.userId || realUserId || 'admin-all';
         const cacheKey = this.buildInsightsCacheKey(tenantUserId, query, factsDigest);
@@ -3109,6 +3056,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             return buildOperatorInsightsResponse([], dashboard.totalAnalyzed, true, factsDigest);
         }
 
+        const periodLabel = `${query.startDate || 'all time'} — ${query.endDate || 'now'}`;
         const promptMessages = buildInsightsPrompt(
             facts,
             project ? { name: project.name, systemPrompt: project.systemPrompt } : undefined,
@@ -4122,7 +4070,6 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         const jsonSchema = buildOpenAiJsonSchema(ctx, schemaOptions);
         const prompt = buildAnalysisPrompt(transcription, ctx, {
             systemPrompt: project?.systemPrompt,
-            successPrompt: project?.successPrompt,
             qualityHintConfidence: qualityHint?.confidence,
             stereoDiarization: options?.stereoDiarization,
             channelDiarized: options?.channelDiarized,
@@ -4174,11 +4121,9 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
                 },
                 {
                     role: 'user',
-                    content: (ctx.singleTopic && ctx.taxonomyTags.length
-                        ? 'topic_tag_ids must contain exactly one valid taxonomy id. Resolve competing themes using the project rules; do not return multiple ids or an empty array. '
-                        : '') + (llmDiarize
+                    content: llmDiarize
                         ? 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields, per-metric assessments (rationale + quote), and diarized_text as short operator/customer turns (not one blob). Rationale and summary must be in the transcript language.'
-                        : 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields and per-metric assessments (rationale + quote). Rationale and summary must be in the transcript language.'),
+                        : 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields and per-metric assessments (rationale + quote). Rationale and summary must be in the transcript language.',
                 },
             ]);
         }

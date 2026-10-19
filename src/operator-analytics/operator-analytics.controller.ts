@@ -797,6 +797,8 @@ export class OperatorAnalyticsController {
         return this.service.getOperatorEvidence(
             {
                 operatorName: query.operatorName?.trim() || undefined,
+                operatorId: query.operatorId,
+                operatorExtension: query.operatorExtension,
                 userId: query.userId,
                 startDate: query.startDate,
                 endDate: query.endDate,

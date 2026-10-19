@@ -133,6 +133,7 @@ jobs:
             echo "Building and deploying backend..."
             sudo docker compose -f docker-compose.production.yml --env-file .env.production up -d \
               --build \
+              --no-deps \
               --force-recreate backend
 
             # ── Start GPU services (only on aipbxnet / deploy:1) ──

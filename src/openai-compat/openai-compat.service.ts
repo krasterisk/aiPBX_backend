@@ -10,6 +10,7 @@ import {
     stripThinkIncremental,
 } from './openai-compat.util';
 import { ChatCompletionsRequest } from './dto/chat-completions.dto';
+import { completionControls } from './completion-controls';
 
 export interface OpenAiCompletionBody {
     id: string;
@@ -53,6 +54,8 @@ export class OpenAiCompatService {
             throw new HttpException('messages is required', HttpStatus.BAD_REQUEST);
         }
 
+        const controls = completionControls(dto as unknown as Record<string, unknown>);
+
         const model = await this.resolveModel(dto.model);
         this.logger.log(
             `ollama model=${model} requested=${dto.model || '-'} stream=${!!dto.stream} tools=${dto.tools?.length ?? 0} num_ctx=${this.numCtx}`,
@@ -64,6 +67,7 @@ export class OpenAiCompatService {
             stream: !!dto.stream,
             keep_alive: -1,
             options: { num_ctx: this.numCtx, num_predict: predict },
+            ...controls,
         };
         if (dto.temperature != null) params.temperature = dto.temperature;
         params.max_tokens = predict;

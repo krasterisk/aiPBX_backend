@@ -35,7 +35,7 @@ describe('explicit completion controls through HTTP DTO and native Ollama', () =
     });
     it('leaves old requests and tool history defaults unchanged; arbitrary native options stay filtered', async () => {
         const sent = await send({ options: { num_ctx: 99999999, unsafe: true }, arbitrary: 'ignored' });
-        expect(sent).toEqual({ model: base.model, messages: base.messages, stream: false, keep_alive: -1, options: { num_ctx: 32768, num_predict: 2048 } });
+        expect(sent).toEqual({ model: base.model, messages: base.messages, stream: false, keep_alive: -1, options: { num_ctx: 32768, num_predict: 4096 } });
     });
     it.each([
         { think: 'false' }, { top_p: 2 }, { presence_penalty: 20 },

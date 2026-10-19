@@ -21,6 +21,8 @@ interface CreateAiCdr {
     vPbxUserId?: string
     recordUrl?: string
     assistantName?: string
+    operatorId?: string;
+    operatorExtension?: string;
     assistantId?: string
     source?: CdrSource | string
     projectId?: number
@@ -28,6 +30,15 @@ interface CreateAiCdr {
 
 @Table({ tableName: "aiCdr" })
 export class AiCdr extends Model<AiCdr, CreateAiCdr> {
+    @ApiProperty({ description: 'Stable source-namespaced external employee ID; scoped by account', required: false, nullable: true })
+    @Column({ type: DataType.STRING(128), allowNull: true })
+    operatorId: string;
+
+    @ApiProperty({ description: 'Internal number used for this call, independent of employee identity', required: false, nullable: true })
+    @Column({ type: DataType.STRING(64), allowNull: true })
+    operatorExtension: string;
+
+
     @ApiProperty({ example: '123', description: "Channel uniqueId" })
     @Column({ type: DataType.STRING, allowNull: false, unique: true })
     channelId: string;

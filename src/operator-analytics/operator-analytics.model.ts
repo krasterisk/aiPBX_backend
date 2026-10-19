@@ -19,6 +19,8 @@ interface OperatorAnalyticsCreationAttrs {
     source: AnalyticsSource;
     status?: AnalyticsStatus;
     operatorName?: string;
+    operatorId?: string;
+    operatorExtension?: string;
     clientPhone?: string;
     language?: string;
     projectId?: number;
@@ -33,6 +35,15 @@ interface OperatorAnalyticsCreationAttrs {
 
 @Table({ tableName: 'operator_analytics' })
 export class OperatorAnalytics extends Model<OperatorAnalytics, OperatorAnalyticsCreationAttrs> {
+    @ApiProperty({ description: 'Stable source-namespaced external employee ID; scoped by account', required: false, nullable: true })
+    @Column({ type: DataType.STRING(128), allowNull: true })
+    operatorId: string;
+
+    @ApiProperty({ description: 'Internal number used for this call, independent of employee identity', required: false, nullable: true })
+    @Column({ type: DataType.STRING(64), allowNull: true })
+    operatorExtension: string;
+
+
 
     @ApiProperty({ example: 1, description: 'Primary key' })
     @Column({ type: DataType.INTEGER, autoIncrement: true, primaryKey: true })

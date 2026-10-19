@@ -109,7 +109,7 @@ export class OperatorAnalyticsController {
         @UploadedFiles() files: any[],
         @Req() req: RequestWithUser,
         @Body() body: {
-            operatorName?: string;
+            operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
             customMetrics?: string;
@@ -136,6 +136,8 @@ export class OperatorAnalyticsController {
             : (req as any).apiToken?.projectId ?? undefined;
         const options = {
             operatorName: body.operatorName,
+            operatorId: body.operatorId,
+            operatorExtension: body.operatorExtension,
             clientPhone: body.clientPhone,
             language: body.language,
             customMetrics,
@@ -178,7 +180,7 @@ export class OperatorAnalyticsController {
         @UploadedFiles() files: any[],
         @Req() req: RequestWithUser,
         @Body() body: {
-            operatorName?: string;
+            operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
             customMetrics?: string;
@@ -203,6 +205,8 @@ export class OperatorAnalyticsController {
             : (req as any).apiToken?.projectId ?? undefined;
         const options = {
             operatorName: body.operatorName,
+            operatorId: body.operatorId,
+            operatorExtension: body.operatorExtension,
             clientPhone: body.clientPhone,
             language: body.language,
             customMetrics,
@@ -262,6 +266,8 @@ export class OperatorAnalyticsController {
             : (req as any).apiToken?.projectId ?? undefined;
         const options = {
             operatorName: body.operatorName,
+            operatorId: body.operatorId,
+            operatorExtension: body.operatorExtension,
             clientPhone: body.clientPhone,
             language: body.language,
             customMetrics: body.customMetrics,
@@ -289,7 +295,7 @@ export class OperatorAnalyticsController {
         @Body() body: {
             url?: string;
             urls?: string[];
-            operatorName?: string;
+            operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
             customMetrics?: CustomMetricDef[];
@@ -307,6 +313,8 @@ export class OperatorAnalyticsController {
 
         const options = {
             operatorName: body.operatorName,
+            operatorId: body.operatorId,
+            operatorExtension: body.operatorExtension,
             clientPhone: body.clientPhone,
             language: body.language,
             customMetrics: body.customMetrics,
@@ -605,6 +613,7 @@ export class OperatorAnalyticsController {
 
 
     @Get('projects/:id/dashboard')
+    @ApiQuery({ name: 'operatorId', required: false, type: String, description: 'Stable source-namespaced employee ID; takes precedence over name' })
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
@@ -633,6 +642,7 @@ export class OperatorAnalyticsController {
     }
 
     @Get('projects/:id/insights')
+    @ApiQuery({ name: 'operatorId', required: false, type: String, description: 'Stable source-namespaced employee ID; takes precedence over name' })
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
@@ -664,6 +674,7 @@ export class OperatorAnalyticsController {
     }
 
     @Get('cdrs')
+    @ApiQuery({ name: 'operatorId', required: false, type: String, description: 'Stable source-namespaced employee ID; takes precedence over name' })
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
@@ -676,7 +687,7 @@ export class OperatorAnalyticsController {
         @Query() query: {
             startDate?: string;
             endDate?: string;
-            operatorName?: string;
+            operatorName?: string; operatorId?: string; operatorExtension?: string;
             operatorNameExact?: string;
             tagId?: string;
             withoutTopic?: string;
@@ -700,6 +711,7 @@ export class OperatorAnalyticsController {
     // ─── Dashboard (JWT Auth) ────────────────────────────────────────
 
     @Get('dashboard')
+    @ApiQuery({ name: 'operatorId', required: false, type: String, description: 'Stable source-namespaced employee ID; takes precedence over name' })
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
@@ -715,7 +727,7 @@ export class OperatorAnalyticsController {
             userId?: string;
             startDate?: string;
             endDate?: string;
-            operatorName?: string;
+            operatorName?: string; operatorId?: string; operatorExtension?: string;
             projectId?: number;
             withoutProject?: string;
         },
@@ -728,6 +740,7 @@ export class OperatorAnalyticsController {
     // ─── AI Insights (JWT Auth) ──────────────────────────────────────
 
     @Get('insights')
+    @ApiQuery({ name: 'operatorId', required: false, type: String, description: 'Stable source-namespaced employee ID; takes precedence over name' })
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
@@ -739,7 +752,7 @@ export class OperatorAnalyticsController {
             userId?: string;
             startDate?: string;
             endDate?: string;
-            operatorName?: string;
+            operatorName?: string; operatorId?: string; operatorExtension?: string;
             projectId?: number;
             withoutProject?: string;
             refresh?: string;
@@ -752,6 +765,7 @@ export class OperatorAnalyticsController {
     }
 
     @Get('operator-evidence')
+    @ApiQuery({ name: 'operatorId', required: false, type: String, description: 'Stable source-namespaced employee ID; takes precedence over name' })
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
@@ -760,7 +774,7 @@ export class OperatorAnalyticsController {
     async getOperatorEvidence(
         @Req() req: RequestWithUser,
         @Query() query: {
-            operatorName?: string;
+            operatorName?: string; operatorId?: string; operatorExtension?: string;
             userId?: string;
             startDate?: string;
             endDate?: string;
@@ -908,7 +922,7 @@ export class OperatorAnalyticsController {
         userId: string,
         body: AnalyzeRequestDto,
         options: {
-            operatorName?: string;
+            operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
             customMetrics?: CustomMetricDef[];
@@ -960,7 +974,7 @@ export class OperatorAnalyticsController {
         userId: string,
         body: AnalyzeRequestDto,
         options: {
-            operatorName?: string;
+            operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
             customMetrics?: CustomMetricDef[];
@@ -1027,7 +1041,7 @@ export class OperatorAnalyticsController {
         userId: string,
         source: AnalyticsSource,
         options: {
-            operatorName?: string;
+            operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
             customMetrics?: CustomMetricDef[];

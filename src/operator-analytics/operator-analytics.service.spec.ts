@@ -27,6 +27,22 @@ describe('OperatorAnalyticsService', () => {
     let service: OperatorAnalyticsService;
     let mockAlertService: { sendCriticalAlert: jest.Mock };
 
+    it('persists employee identity and workplace as separate processing-record fields', async () => {
+        await service.createProcessingRecord('synthetic.mp3', '99', AnalyticsSource.API, {
+            operatorName: 'Anna', operatorId: 'pbx:7', operatorExtension: '0301',
+        });
+        expect(mockAnalyticsRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+            userId: '99', operatorName: 'Anna', operatorId: 'pbx:7', operatorExtension: '0301',
+        }));
+    });
+
+    it('leaves optional identity absent for legacy processing records', async () => {
+        await service.createProcessingRecord('synthetic.mp3', '99', AnalyticsSource.API, { operatorName: 'Anna' });
+        const stored = mockAnalyticsRepo.create.mock.calls.at(-1)[0];
+        expect(stored).not.toHaveProperty('operatorId');
+        expect(stored).not.toHaveProperty('operatorExtension');
+    });
+
     // ─── Mock repositories ───────────────────────────────────────────
     let mockAnalyticsRepo: any;
     let mockAiCdrRepo: any;
@@ -1316,6 +1332,19 @@ describe('OperatorAnalyticsService', () => {
     // ═════════════════════════════════════════════════════════════════
 
     describe('getDashboard', () => {
+        it('keeps counts scoped when an admin views identical external IDs in two accounts', async () => {
+            const records = [
+                { channelId: '1', userId: '99', operatorId: 'pbx:7', operatorExtension: '301', assistantName: 'Anna', createdAt: new Date('2026-10-19T01:00:00Z') },
+                { channelId: '2', userId: '99', operatorId: 'pbx:7', operatorExtension: '302', assistantName: 'Anna', createdAt: new Date('2026-10-19T02:00:00Z') },
+                { channelId: '3', userId: '100', operatorId: 'pbx:7', operatorExtension: '301', assistantName: 'Anna', createdAt: new Date('2026-10-19T03:00:00Z') },
+            ];
+            mockAiCdrRepo.count.mockResolvedValue(3);
+            mockAiCdrRepo.findAll.mockResolvedValue(records);
+            const result = await service.getDashboard({}, true, '1');
+            expect(result.agentScorecards).toHaveLength(2);
+            expect(result.agentScorecards.find(row => row.operatorAccountId === '99')?.callsCount).toBe(2);
+            expect(result.agentScorecards.find(row => row.operatorAccountId === '100')?.callsCount).toBe(1);
+        });
         beforeEach(() => {
             mockAiCdrRepo.count.mockResolvedValue(0);
             mockAiCdrRepo.findAll.mockResolvedValue([]);

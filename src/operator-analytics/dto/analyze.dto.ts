@@ -58,6 +58,18 @@ export class AnalyzeRequestDto {
     @IsString()
     operatorName?: string;
 
+    @ApiPropertyOptional({ description: 'Stable source-namespaced employee ID (not an extension)', maxLength: 128 })
+    @IsOptional()
+    @IsString()
+    @MaxLength(128)
+    operatorId?: string;
+
+    @ApiPropertyOptional({ description: 'Internal number used for this call', maxLength: 64 })
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    operatorExtension?: string;
+
     @ApiPropertyOptional()
     @IsOptional()
     @IsString()

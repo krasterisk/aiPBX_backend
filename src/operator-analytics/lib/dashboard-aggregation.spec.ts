@@ -1,4 +1,10 @@
 import { buildDashboardCdrWhere, findChannelIdsForDistribution, postgresJsonbCast } from './dashboard-aggregation';
+
+it('filters stable employee identity before legacy display name while retaining tenant scope', () => {
+    const where = buildDashboardCdrWhere({ operatorId: 'pbx:7', operatorName: 'Old name', userId: 'other' }, false, '99', value => ({ like: value }));
+    expect(where).toMatchObject({ userId: '99', operatorId: 'pbx:7' });
+    expect(where).not.toHaveProperty('assistantName');
+});
 import { Op } from 'sequelize';
 
 describe('dashboard-aggregation', () => {

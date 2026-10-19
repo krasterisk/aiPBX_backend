@@ -23,6 +23,7 @@ export async function enrichInsightsWithChannelIds(
             startDate?: string;
             endDate?: string;
             operatorName?: string;
+            operatorId?: string;
             projectId?: number;
             withoutProject?: boolean;
         };

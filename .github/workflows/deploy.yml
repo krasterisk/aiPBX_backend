@@ -85,6 +85,29 @@ jobs:
       fail-fast: false
     environment: ${{ matrix.server }}
     steps:
+      - name: Checkout bounded SSH access helper
+        if: matrix.server == 'aipbxru_production'
+        uses: actions/checkout@v4
+      - name: Prepare temporary SSH access request
+        if: matrix.server == 'aipbxru_production'
+        env:
+          PRODUCTION_HOST: ${{ secrets.SERVER_HOST }}
+          PRODUCTION_TARGET: ${{ matrix.server }}
+        run: python3 .github/scripts/production-ssh-access.py report
+      - name: Publish ephemeral runner address
+        if: always() && matrix.server == 'aipbxru_production'
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-ssh-access-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/production-ssh-access.json
+          retention-days: 1
+          if-no-files-found: error
+      - name: Wait for bounded SSH access
+        if: matrix.server == 'aipbxru_production'
+        env:
+          PRODUCTION_HOST: ${{ secrets.SERVER_HOST }}
+          PRODUCTION_TARGET: ${{ matrix.server }}
+        run: python3 .github/scripts/production-ssh-access.py wait
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:

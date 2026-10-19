@@ -33,6 +33,12 @@ The frontend keeps names as names and displays extension as separate call metada
 
 Rollback the application using the preserved images first. Additive nullable columns may remain safely. A guarded metadata rollback can restore only backed-up rows whose current identity matches the expected migration result; it must not delete newer calls or overwrite subsequent staff changes.
 
+## Restricted production SSH
+
+aipbx.ru permits SSH only from trusted addresses. For its deployment job, Actions publishes an ephemeral `production-ssh-access-<run>-<attempt>` artifact containing only the runner IPv4 and release identifiers. The helper verifies that the configured destination resolves to aipbx.ru and then waits up to 15 minutes for SSH. It does not open a firewall or receive firewall credentials. Other deployment targets do not run this helper.
+
+An authorized operator verifies the exact repository, master SHA, run/attempt, fresh artifact timestamp and public IPv4. Before permitting only this IPv4/32 to TCP/22, schedule automatic deletion after 20 minutes and verify that timer is active. Delete the rule immediately after deployment and stop its timer. Preserve existing rules and never expose SSH to all addresses. A new runner needs a new explicitly scoped exception; no permanent runner range is added. This temporary access was explicitly authorized for EM-20261019-333.
+
 ## Baseline preservation and validation
 
 Public master 52ef132 had reverted operator-service fixes from the already released 436ff00, causing compilation and five existing tests to fail. This release preserves the exact released service baseline before adding identity. The original staged service blob was verified to equal that published commit and remains untouched. Published Qwen completion-control commit a837441 is included to preserve the existing production compatibility behavior; its old default-token test is aligned with master's existing 4096-token default.

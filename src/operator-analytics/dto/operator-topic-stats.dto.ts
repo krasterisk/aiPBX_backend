@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class OperatorTopicCellDto {
     @ApiProperty({ type: String, nullable: true, description: 'Null means no topic' })
@@ -14,6 +14,11 @@ export class OperatorTopicDto extends OperatorTopicCellDto {
 }
 
 export class OperatorTopicRowDto {
+    @ApiPropertyOptional({ description: 'Stable source-namespaced employee ID' })
+    operatorId?: string;
+    @ApiPropertyOptional({ description: 'Owning account for administrative cross-account views' })
+    operatorAccountId?: string;
+
     @ApiProperty({ type: String, nullable: true, description: 'Normalized name; null means no operator' })
     operatorName: string | null;
 

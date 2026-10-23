@@ -9,6 +9,18 @@ const record = (name: string | null, tags?: unknown[], quality?: string): AiCdr 
 } as unknown as AiCdr);
 
 describe('operator topic counts', () => {
+    it('merges workplaces by employee ID and separates employees with the same name', () => {
+        const calls = [
+            { ...record('Anna', ['billing']), userId: '99', operatorId: 'pbx:7', operatorExtension: '301' },
+            { ...record('Anna', ['billing']), userId: '99', operatorId: 'pbx:7', operatorExtension: '302' },
+            { ...record('Anna', ['returns']), userId: '99', operatorId: 'pbx:8', operatorExtension: '301' },
+        ] as AiCdr[];
+        const result = buildOperatorTopicStats(calls, taxonomy);
+        expect(result.totalCalls).toBe(3);
+        expect(result.operators).toHaveLength(2);
+        expect(result.operators.find(row => row.operatorId === 'pbx:7')).toMatchObject({ callsCount: 2, topics: [{ tagId: 'billing', callsCount: 2 }] });
+        expect(result.operators.find(row => row.operatorId === 'pbx:8')?.callsCount).toBe(1);
+    });
     it('counts every record, deduplicates topics within calls, and keeps unique totals', () => {
         const result = buildOperatorTopicStats([
             record(' Alice ', ['billing', 'billing', 'returns']),

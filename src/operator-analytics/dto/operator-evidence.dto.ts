@@ -47,6 +47,9 @@ export class OperatorEvidenceMetricDto {
 }
 
 export class OperatorEvidenceResponseDto {
+    @ApiPropertyOptional()
+    operatorId?: string;
+
     @ApiProperty({ example: 'Иван' })
     operatorName: string;
 

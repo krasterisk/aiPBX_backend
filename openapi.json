@@ -6083,6 +6083,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "operatorId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "Stable source-namespaced employee ID; scoped by account"
+            }
           }
         ],
         "responses": {
@@ -6141,6 +6151,16 @@
             "in": "path",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "operatorId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "Stable source-namespaced employee ID; scoped by account"
             }
           }
         ],
@@ -6218,6 +6238,16 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "operatorId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "Stable source-namespaced employee ID; scoped by account"
+            }
           }
         ],
         "responses": {
@@ -6239,7 +6269,18 @@
     "/api/operator-analytics/dashboard": {
       "get": {
         "operationId": "OperatorAnalyticsController_getDashboard",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "operatorId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "Stable source-namespaced employee ID; scoped by account"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Dashboard metrics",
@@ -6272,7 +6313,18 @@
     "/api/operator-analytics/insights": {
       "get": {
         "operationId": "OperatorAnalyticsController_getDashboardInsights",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "operatorId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "Stable source-namespaced employee ID; scoped by account"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Structured AI insights with priority, evidence, and metadata",
@@ -6299,7 +6351,18 @@
     "/api/operator-analytics/operator-evidence": {
       "get": {
         "operationId": "OperatorAnalyticsController_getOperatorEvidence",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "operatorId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "Stable source-namespaced employee ID; scoped by account"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Per-metric quotes and rationales",
@@ -8080,6 +8143,16 @@
       "AiCdr": {
         "type": "object",
         "properties": {
+          "operatorId": {
+            "type": "string",
+            "description": "Stable source-namespaced external employee ID; scoped by account",
+            "nullable": true
+          },
+          "operatorExtension": {
+            "type": "string",
+            "description": "Internal number used for this call, independent of employee identity",
+            "nullable": true
+          },
           "channelId": {
             "type": "string",
             "example": "123",
@@ -10143,8 +10216,8 @@
           },
           "evidenceTotal": {
             "type": "number",
-            "description": "All scored calls for this metric",
-            "example": 48
+            "example": 48,
+            "description": "All scored calls for this metric"
           },
           "evidencePage": {
             "type": "number",
@@ -10175,6 +10248,9 @@
       "OperatorEvidenceResponseDto": {
         "type": "object",
         "properties": {
+          "operatorId": {
+            "type": "string"
+          },
           "operatorName": {
             "type": "string",
             "example": "Иван"
@@ -10485,6 +10561,14 @@
       "OperatorTopicRowDto": {
         "type": "object",
         "properties": {
+          "operatorId": {
+            "type": "string",
+            "description": "Stable source-namespaced employee ID"
+          },
+          "operatorAccountId": {
+            "type": "string",
+            "description": "Owning account for administrative cross-account views"
+          },
           "operatorName": {
             "type": "string",
             "nullable": true,
@@ -10535,6 +10619,88 @@
           "topics",
           "operators"
         ]
+      },
+      "AnalyzeBase64FileDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "string",
+            "description": "Raw Base64 or data:audio/...;base64,..."
+          },
+          "filename": {
+            "type": "string",
+            "example": "call.mp3"
+          }
+        }
+      },
+      "AnalyzeRequestDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Single audio URL (server downloads)"
+          },
+          "urls": {
+            "description": "Batch of audio URLs",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "file": {
+            "type": "string",
+            "description": "Single Base64 audio payload (raw or data-URI). Requires filename."
+          },
+          "filename": {
+            "type": "string",
+            "description": "Filename for single `file` field",
+            "example": "call.mp3"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnalyzeBase64FileDto"
+            }
+          },
+          "operatorName": {
+            "type": "string"
+          },
+          "operatorId": {
+            "type": "string",
+            "description": "Stable source-namespaced employee ID (not an extension)",
+            "maxLength": 128
+          },
+          "operatorExtension": {
+            "type": "string",
+            "description": "Internal number used for this call",
+            "maxLength": 64
+          },
+          "clientPhone": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "customMetrics": {
+            "type": "array"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "number"
+          },
+          "sync": {
+            "type": "object",
+            "description": "Wait for analysis (single item only)"
+          },
+          "consentObtained": {
+            "type": "object"
+          },
+          "consentSource": {
+            "type": "string"
+          }
+        }
       }
     }
   }

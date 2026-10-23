@@ -1,3 +1,4 @@
+import { operatorIdentityKey } from './operator-identity';
 import { Op, Sequelize } from 'sequelize';
 import type { AiCdr } from '../../ai-cdr/ai-cdr.model';
 import type { OperatorTopicStats, TagDefinition } from '../interfaces/operator-metrics.interface';
@@ -29,14 +30,21 @@ export function buildOperatorTopicStats(records: AiCdr[], taxonomy: TagDefinitio
     for (const tag of taxonomy) topics.set(tag.id, { tagId: tag.id, name: tag.name, callsCount: 0 });
     topics.set(null, { tagId: null, name: '', callsCount: 0 });
     const operators = new Map<string | null, OperatorTopicStats['operators'][number]>();
+    const latestNames = new Map<string, number>();
     let hasMultipleTopics = false;
 
     for (const record of records) {
         const operatorName = normalizeOperatorName(record.assistantName);
-        let operator = operators.get(operatorName);
+        const key = operatorIdentityKey(record);
+        let operator = operators.get(key);
         if (!operator) {
-            operator = { operatorName, callsCount: 0, topics: [] };
-            operators.set(operatorName, operator);
+            operator = { ...(record.operatorId ? { operatorId: record.operatorId, ...(record.userId ? { operatorAccountId: record.userId } : {}) } : {}), operatorName, callsCount: 0, topics: [] };
+            operators.set(key, operator);
+        }
+        const timestamp = new Date(record.createdAt ?? 0).getTime();
+        if (record.operatorId && timestamp >= (latestNames.get(key) ?? -1)) {
+            operator.operatorName = operatorName;
+            latestNames.set(key, timestamp);
         }
         operator.callsCount++;
         const ids = readTopicIds(record.analytics?.metrics);

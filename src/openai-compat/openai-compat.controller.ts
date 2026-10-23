@@ -35,7 +35,7 @@ export class OpenAiCompatController {
         // Do not listen to req.close — Express fires it when the body is consumed and would abort Ollama.
         res.on('close', () => abort.abort());
 
-        const result = await this.compatService.complete(dto);
+        const result = await this.compatService.complete(dto, abort.signal);
 
         if (result.stream === false) {
             const text = result.body.choices?.[0]?.message?.content;

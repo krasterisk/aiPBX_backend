@@ -64,6 +64,8 @@ export interface TagStat {
 export interface AgentScorecard {
     scoredCalls?: number;
     operatorName: string;
+    operatorId?: string;
+    operatorAccountId?: string;
     callsCount: number;
     averageScore: number;
     successRate: number;
@@ -95,6 +97,8 @@ export interface OperatorTopicStats {
     topics: Array<{ tagId: string | null; name: string; callsCount: number }>;
     operators: Array<{
         operatorName: string | null;
+        operatorId?: string;
+        operatorAccountId?: string;
         callsCount: number;
         topics: Array<{ tagId: string | null; callsCount: number }>;
     }>;

@@ -9,6 +9,7 @@ export interface DashboardCdrFilters {
     startDate?: string;
     endDate?: string;
     operatorName?: string;
+    operatorId?: string;
     operatorNameExact?: string;
 }
 
@@ -43,7 +44,9 @@ export function buildDashboardCdrWhere(
         where.createdAt = { [Op.lte]: new Date(`${query.endDate}T23:59:59`) };
     }
 
-    if (query.operatorNameExact) {
+    if (query.operatorId) {
+        where.operatorId = query.operatorId;
+    } else if (query.operatorNameExact) {
         where.assistantName = query.operatorNameExact;
     } else if (query.operatorName) {
         where.assistantName = likeOp(`%${query.operatorName}%`);
@@ -116,7 +119,10 @@ export async function countLowQualityCdrs(
     }
 
     pushProjectClause(dialect, c, filters, clauses, replacements);
-    if (filters.operatorNameExact) {
+    if (filters.operatorId) {
+        clauses.push(`${c}.${q('operatorId', dialect)} = :operatorId`);
+        replacements.operatorId = filters.operatorId;
+    } else if (filters.operatorNameExact) {
         clauses.push(`${c}.${q('assistantName', dialect)} = :operatorNameExact`);
         replacements.operatorNameExact = filters.operatorNameExact;
     } else if (filters.operatorName) {
@@ -195,7 +201,10 @@ export async function aggregateMetricsFromSql(
     }
 
     pushProjectClause(dialect, c, filters, cdrClauses, replacements);
-    if (filters.operatorNameExact) {
+    if (filters.operatorId) {
+        cdrClauses.push(`${c}.${q('operatorId', dialect)} = :operatorId`);
+        replacements.operatorId = filters.operatorId;
+    } else if (filters.operatorNameExact) {
         cdrClauses.push(`${c}.${q('assistantName', dialect)} = :operatorNameExact`);
         replacements.operatorNameExact = filters.operatorNameExact;
     } else if (filters.operatorName) {
@@ -341,7 +350,10 @@ function appendCdrFilterClauses(
     }
 
     pushProjectClause(dialect, c, filters, clauses, replacements);
-    if (filters.operatorNameExact) {
+    if (filters.operatorId) {
+        clauses.push(`${c}.${q('operatorId', dialect)} = :operatorId`);
+        replacements.operatorId = filters.operatorId;
+    } else if (filters.operatorNameExact) {
         clauses.push(`${c}.${q('assistantName', dialect)} = :operatorNameExact`);
         replacements.operatorNameExact = filters.operatorNameExact;
     } else if (filters.operatorName) {

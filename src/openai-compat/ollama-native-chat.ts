@@ -1,4 +1,5 @@
 import { textFromContent } from './openai-compat.util';
+import { completionControls, nativeResponseFormat } from './completion-controls';
 
 export interface OllamaNativeChatOptions {
     baseUrl: string;
@@ -193,6 +194,8 @@ export class OllamaNativeChat {
     }
 
     async create(params: Record<string, unknown>, opts?: { signal?: AbortSignal }) {
+        const controls = completionControls(params);
+        const format = nativeResponseFormat(controls);
         const model = String(params.model || '');
         const incomingOptions = (params.options && typeof params.options === 'object')
             ? params.options as Record<string, unknown>
@@ -201,9 +204,13 @@ export class OllamaNativeChat {
             model,
             messages: toOllamaMessages(Array.isArray(params.messages) ? params.messages : []),
             stream: !!params.stream,
+            ...(controls.think !== undefined ? { think: controls.think } : {}),
+            ...(format !== undefined ? { format } : {}),
             keep_alive: incomingOptions.keep_alive ?? params.keep_alive ?? -1,
             options: {
                 num_ctx: incomingOptions.num_ctx ?? this.numCtx,
+                ...(controls.top_p !== undefined ? { top_p: controls.top_p } : {}),
+                ...(controls.presence_penalty !== undefined ? { presence_penalty: controls.presence_penalty } : {}),
                 ...(incomingOptions.temperature != null ? { temperature: incomingOptions.temperature } : {}),
                 ...(incomingOptions.num_predict != null ? { num_predict: incomingOptions.num_predict } : {}),
                 ...(params.temperature != null && incomingOptions.temperature == null

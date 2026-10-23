@@ -1,3 +1,4 @@
+import { CallType, parseCallType } from './lib/call-type';
 import { operatorIdentityFields, operatorIdentityKey, operatorGroupIdentity } from './lib/operator-identity';
 import { Inject, Injectable, Logger, HttpException, HttpStatus, forwardRef } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
@@ -588,6 +589,7 @@ export class OperatorAnalyticsService {
         userId: string,
         source: AnalyticsSource,
         options: {
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
@@ -605,7 +607,7 @@ export class OperatorAnalyticsService {
         const audioSha256 = computeAudioSha256(buffer);
         if (this.dedupByHashEnabled && options.projectId) {
             const duplicate = await this.findCompletedDuplicate(userId, options.projectId, audioSha256);
-            if (duplicate) {
+            if (duplicate && (duplicate.callType ?? 'incoming') === parseCallType(options.callType)) {
                 this.logger.log(
                     `Dedup: reusing completed analysis #${duplicate.id} for "${filename}" (hash=${audioSha256.slice(0, 8)}…)`,
                 );
@@ -622,6 +624,7 @@ export class OperatorAnalyticsService {
             operatorName: options.operatorName,
             ...operatorIdentityFields(options),
             clientPhone: options.clientPhone,
+            callType: parseCallType(options.callType),
             language: options.language || 'auto',
             projectId: options.projectId || null,
             recordUrl: options.recordUrl || null,
@@ -752,6 +755,7 @@ export class OperatorAnalyticsService {
                 assistantName: assistantName,
                 ...operatorIdentityFields(record),
                 callerId: options.clientPhone || '',
+                callType: parseCallType(options.callType),
                 source: cdrSource,
                 recordUrl: record.recordUrl || '',
             });
@@ -797,6 +801,7 @@ export class OperatorAnalyticsService {
                 duration: record.duration ?? sttResult.duration,
                 operatorName: record.operatorName,
                 clientPhone: record.clientPhone,
+                callType: parseCallType(record.callType),
                 language: record.language,
                 detectedLanguage: record.detectedLanguage,
                 recordUrl: record.recordUrl,
@@ -844,6 +849,7 @@ export class OperatorAnalyticsService {
         rawUrl: string,
         userId: string,
         options: {
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
@@ -1017,6 +1023,7 @@ export class OperatorAnalyticsService {
         userId: string,
         source: AnalyticsSource,
         options: {
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
@@ -1035,6 +1042,7 @@ export class OperatorAnalyticsService {
             operatorName: options.operatorName,
             ...operatorIdentityFields(options),
             clientPhone: options.clientPhone,
+            callType: parseCallType(options.callType),
             language: options.language || 'auto',
             projectId: options.projectId || null,
             recordUrl: options.recordUrl || null,
@@ -1177,6 +1185,7 @@ export class OperatorAnalyticsService {
                 assistantName: assistantName,
                 ...operatorIdentityFields(record),
                 callerId: record.clientPhone || '',
+                callType: parseCallType(record.callType),
                 source: cdrSource,
                 recordUrl: record.recordUrl || '',
             });
@@ -1222,6 +1231,7 @@ export class OperatorAnalyticsService {
                 duration: record.duration ?? sttResult.duration,
                 operatorName: record.operatorName,
                 clientPhone: record.clientPhone,
+                callType: parseCallType(record.callType),
                 language: record.language,
                 detectedLanguage: record.detectedLanguage,
                 recordUrl: record.recordUrl,
@@ -1411,6 +1421,7 @@ export class OperatorAnalyticsService {
 
         const prevCdrAmountCurrency = Number(aiCdr.amountCurrency) || 0;
         await aiCdr.update({
+            callType: parseCallType(record.callType),
             duration: Math.round(sttResult.duration),
             cost: replaceCost
                 ? totalCost
@@ -1480,6 +1491,7 @@ export class OperatorAnalyticsService {
             duration: record.duration ?? sttResult.duration,
             operatorName: record.operatorName,
             clientPhone: record.clientPhone,
+                callType: parseCallType(record.callType),
             language: record.language,
             detectedLanguage: record.detectedLanguage,
             recordUrl: record.recordUrl,
@@ -1579,6 +1591,7 @@ export class OperatorAnalyticsService {
         const json = (typeof record.toJSON === 'function'
             ? record.toJSON()
             : { ...record }) as unknown as Record<string, unknown>;
+        json.callType = json.callType ?? 'incoming';
         const oaId = Number(record.channelId);
         if (Number.isFinite(oaId)) {
             const oa = await this.analyticsRepository.findByPk(oaId, {
@@ -1841,7 +1854,8 @@ export class OperatorAnalyticsService {
         userId?: string;
         startDate?: string;
         endDate?: string;
-        operatorName?: string; operatorId?: string; operatorExtension?: string;
+        callType?: CallType;
+            operatorName?: string; operatorId?: string; operatorExtension?: string;
         operatorNameExact?: string;
         tagId?: string;
         withoutTopic?: string | boolean;
@@ -1996,6 +2010,7 @@ export class OperatorAnalyticsService {
 
         const enrichedData = data.map(row => {
             const json = row.toJSON() as any;
+            json.callType = json.callType ?? 'incoming';
             const oa = oaMap.get(row.channelId);
             json.transcription = oa?.transcription || null;
             json.transcriptionQuality = oa?.transcriptionQuality || json.analytics?.metrics?._quality?.quality || null;
@@ -2010,6 +2025,7 @@ export class OperatorAnalyticsService {
 
     async getOperatorEvidence(
         query: {
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             userId?: string;
             startDate?: string;
@@ -2114,7 +2130,8 @@ export class OperatorAnalyticsService {
         userId?: string;
         startDate?: string;
         endDate?: string;
-        operatorName?: string; operatorId?: string; operatorExtension?: string;
+        callType?: CallType;
+            operatorName?: string; operatorId?: string; operatorExtension?: string;
         projectId?: number;
         withoutProject?: string | boolean;
     }, isAdmin: boolean, realUserId: string) {
@@ -3084,6 +3101,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             withoutProject?: boolean;
             startDate?: string;
             endDate?: string;
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
         },
         factsDigest: string,
@@ -3106,6 +3124,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             userId?: string;
             startDate?: string;
             endDate?: string;
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             projectId?: number;
             withoutProject?: boolean;
@@ -3253,6 +3272,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             userId?: string;
             startDate?: string;
             endDate?: string;
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             projectId?: number;
             withoutProject?: string | boolean;
@@ -3729,6 +3749,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             assistantName,
             ...operatorIdentityFields(target),
             callerId: target.clientPhone || source.clientPhone || '',
+            callType: parseCallType(target.callType),
             source: cdrSource,
             recordUrl: target.recordUrl || source.recordUrl || '',
         });

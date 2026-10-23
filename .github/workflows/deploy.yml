@@ -127,6 +127,12 @@ jobs:
 
             cd /app
 
+            # The running image supplies DB connection settings and Sequelize.
+            # Fail before replacing it if the additive schema migration cannot complete.
+            echo "Preparing callType columns..."
+            sudo docker compose -f docker-compose.production.yml --env-file .env.production exec -T backend node \
+              < /app/aiPBX_backend/scripts/migrate-call-type.cjs
+
             # ── Rebuild & restart only backend ──
             # Чтобы PDF счетов не терялись при --force-recreate, на сервере в docker-compose.production.yml
             # для backend стоит примонтировать volume на каталог static/org-documents (или весь static).

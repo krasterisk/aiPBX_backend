@@ -12,6 +12,7 @@ export enum CdrSource {
 interface CreateAiCdr {
     channelId: string
     callerId: string
+    callType?: 'incoming' | 'outgoing' | 'internal';
     tokens?: number
     duration?: number
     cost?: number
@@ -45,6 +46,12 @@ export class AiCdr extends Model<AiCdr, CreateAiCdr> {
     @ApiProperty({ example: '1006', description: "CallerId" })
     @Column({ type: DataType.STRING, allowNull: true })
     callerId: string
+    @ApiProperty({ enum: ['incoming', 'outgoing', 'internal'], default: 'incoming', description: 'Call direction; legacy null means incoming' })
+    @Column({ type: DataType.STRING(16), allowNull: true, defaultValue: 'incoming',
+        get(this: AiCdr) { return this.getDataValue('callType') ?? 'incoming'; },
+    })
+    callType: 'incoming' | 'outgoing' | 'internal';
+
     @ApiProperty({ example: 'Bob', description: "Assistant name" })
     @Column({ type: DataType.STRING, allowNull: true })
     assistantName: string

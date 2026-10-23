@@ -1,10 +1,12 @@
+import { CallType, parseCallType } from './lib/call-type';
+import { multipartAnalyzeSchema, urlAnalyzeSchema } from './lib/ingestion-api-schema';
 import {
     Controller, Get, Post, Patch, Delete, Body, Param, Query, Req,
     UseGuards, UseInterceptors, UploadedFiles,
     HttpException, HttpStatus, Logger,
 } from '@nestjs/common';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
-import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth, ApiConsumes, ApiExtraModels, ApiQuery, getSchemaPath } from '@nestjs/swagger';
+import { ApiOperation, ApiBody, ApiResponse, ApiTags, ApiBearerAuth, ApiConsumes, ApiExtraModels, ApiQuery, getSchemaPath } from '@nestjs/swagger';
 import { OperatorTopicStatsDto } from './dto/operator-topic-stats.dto';
 import { OperatorAnalyticsService } from './operator-analytics.service';
 import { OperatorDigestService } from './operator-digest.service';
@@ -109,6 +111,7 @@ export class OperatorAnalyticsController {
         @UploadedFiles() files: any[],
         @Req() req: RequestWithUser,
         @Body() body: {
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
@@ -135,6 +138,7 @@ export class OperatorAnalyticsController {
             ? +body.projectId
             : (req as any).apiToken?.projectId ?? undefined;
         const options = {
+            callType: parseCallType(body.callType),
             operatorName: body.operatorName,
             operatorId: body.operatorId,
             operatorExtension: body.operatorExtension,
@@ -171,15 +175,18 @@ export class OperatorAnalyticsController {
     // ─── External API: Upload file (API Token Auth) ───────────────────
 
     @Post('analyze-file')
+    @ApiBearerAuth()
+    @ApiBody({ schema: multipartAnalyzeSchema })
     @UseGuards(ApiTokenGuard)
     @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: MAX_FILE_SIZE } }))
     @ApiOperation({ summary: 'Upload audio file(s) for analysis (External API)' })
     @ApiConsumes('multipart/form-data')
-    @ApiResponse({ status: 200, description: 'Analysis result or batch status' })
+    @ApiResponse({ status: 201, description: 'Analysis result or batch status' })
     async uploadFromApi(
         @UploadedFiles() files: any[],
         @Req() req: RequestWithUser,
         @Body() body: {
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
@@ -204,6 +211,7 @@ export class OperatorAnalyticsController {
             ? +(body as any).projectId
             : (req as any).apiToken?.projectId ?? undefined;
         const options = {
+            callType: parseCallType(body.callType),
             operatorName: body.operatorName,
             operatorId: body.operatorId,
             operatorExtension: body.operatorExtension,
@@ -228,6 +236,7 @@ export class OperatorAnalyticsController {
     // ─── External API: Unified analyze (URL XOR Base64) ──────────────
 
     @Post('analyze')
+    @ApiBearerAuth()
     @UseGuards(ApiTokenGuard)
     @ApiOperation({
         summary: 'Analyze audio by URL or Base64 body (External API)',
@@ -235,7 +244,7 @@ export class OperatorAnalyticsController {
             'Exactly one source type per request: url/urls OR file/files. ' +
             'sync=true waits for a single item; multiple items are always async.',
     })
-    @ApiResponse({ status: 200, description: 'Analysis result, processing stub, or batch status' })
+    @ApiResponse({ status: 201, description: 'Analysis result, processing stub, or batch status' })
     @ApiResponse({ status: 400, description: 'Invalid source / Base64 / filename' })
     @ApiResponse({ status: 413, description: 'Decoded file too large' })
     async analyzeUnified(
@@ -265,6 +274,7 @@ export class OperatorAnalyticsController {
             ? +body.projectId
             : (req as any).apiToken?.projectId ?? undefined;
         const options = {
+            callType: parseCallType(body.callType),
             operatorName: body.operatorName,
             operatorId: body.operatorId,
             operatorExtension: body.operatorExtension,
@@ -287,14 +297,17 @@ export class OperatorAnalyticsController {
     // ─── External API: Analyze by URL (API Token Auth) ───────────────
 
     @Post('analyze-url')
+    @ApiBearerAuth()
+    @ApiBody({ schema: urlAnalyzeSchema })
     @UseGuards(ApiTokenGuard)
     @ApiOperation({ summary: 'Analyze audio by URL — single or batch (External API)' })
-    @ApiResponse({ status: 200, description: 'Analysis result (single) or batch status (multiple)' })
+    @ApiResponse({ status: 201, description: 'Analysis result (single) or batch status (multiple)' })
     async analyzeFromUrl(
         @Req() req: RequestWithUser,
         @Body() body: {
             url?: string;
             urls?: string[];
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
@@ -312,6 +325,7 @@ export class OperatorAnalyticsController {
             : (req as any).apiToken?.projectId ?? undefined;
 
         const options = {
+            callType: parseCallType(body.callType),
             operatorName: body.operatorName,
             operatorId: body.operatorId,
             operatorExtension: body.operatorExtension,
@@ -358,6 +372,7 @@ export class OperatorAnalyticsController {
     // ─── External API: Results list (API Token Auth) ─────────────────
 
     @Get('results')
+    @ApiBearerAuth()
     @UseGuards(ApiTokenGuard)
     @ApiOperation({ summary: 'List analysis results for token project' })
     @ApiResponse({ status: 200, description: 'Paginated list of results' })
@@ -384,6 +399,7 @@ export class OperatorAnalyticsController {
     // ─── External API: Result by ID (API Token Auth) ─────────────────
 
     @Get('results/:id')
+    @ApiBearerAuth()
     @UseGuards(ApiTokenGuard)
     @ApiOperation({ summary: 'Get analysis result by ID' })
     @ApiResponse({ status: 200, description: 'Full analysis result with transcript and metrics' })
@@ -924,6 +940,7 @@ export class OperatorAnalyticsController {
         userId: string,
         body: AnalyzeRequestDto,
         options: {
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
@@ -976,6 +993,7 @@ export class OperatorAnalyticsController {
         userId: string,
         body: AnalyzeRequestDto,
         options: {
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;
@@ -1043,6 +1061,7 @@ export class OperatorAnalyticsController {
         userId: string,
         source: AnalyticsSource,
         options: {
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             clientPhone?: string;
             language?: string;

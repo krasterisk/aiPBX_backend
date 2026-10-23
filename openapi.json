@@ -5696,11 +5696,90 @@
       "post": {
         "operationId": "OperatorAnalyticsController_uploadFromApi",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "operatorName": {
+                    "type": "string"
+                  },
+                  "operatorId": {
+                    "type": "string"
+                  },
+                  "operatorExtension": {
+                    "type": "string"
+                  },
+                  "clientPhone": {
+                    "type": "string"
+                  },
+                  "callType": {
+                    "type": "string",
+                    "enum": [
+                      "incoming",
+                      "outgoing",
+                      "internal"
+                    ],
+                    "default": "incoming",
+                    "nullable": true
+                  },
+                  "language": {
+                    "type": "string",
+                    "default": "auto"
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "type": "string"
+                  },
+                  "consentObtained": {
+                    "type": "string"
+                  },
+                  "consentSource": {
+                    "type": "string"
+                  },
+                  "customMetrics": {
+                    "type": "string",
+                    "description": "JSON array of metric definitions"
+                  },
+                  "file": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    },
+                    "description": "One or more audio files, at most 50 MiB each"
+                  },
+                  "sync": {
+                    "type": "string",
+                    "enum": [
+                      "true",
+                      "false"
+                    ],
+                    "default": "false",
+                    "description": "Only a single file can be synchronous"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
-          "200": {
+          "201": {
             "description": "Analysis result or batch status"
           }
         },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "summary": "Upload audio file(s) for analysis (External API)",
         "tags": [
           "Operator Analytics"
@@ -5711,11 +5790,98 @@
       "post": {
         "operationId": "OperatorAnalyticsController_analyzeFromUrl",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Legacy URL endpoint: always asynchronous. Send url or urls. Use /analyze for sync=true.",
+                "anyOf": [
+                  {
+                    "required": [
+                      "url"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "urls"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "operatorName": {
+                    "type": "string"
+                  },
+                  "operatorId": {
+                    "type": "string"
+                  },
+                  "operatorExtension": {
+                    "type": "string"
+                  },
+                  "clientPhone": {
+                    "type": "string"
+                  },
+                  "callType": {
+                    "type": "string",
+                    "enum": [
+                      "incoming",
+                      "outgoing",
+                      "internal"
+                    ],
+                    "default": "incoming",
+                    "nullable": true
+                  },
+                  "language": {
+                    "type": "string",
+                    "default": "auto"
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "type": "number",
+                    "description": "Overrides the token project on ingestion"
+                  },
+                  "consentObtained": {
+                    "type": "boolean"
+                  },
+                  "consentSource": {
+                    "type": "string"
+                  },
+                  "customMetrics": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "urls": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
-          "200": {
+          "201": {
             "description": "Analysis result (single) or batch status (multiple)"
           }
         },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "summary": "Analyze audio by URL — single or batch (External API)",
         "tags": [
           "Operator Analytics"
@@ -5731,6 +5897,11 @@
             "description": "Paginated list of results"
           }
         },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "summary": "List analysis results for token project",
         "tags": [
           "Operator Analytics"
@@ -5758,6 +5929,11 @@
             "description": "Not found"
           }
         },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "summary": "Get analysis result by ID",
         "tags": [
           "Operator Analytics"
@@ -5787,7 +5963,16 @@
     "/api/operator-analytics/tokens": {
       "get": {
         "operationId": "OperatorAnalyticsController_listTokens",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -5895,7 +6080,16 @@
     "/api/operator-analytics/projects": {
       "get": {
         "operationId": "OperatorAnalyticsController_listProjects",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -6086,12 +6280,11 @@
           },
           {
             "name": "operatorId",
-            "in": "query",
             "required": false,
+            "in": "query",
+            "description": "Stable source-namespaced employee ID; takes precedence over name",
             "schema": {
-              "type": "string",
-              "maxLength": 128,
-              "description": "Stable source-namespaced employee ID; scoped by account"
+              "type": "string"
             }
           }
         ],
@@ -6155,12 +6348,11 @@
           },
           {
             "name": "operatorId",
-            "in": "query",
             "required": false,
+            "in": "query",
+            "description": "Stable source-namespaced employee ID; takes precedence over name",
             "schema": {
-              "type": "string",
-              "maxLength": 128,
-              "description": "Stable source-namespaced employee ID; scoped by account"
+              "type": "string"
             }
           }
         ],
@@ -6222,15 +6414,6 @@
         "operationId": "OperatorAnalyticsController_getCdrs",
         "parameters": [
           {
-            "name": "withoutTopic",
-            "required": false,
-            "in": "query",
-            "description": "Calls without any stored topic",
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
             "name": "withoutOperator",
             "required": false,
             "in": "query",
@@ -6240,13 +6423,21 @@
             }
           },
           {
-            "name": "operatorId",
-            "in": "query",
+            "name": "withoutTopic",
             "required": false,
+            "in": "query",
+            "description": "Calls without any stored topic",
             "schema": {
-              "type": "string",
-              "maxLength": 128,
-              "description": "Stable source-namespaced employee ID; scoped by account"
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "operatorId",
+            "required": false,
+            "in": "query",
+            "description": "Stable source-namespaced employee ID; takes precedence over name",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -6272,12 +6463,11 @@
         "parameters": [
           {
             "name": "operatorId",
-            "in": "query",
             "required": false,
+            "in": "query",
+            "description": "Stable source-namespaced employee ID; takes precedence over name",
             "schema": {
-              "type": "string",
-              "maxLength": 128,
-              "description": "Stable source-namespaced employee ID; scoped by account"
+              "type": "string"
             }
           }
         ],
@@ -6316,12 +6506,11 @@
         "parameters": [
           {
             "name": "operatorId",
-            "in": "query",
             "required": false,
+            "in": "query",
+            "description": "Stable source-namespaced employee ID; takes precedence over name",
             "schema": {
-              "type": "string",
-              "maxLength": 128,
-              "description": "Stable source-namespaced employee ID; scoped by account"
+              "type": "string"
             }
           }
         ],
@@ -6354,12 +6543,11 @@
         "parameters": [
           {
             "name": "operatorId",
-            "in": "query",
             "required": false,
+            "in": "query",
+            "description": "Stable source-namespaced employee ID; takes precedence over name",
             "schema": {
-              "type": "string",
-              "maxLength": 128,
-              "description": "Stable source-namespaced employee ID; scoped by account"
+              "type": "string"
             }
           }
         ],
@@ -6380,7 +6568,7 @@
             "bearer": []
           }
         ],
-        "summary": "Get aggregated per-metric evidence for one operator over the dashboard period",
+        "summary": "Get aggregated per-metric evidence for an operator or the whole filtered set",
         "tags": [
           "Operator Analytics"
         ]
@@ -6976,6 +7164,101 @@
         "summary": "List current user legal acceptances",
         "tags": [
           "Legal"
+        ]
+      }
+    },
+    "/api/operator-analytics/analyze": {
+      "post": {
+        "description": "Exactly one source type per request: url/urls OR file/files. sync=true waits for a single item; multiple items are always async.",
+        "operationId": "OperatorAnalyticsController_analyzeUnified",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyzeRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Analysis result, processing stub, or batch status"
+          },
+          "400": {
+            "description": "Invalid source / Base64 / filename"
+          },
+          "413": {
+            "description": "Decoded file too large"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Analyze audio by URL or Base64 body (External API)",
+        "tags": [
+          "Operator Analytics"
+        ]
+      }
+    },
+    "/api/operator-analytics/projects/{id}/digest/send": {
+      "post": {
+        "operationId": "OperatorAnalyticsController_sendProjectDigest",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Digest delivery result"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Send analytics digest now (email + Telegram)",
+        "tags": [
+          "Operator Analytics"
+        ]
+      }
+    },
+    "/api/operator-analytics/projects/{id}/alerts/test": {
+      "post": {
+        "operationId": "OperatorAnalyticsController_sendProjectAlertTest",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Test alert delivery result"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Send a test critical alert (email + Telegram), does not stamp lastAlertAt",
+        "tags": [
+          "Operator Analytics"
         ]
       }
     }
@@ -8163,6 +8446,16 @@
             "example": "1006",
             "description": "CallerId"
           },
+          "callType": {
+            "type": "string",
+            "enum": [
+              "incoming",
+              "outgoing",
+              "internal"
+            ],
+            "default": "incoming",
+            "description": "Call direction; legacy null means incoming"
+          },
           "assistantName": {
             "type": "string",
             "example": "Bob",
@@ -8227,6 +8520,7 @@
         "required": [
           "channelId",
           "callerId",
+          "callType",
           "assistantName",
           "assistantId",
           "tokens",
@@ -9873,6 +10167,11 @@
               "$ref": "#/components/schemas/TagDefinitionDto"
             }
           },
+          "singleTopic": {
+            "type": "boolean",
+            "example": false,
+            "description": "Require exactly one automatic topic when taxonomy is configured. Defaults to false."
+          },
           "visibleDefaultMetrics": {
             "description": "Which default metrics to show",
             "type": "array",
@@ -9916,10 +10215,25 @@
               "type": "string"
             }
           },
-          "singleTopic": {
-            "type": "boolean",
-            "example": false,
-            "description": "Require exactly one automatic topic when taxonomy is configured. Defaults to false."
+          "digestConfig": {
+            "description": "Email/Telegram dashboard digest settings",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DigestConfigDto"
+              }
+            ]
+          },
+          "alertConfig": {
+            "description": "Critical analytics alert settings",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AlertConfigDto"
+              }
+            ]
+          },
+          "ownerUserId": {
+            "type": "string",
+            "description": "Admin only: create the project for this tenant owner"
           }
         },
         "required": [
@@ -9959,6 +10273,11 @@
               "$ref": "#/components/schemas/TagDefinitionDto"
             }
           },
+          "singleTopic": {
+            "type": "boolean",
+            "example": false,
+            "description": "Require exactly one automatic topic when taxonomy is configured. Defaults to false."
+          },
           "visibleDefaultMetrics": {
             "description": "Which default metrics to show",
             "type": "array",
@@ -10002,10 +10321,21 @@
               "type": "string"
             }
           },
-          "singleTopic": {
-            "type": "boolean",
-            "example": false,
-            "description": "Require exactly one automatic topic when taxonomy is configured. Defaults to false."
+          "digestConfig": {
+            "description": "Email/Telegram dashboard digest settings",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DigestConfigDto"
+              }
+            ]
+          },
+          "alertConfig": {
+            "description": "Critical analytics alert settings",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AlertConfigDto"
+              }
+            ]
           }
         }
       },
@@ -10295,9 +10625,20 @@
               "returns",
               "billing"
             ],
-            "description": "Theme ids from the project callTaxonomy",
+            "description": "Theme ids from the project callTaxonomy, or free-form ids when taxonomy is empty",
             "type": "array",
             "items": {
+              "type": "string"
+            }
+          },
+          "tagNames": {
+            "type": "object",
+            "example": {
+              "returns": "Возвраты",
+              "my-topic": "Моя тема"
+            },
+            "description": "Optional display names for free-form tags (and snapshots)",
+            "additionalProperties": {
               "type": "string"
             }
           }
@@ -10636,6 +10977,17 @@
       "AnalyzeRequestDto": {
         "type": "object",
         "properties": {
+          "callType": {
+            "type": "string",
+            "enum": [
+              "incoming",
+              "outgoing",
+              "internal"
+            ],
+            "nullable": true,
+            "default": "incoming",
+            "description": "Call direction; omitted/null means incoming. Applies to every item in a batch."
+          },
           "url": {
             "type": "string",
             "description": "Single audio URL (server downloads)"
@@ -10701,6 +11053,267 @@
             "type": "string"
           }
         }
+      },
+      "DigestConfigDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "example": true
+          },
+          "emails": {
+            "example": [
+              "ops@example.com"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "telegramChatIds": {
+            "example": [
+              "123456789"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "schedule": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ]
+          },
+          "reportWindow": {
+            "type": "string",
+            "enum": [
+              "last_7_days",
+              "last_30_days",
+              "previous_calendar_month"
+            ]
+          },
+          "weeklyDay": {
+            "type": "number",
+            "example": 1,
+            "description": "ISO weekday 1=Mon … 7=Sun"
+          },
+          "monthlyDay": {
+            "type": "number",
+            "example": 1,
+            "description": "Day of month 1–28"
+          },
+          "sendHour": {
+            "type": "number",
+            "example": 9,
+            "description": "Hour 0–23 in server TIMEZONE"
+          }
+        },
+        "required": [
+          "enabled",
+          "emails",
+          "telegramChatIds",
+          "schedule",
+          "reportWindow"
+        ]
+      },
+      "AlertConfigDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "example": true
+          },
+          "inheritRecipientsFromDigest": {
+            "type": "boolean",
+            "example": true
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "telegramChatIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "enabled",
+          "inheritRecipientsFromDigest",
+          "emails",
+          "telegramChatIds"
+        ]
+      },
+      "OperatorAnalytics": {
+        "type": "object",
+        "properties": {
+          "operatorId": {
+            "type": "string",
+            "description": "Stable source-namespaced external employee ID; scoped by account",
+            "nullable": true
+          },
+          "operatorExtension": {
+            "type": "string",
+            "description": "Internal number used for this call, independent of employee identity",
+            "nullable": true
+          },
+          "id": {
+            "type": "number",
+            "example": 1,
+            "description": "Primary key"
+          },
+          "userId": {
+            "type": "string",
+            "example": "5",
+            "description": "Owner user ID"
+          },
+          "filename": {
+            "type": "string",
+            "example": "call_001.mp3",
+            "description": "Original filename"
+          },
+          "source": {
+            "type": "string",
+            "example": "frontend",
+            "description": "Upload source"
+          },
+          "status": {
+            "type": "string",
+            "example": "completed",
+            "description": "Processing status"
+          },
+          "operatorName": {
+            "type": "string",
+            "example": "Иванов А.",
+            "description": "Operator name"
+          },
+          "clientPhone": {
+            "type": "string",
+            "example": "+79001234567",
+            "description": "Client phone"
+          },
+          "callType": {
+            "type": "string",
+            "enum": [
+              "incoming",
+              "outgoing",
+              "internal"
+            ],
+            "default": "incoming",
+            "description": "Call direction; legacy null means incoming"
+          },
+          "projectId": {
+            "type": "number",
+            "example": 1,
+            "description": "Project (group) ID"
+          },
+          "language": {
+            "type": "string",
+            "example": "ru",
+            "description": "Language hint for STT"
+          },
+          "schemaVersion": {
+            "type": "number",
+            "example": 2,
+            "description": "Project custom-metrics schema version applied at analysis time"
+          },
+          "promptVersion": {
+            "type": "string",
+            "example": "2026-06-18.1",
+            "description": "Analysis prompt/rubric artifact version used at analysis time"
+          },
+          "transcription": {
+            "type": "string",
+            "description": "Full transcription text (encrypted at rest when OPERATOR_ENCRYPT_TRANSCRIPTS=true)"
+          },
+          "duration": {
+            "type": "number",
+            "example": 125.5,
+            "description": "Audio duration in seconds"
+          },
+          "errorMessage": {
+            "type": "string",
+            "description": "Error message if status=error"
+          },
+          "recordUrl": {
+            "type": "string",
+            "description": "URL to the audio recording if provided via API"
+          },
+          "sttProvider": {
+            "type": "string",
+            "example": "external",
+            "description": "STT provider used (external / openai)"
+          },
+          "transcriptionQuality": {
+            "type": "string",
+            "example": "ok",
+            "description": "Transcription quality verdict: ok | low | unusable"
+          },
+          "transcriptionConfidence": {
+            "type": "number",
+            "example": 0.85,
+            "description": "Transcription confidence 0..1"
+          },
+          "detectedLanguage": {
+            "type": "string",
+            "example": "ru",
+            "description": "Detected transcription language"
+          },
+          "qualityReasons": {
+            "description": "Quality reason codes for i18n",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "consentObtained": {
+            "type": "boolean",
+            "example": true,
+            "description": "Whether call-recording consent was obtained (nullable = unknown)"
+          },
+          "consentSource": {
+            "type": "string",
+            "example": "ivr",
+            "description": "How consent was obtained (ivr / contract / verbal / ...)"
+          },
+          "audioSha256": {
+            "type": "string",
+            "example": "a1b2c3…",
+            "description": "SHA-256 of uploaded audio (nullable; used for dedup when enabled)"
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "filename",
+          "source",
+          "status",
+          "operatorName",
+          "clientPhone",
+          "callType",
+          "projectId",
+          "language",
+          "schemaVersion",
+          "promptVersion",
+          "transcription",
+          "duration",
+          "errorMessage",
+          "recordUrl",
+          "sttProvider",
+          "transcriptionQuality",
+          "transcriptionConfidence",
+          "detectedLanguage",
+          "qualityReasons",
+          "consentObtained",
+          "consentSource",
+          "audioSha256"
+        ]
       }
     }
   }

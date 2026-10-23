@@ -5,6 +5,14 @@ import {
 } from './webhook-payload';
 
 describe('webhook-payload', () => {
+    it.each(['incoming', 'outgoing', 'internal'] as const)('preserves %s in direct and stored webhooks', callType => {
+        expect(buildAnalysisCompletedWebhookData({ recordId: 1, filename: 'call.mp3', metrics: {}, callType }).callType).toBe(callType);
+        expect(buildAnalysisCompletedWebhookDataFromStored({ record: { id: 1, filename: 'call.mp3', callType }, storedMetrics: {} }).callType).toBe(callType);
+    });
+
+    it('defaults legacy webhooks to incoming', () => {
+        expect(buildAnalysisCompletedWebhookDataFromStored({ record: { id: 1, filename: 'call.mp3' } }).callType).toBe('incoming');
+    });
     describe('parseWebhookTranscript', () => {
         it('returns nulls for empty input', () => {
             expect(parseWebhookTranscript(null)).toEqual({ transcription: null, turns: null });

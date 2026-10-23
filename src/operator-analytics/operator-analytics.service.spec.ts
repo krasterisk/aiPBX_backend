@@ -1101,6 +1101,26 @@ describe('OperatorAnalyticsService', () => {
     // createProcessingRecord
     // ═════════════════════════════════════════════════════════════════
 
+    describe('callType persistence', () => {
+        it.each([undefined, 'incoming', 'outgoing', 'internal'] as const)('persists %s as a valid direction', async callType => {
+            await service.createProcessingRecord('call.mp3', '1', AnalyticsSource.API, { callType });
+            expect(mockAnalyticsRepo.create).toHaveBeenCalledWith(expect.objectContaining({ callType: callType ?? 'incoming' }));
+        });
+
+        it('rejects invalid type without creating a record', async () => {
+            await expect(service.createProcessingRecord('call.mp3', '1', AnalyticsSource.API, { callType: 'bad' as any })).rejects.toThrow('callType');
+            expect(mockAnalyticsRepo.create).not.toHaveBeenCalled();
+        });
+
+        it('preserves outgoing direction when reusing analyzed audio', async () => {
+            const target = { ...mockRecord, callType: 'outgoing' };
+            const source = { ...mockRecord, id: 2, callType: 'incoming', duration: 100 };
+            mockAiCdrRepo.findOne.mockResolvedValue({ duration: 100, analytics: { metrics: {}, summary: '' } });
+            await (service as any).completeFromDuplicate(target, source);
+            expect(mockAiCdrRepo.create).toHaveBeenCalledWith(expect.objectContaining({ callType: 'outgoing' }));
+        });
+    });
+
     describe('createProcessingRecord', () => {
         it('should create a record with PROCESSING status', async () => {
             await service.createProcessingRecord(

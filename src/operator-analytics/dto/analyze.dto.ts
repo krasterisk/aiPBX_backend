@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
     IsArray,
+    IsIn,
     IsNumber,
     IsOptional,
     IsString,
@@ -22,6 +23,11 @@ export class AnalyzeBase64FileDto {
 }
 
 export class AnalyzeRequestDto {
+    @ApiPropertyOptional({ enum: ['incoming', 'outgoing', 'internal'], nullable: true, default: 'incoming', description: 'Call direction; omitted/null means incoming. Applies to every item in a batch.' })
+    @IsOptional()
+    @IsIn(['incoming', 'outgoing', 'internal'])
+    callType?: 'incoming' | 'outgoing' | 'internal';
+
     @ApiPropertyOptional({ description: 'Single audio URL (server downloads)' })
     @IsOptional()
     @IsString()

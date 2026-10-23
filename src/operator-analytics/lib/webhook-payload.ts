@@ -10,6 +10,7 @@ export interface WebhookTurn {
 }
 
 export interface AnalysisCompletedWebhookInput {
+    callType?: 'incoming' | 'outgoing' | 'internal' | null;
     recordId: number;
     filename: string;
     metrics: OperatorMetrics | Record<string, unknown>;
@@ -42,6 +43,7 @@ export interface AnalysisCompletedWebhookInput {
 }
 
 export interface StoredAnalysisRecord {
+    callType?: 'incoming' | 'outgoing' | 'internal' | null;
     id: number;
     filename: string;
     transcription?: string | null;
@@ -169,6 +171,7 @@ export function buildAnalysisCompletedWebhookData(
         duration: input.duration ?? null,
         operatorName: input.operatorName ?? null,
         clientPhone: input.clientPhone ?? null,
+        callType: input.callType ?? 'incoming',
         language: input.language ?? null,
         detectedLanguage: input.detectedLanguage ?? null,
         recordUrl: input.recordUrl ?? null,
@@ -228,6 +231,7 @@ export function buildAnalysisCompletedWebhookDataFromStored(opts: {
         duration: opts.record.duration,
         operatorName: opts.record.operatorName,
         clientPhone: opts.record.clientPhone,
+        callType: opts.record.callType,
         language: opts.record.language,
         detectedLanguage: opts.record.detectedLanguage,
         recordUrl: opts.record.recordUrl,

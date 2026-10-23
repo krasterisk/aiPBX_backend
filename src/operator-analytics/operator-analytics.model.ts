@@ -22,6 +22,7 @@ interface OperatorAnalyticsCreationAttrs {
     operatorId?: string;
     operatorExtension?: string;
     clientPhone?: string;
+    callType?: 'incoming' | 'outgoing' | 'internal';
     language?: string;
     projectId?: number;
     recordUrl?: string;
@@ -72,6 +73,12 @@ export class OperatorAnalytics extends Model<OperatorAnalytics, OperatorAnalytic
     @ApiProperty({ example: '+79001234567', description: 'Client phone' })
     @Column({ type: DataType.STRING, allowNull: true })
     clientPhone: string;
+
+    @ApiProperty({ enum: ['incoming', 'outgoing', 'internal'], default: 'incoming', description: 'Call direction; legacy null means incoming' })
+    @Column({ type: DataType.STRING(16), allowNull: true, defaultValue: 'incoming',
+        get(this: OperatorAnalytics) { return this.getDataValue('callType') ?? 'incoming'; },
+    })
+    callType: 'incoming' | 'outgoing' | 'internal';
 
     @ApiProperty({ example: 1, description: 'Project (group) ID' })
     @Column({ type: DataType.INTEGER, allowNull: true })

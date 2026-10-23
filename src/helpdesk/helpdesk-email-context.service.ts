@@ -12,6 +12,8 @@ import { Rates } from '../currency/rates.model';
 import { getTenantCurrency } from '../shared/tenant/tenant-currency';
 import { HelpdeskEmailContextDto, HelpdeskIdentityCandidatesDto, HelpdeskBoundSupportDto, HelpdeskReportingSummaryDto } from './dto/helpdesk-email-context.dto';
 import { OperatorAnalyticsService } from '../operator-analytics/operator-analytics.service';
+import { compileTopicEdit, topicHash, TOPICS_CONTRACT } from './analytics-topics';
+import { HelpdeskTopicEditDto } from './dto/helpdesk-email-context.dto';
 
 const REPORTING_GUIDE={
     concepts:{targetCall:'Тема обращения по настроенной классификации, не показатель success',success:'Результат разговора/конверсия по общей настройке проекта',lowQuality:'Низкое/непригодное качество распознавания; исключение из агрегатов не означает нецелевое обращение'},
@@ -188,6 +190,36 @@ export class HelpdeskEmailContextService {
             candidates.push({cabinetId:id,name:(owner.name||owner.username||'').slice(0,120),projects:rows.slice(0,10).map(p=>({id:p.id,name:p.name?.slice(0,120)||''})),projectsTruncated:rows.length>10});
         }
         return {confirmed:false,requiresOwnerConfirmation:true,ambiguous:candidates.length>1,candidates,truncated:ids.length>5||accounts.length>10||projectMatches.length>10};
+    }
+
+    async getTopicSettings(actorId:number|undefined,dto:HelpdeskBoundSupportDto) {
+        const context = await this.getBoundSupportContext(actorId,dto);
+        const topics = context.reporting.callTaxonomy;
+        return {clientId:context.clientId,projectId:context.projectId,contract:TOPICS_CONTRACT,
+            topics,hash:topicHash(topics),historicalReanalysis:false};
+    }
+
+    async editTopics(actorId:number|undefined,dto:HelpdeskTopicEditDto) {
+        // The authenticated helpdesk executor owns the durable exact human approval
+        // and effect intent. Model tools never receive an apply endpoint.
+        await this.getBoundSupportContext(actorId,dto);
+        if (!dto || !/^[a-f0-9]{64}$/.test(dto.after_hash) || !/^[a-f0-9]{32}$/.test(dto.execution_id)
+            || Object.keys(dto).some(k=>!['cabinetId','projectId','edit','after_hash','execution_id'].includes(k))) throw new BadRequestException('Invalid topic execution');
+        if (!this.projects.sequelize) throw new ServiceUnavailableException('Topic transaction unavailable');
+        const result = await this.projects.sequelize.transaction(async transaction => {
+            const project = await this.projects.findOne({where:{id:dto.projectId,userId:String(dto.cabinetId)},transaction,lock:transaction.LOCK.UPDATE});
+            if (!project) throw new ForbiddenException('Project outside selected cabinet');
+            const current = project.callTaxonomy ?? [];
+            if (topicHash(current) === dto.after_hash) return {changed:false,topics:current};
+            const topics = compileTopicEdit(current,dto.edit);
+            if (topicHash(topics) !== dto.after_hash) throw new BadRequestException('Approved result hash mismatch');
+            project.callTaxonomy = topics;
+            await project.save({fields:['callTaxonomy'],transaction});
+            return {changed:true,topics};
+        });
+        this.logger.log(`topic_edit actor=${actorId} cabinet=${dto.cabinetId} project=${dto.projectId} execution=${dto.execution_id} changed=${result.changed}`);
+        return {clientId:String(dto.cabinetId),projectId:dto.projectId,contract:TOPICS_CONTRACT,
+            hash:topicHash(result.topics),changed:result.changed,status:'applied',historicalReanalysis:false};
     }
 
     async getBoundSupportContext(actorId:number|undefined,dto:HelpdeskBoundSupportDto) {

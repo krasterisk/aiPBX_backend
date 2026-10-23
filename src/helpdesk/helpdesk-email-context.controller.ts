@@ -4,6 +4,7 @@ import { ApiKeyGuard } from '../api-keys/api-key.guard';
 import { API_KEY_SCOPES, RequireApiKeyScope } from '../api-keys/api-key-scope.decorator';
 import { HelpdeskEmailContextDto, HelpdeskIdentityCandidatesDto, HelpdeskBoundSupportDto, HelpdeskReportingSummaryDto } from './dto/helpdesk-email-context.dto';
 import { HelpdeskEmailContextService } from './helpdesk-email-context.service';
+import { HelpdeskTopicEditDto } from './dto/helpdesk-email-context.dto';
 
 @ApiTags('Helpdesk Tools')
 @ApiSecurity('api-key')
@@ -12,6 +13,18 @@ import { HelpdeskEmailContextService } from './helpdesk-email-context.service';
 @Controller('helpdesk/tools')
 export class HelpdeskEmailContextController {
     constructor(private readonly service: HelpdeskEmailContextService) {}
+
+    @Post('bound-topic-settings')
+    @ApiOperation({summary:'Read scoped call topics and immutable snapshot hash'})
+    getTopics(@Body() body:HelpdeskBoundSupportDto,@Req() request:{apiKeyUserId?:number}) {
+        return this.service.getTopicSettings(request.apiKeyUserId,body);
+    }
+
+    @Post('bound-topic-edit')
+    @ApiOperation({summary:'Apply one approved partial call-topic edit with stale-state protection'})
+    editTopics(@Body() body: HelpdeskTopicEditDto,@Req() request:{apiKeyUserId?:number}) {
+        return this.service.editTopics(request.apiKeyUserId,body);
+    }
 
     @Post('identity-candidates')
     @ApiOperation({summary:'Find identity candidates without calls, transcripts or credentials'})

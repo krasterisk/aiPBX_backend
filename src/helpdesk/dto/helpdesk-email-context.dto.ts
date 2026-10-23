@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsIn, IsInt, IsOptional, Min, IsString, MinLength, MaxLength, Matches } from 'class-validator';
+import { IsObject } from 'class-validator';
+
+export class HelpdeskTopicEditDto {
+    @IsInt() @Min(1) cabinetId: number;
+    @IsInt() @Min(1) projectId: number;
+    @IsObject() edit: import('../analytics-topics').TopicEdit;
+    @IsString() @Matches(/^[a-f0-9]{64}$/) after_hash: string;
+    @IsString() @Matches(/^[a-f0-9]{32}$/) execution_id: string;
+}
 
 export class HelpdeskEmailContextDto {
     @ApiProperty({ description: 'Exact sender email from the support mailbox' })

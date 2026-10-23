@@ -25,4 +25,8 @@ describe('scoped topic partial-edit compiler', () => {
     it('hashes are independent of object key order', () => {
         expect(topicHash([{ id: 'x', name: 'Тема' }])).toEqual(topicHash([{ name: 'Тема', id: 'x' }]));
     });
+    it('matches the Python snapshot hash for opaque numeric and Unicode keys', () => {
+        const topics = [{id:'x',name:'Example',opaque:{'2':'two','10':'ten','😀':1,'�':2}}];
+        expect(topicHash(topics)).toBe('ca368c2457139d3cf4104275781069f8b0a689fd80bdf39c2cbb97e726fc6401');
+    });
 });

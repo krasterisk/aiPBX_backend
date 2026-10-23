@@ -3,9 +3,13 @@ import { createHash } from 'crypto';
 
 export const TOPICS_CONTRACT = 'analytics-topics-v1';
 export type TopicEdit = { expected_hash: string; mode: 'create' | 'update'; topic_id: string; changes: Record<string, unknown> };
-const canonical = (v: any): any => Array.isArray(v) ? v.map(canonical) : v && typeof v === 'object'
-    ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canonical(v[k])])) : v;
-export const topicHash = (topics: unknown) => createHash('sha256').update(JSON.stringify(canonical(topics))).digest('hex');
+// Serialize keys directly: JSON.stringify reorders numeric object keys even
+// after insertion sorting. UTF-8 order matches Python's Unicode key order.
+const canonical = (v: any): string => Array.isArray(v) ? '[' + v.map(canonical).join(',') + ']'
+    : v && typeof v === 'object' ? '{' + Object.keys(v)
+        .sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
+        .map(k => JSON.stringify(k) + ':' + canonical(v[k])).join(',') + '}' : JSON.stringify(v);
+export const topicHash = (topics: unknown) => createHash('sha256').update(canonical(topics)).digest('hex');
 const fail = (message: string): never => { throw new BadRequestException(message); };
 const text = (value: unknown, limit: number): string => typeof value === 'string' && value.trim()
     && [...value].length <= limit && !/[\u0000-\u001f]/u.test(value) ? value.trim() : fail('Invalid topic text');

@@ -10,7 +10,7 @@ function fixture() {
     service.logger = { log: jest.fn(), warn: jest.fn() };
     service.analyticsModel = 'gpt-5-nano';
     service.fallbackModel = 'qwen3.5:9b';
-    service.deepSeekModel = 'deepseek-v4-pro';
+    service.deepSeekModel = 'deepseek-flash';
     const primary = jest.fn(), nano = jest.fn(), qwen = jest.fn();
     service.deepSeekClient = { chat: { completions: { create: primary } } };
     service.openAiClient = { chat: { completions: { create: nano } } };
@@ -22,17 +22,17 @@ describe('OperatorAnalyticsService provider chain', () => {
     it('streams DeepSeek with disabled thinking/JSON mode and preserves model/usage', async () => {
         const { service, primary, nano, qwen } = fixture();
         primary.mockImplementation(async () => (async function* () {
-            yield { model: 'deepseek-v4-pro', choices: [{ delta: { content: '{"ok":' } }] };
+            yield { model: 'deepseek-flash', choices: [{ delta: { content: '{"ok":' } }] };
             yield { choices: [{ delta: { content: 'true}' }, finish_reason: 'stop' }] };
             yield { choices: [], usage: { total_tokens: 25, prompt_cache_hit_tokens: 10 } };
         })());
         const validateContent = jest.fn();
         const answer = await service.chatWithFallback([{ role: 'user', content: 'synthetic' }], { validateContent });
-        expect(answer.model).toBe('deepseek-v4-pro');
+        expect(answer.model).toBe('deepseek-flash');
         expect(answer.usage).toEqual({ total_tokens: 25, prompt_cache_hit_tokens: 10 });
         expect(validateContent).toHaveBeenCalledWith('{"ok":true}');
         expect(primary.mock.calls[0][0]).toMatchObject({
-            model: 'deepseek-v4-pro', thinking: { type: 'disabled' }, stream: true,
+            model: 'deepseek-flash', thinking: { type: 'disabled' }, stream: true,
             stream_options: { include_usage: true }, response_format: { type: 'json_object' }, max_tokens: 8192,
         });
         expect(primary.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);

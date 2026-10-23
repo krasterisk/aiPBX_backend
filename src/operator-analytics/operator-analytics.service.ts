@@ -120,7 +120,7 @@ export class OperatorAnalyticsService {
     private readonly logger = new Logger(OperatorAnalyticsService.name);
     private readonly openAiClient: OpenAI;
     private readonly deepSeekClient: OpenAI | null = null;
-    private readonly deepSeekModel = 'deepseek-v4-pro';
+    private readonly deepSeekModel = 'deepseek-flash';
     private readonly ollamaClient: { chat: { completions: { create: (params: any) => Promise<any> } } } | null = null;
     private readonly analyticsModel: string;
     private readonly fallbackModel: string;

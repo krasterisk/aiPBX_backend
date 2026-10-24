@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TopicScheme, validateTopicScheme, topicEligibilitySchema, topicEligibilityJsonSchema, compileTopicScheme, resolveTopicScheme } from './topic-scheme';
 import {
     ALL_DEFAULT_METRIC_KEYS,
     CustomMetricDef,
@@ -176,7 +177,7 @@ const CLOSING_QUALITY_RUBRIC = buildCompactRubric(
  * specific prompt revision. Stored on each record (DB column + metrics._model).
  * Format: YYYY-MM-DD.N (date of change + same-day revision counter).
  */
-export const PROMPT_VERSION = '2026-10-08.1';
+export const PROMPT_VERSION = '2026-10-24.1';
 
 export interface MetricAssessment {
     rationale: string;
@@ -219,6 +220,7 @@ export interface AnalysisTaxonomyTag {
 }
 
 export interface AnalysisBuildContext {
+    topicScheme?: TopicScheme;
     visibleDefaultMetrics: DefaultMetricKey[];
     customMetrics: AnalysisCustomMetric[];
     taxonomyTags: AnalysisTaxonomyTag[];
@@ -403,6 +405,8 @@ export function buildAnalysisContext(
 
     return {
         visibleDefaultMetrics: resolveVisibleDefaultMetrics(project),
+        topicScheme: project?.topicSchemeState?.active
+            ? validateTopicScheme(project.topicSchemeState.active.scheme, project.callTaxonomy) : undefined,
         customMetrics,
         taxonomyTags,
         singleTopic: project?.singleTopic === true,
@@ -494,7 +498,9 @@ export function buildZodAnalysisSchema(ctx: AnalysisBuildContext, options?: Anal
         shape.custom_metrics = z.object(customShape).partial();
     }
 
-    if (ctx.taxonomyTags.length) {
+    if (ctx.topicScheme) {
+        shape.topic_eligibility = topicEligibilitySchema(ctx.topicScheme);
+    } else if (ctx.taxonomyTags.length) {
         // Single-topic mode validates membership and cardinality before sanitization.
         // Multi-topic mode keeps its tolerant sanitization for non-strict providers.
         shape.topic_tag_ids = ctx.singleTopic
@@ -599,7 +605,10 @@ export function buildOpenAiJsonSchema(ctx: AnalysisBuildContext, options?: Analy
         required.push('custom_metrics');
     }
 
-    if (ctx.taxonomyTags.length) {
+    if (ctx.topicScheme) {
+        properties.topic_eligibility = topicEligibilityJsonSchema(ctx.topicScheme);
+        required.push('topic_eligibility');
+    } else if (ctx.taxonomyTags.length) {
         const taxonomyIds = ctx.taxonomyTags.map(t => t.id);
         properties.topic_tag_ids = {
             type: 'array',
@@ -677,7 +686,10 @@ export function buildAnalysisPrompt(
 
     let taxonomyPromptBlock = '';
     let taxonomyJsonLine = '';
-    if (ctx.taxonomyTags.length) {
+    if (ctx.topicScheme) {
+        taxonomyPromptBlock = compileTopicScheme(ctx.topicScheme, ctx.taxonomyTags);
+        taxonomyJsonLine = ',\n  "topic_eligibility": { "<non-fallback topic id>": { "matches": <boolean>, "reason": "<reason>" }, ... }';
+    } else if (ctx.taxonomyTags.length) {
         const themeLines = ctx.taxonomyTags.map(t => {
             const when = t.description?.trim()
                 || 'match by theme name / meaning in the transcript';
@@ -815,7 +827,8 @@ export function parseAndValidateAnalysisResponse(
     const data = result.data as Record<string, any>;
     const { values: customMetricsResult, invalid: customMetricsInvalid } =
         sanitizeCustomMetricValues(data.custom_metrics || null, ctx);
-    const topicTagIds = sanitizeTopicTagIds(data.topic_tag_ids, ctx);
+    const topicDecision = ctx.topicScheme ? resolveTopicScheme(ctx.topicScheme, data.topic_eligibility) : undefined;
+    const topicTagIds = topicDecision ? [topicDecision.selectedTopicId] : sanitizeTopicTagIds(data.topic_tag_ids, ctx);
     const assessments = (data.assessments || null) as Record<string, MetricAssessment> | null;
     const diarizedRaw = data.diarized_text || null;
     const analysisConfidence = data.analysis_confidence;
@@ -827,12 +840,14 @@ export function parseAndValidateAnalysisResponse(
     delete data.analysis_confidence;
     delete data.insufficient_content;
     delete data.topic_tag_ids;
+    delete data.topic_eligibility;
 
     return {
         metrics: data,
         customMetricsResult,
         customMetricsInvalid,
         topicTagIds,
+        topicDecision,
         assessments,
         diarizedRaw,
         analysisConfidence,

@@ -3,6 +3,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { MetricDefinition, TagDefinition, DefaultMetricKey, DashboardConfig, WebhookEvent, WebhookHeaders, ALL_DEFAULT_METRIC_KEYS } from './interfaces/operator-metrics.interface';
 import type { DigestConfig } from './interfaces/digest-config.interface';
 import type { AlertConfig } from './interfaces/alert-config.interface';
+import type { TopicSchemeState } from './lib/topic-scheme';
 
 export interface OperatorProjectCreationAttrs {
     name: string;
@@ -29,6 +30,9 @@ export interface OperatorProjectCreationAttrs {
 
 @Table({ tableName: 'operator_projects' })
 export class OperatorProject extends Model<OperatorProject, OperatorProjectCreationAttrs> {
+    @ApiProperty({ required: false, description: 'Versioned topic scheme: active rules, draft, checks and applied history' })
+    @Column({ type: DataType.JSON, allowNull: true })
+    topicSchemeState: TopicSchemeState | null;
 
     @ApiProperty({ example: 1 })
     @Column({ type: DataType.INTEGER, autoIncrement: true, primaryKey: true })

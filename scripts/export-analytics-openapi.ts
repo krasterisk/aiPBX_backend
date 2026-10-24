@@ -12,11 +12,13 @@ import { ApiTokenGuard } from '../src/operator-analytics/guards/api-token.guard'
 import { RolesGuard } from '../src/auth/roles.guard';
 import { AiCdr } from '../src/ai-cdr/ai-cdr.model';
 import { OperatorAnalytics } from '../src/operator-analytics/operator-analytics.model';
+import { TopicSchemeController } from '../src/operator-analytics/topic-scheme.controller';
+import { TopicSchemeService } from '../src/operator-analytics/topic-scheme.service';
 
 async function main() {
     const module = await Test.createTestingModule({
-        controllers: [OperatorAnalyticsController],
-        providers: [OperatorAnalyticsService, OperatorDigestService, OperatorAlertService].map(provide => ({ provide, useValue: {} })),
+        controllers: [OperatorAnalyticsController, TopicSchemeController],
+        providers: [OperatorAnalyticsService, OperatorDigestService, OperatorAlertService, TopicSchemeService].map(provide => ({ provide, useValue: {} })),
     }).overrideGuard(ApiTokenGuard).useValue({ canActivate: () => true })
         .overrideGuard(RolesGuard).useValue({ canActivate: () => true }).compile();
     const app = module.createNestApplication();

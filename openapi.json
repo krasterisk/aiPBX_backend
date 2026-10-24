@@ -7261,6 +7261,322 @@
           "Operator Analytics"
         ]
       }
+    },
+    "/api/operator-analytics/projects/{id}/topic-scheme": {
+      "get": {
+        "operationId": "TopicSchemeController_read",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Project id. Access is scoped to the authenticated owner or administrator.",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "description": "Invalid scheme, failed checks or missing topic coverage."
+          },
+          "404": {
+            "description": "Project not accessible to this account."
+          },
+          "409": {
+            "description": "Draft/project changed or another check is running; reload before retrying."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Read active topic scheme, pending draft and up to 20 applied versions",
+        "tags": [
+          "Operator Analytics"
+        ]
+      }
+    },
+    "/api/operator-analytics/projects/{id}/topic-scheme/draft": {
+      "post": {
+        "operationId": "TopicSchemeController_draft",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Project id. Access is scoped to the authenticated owner or administrator.",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "scheme",
+                  "expectedDraftRevision"
+                ],
+                "properties": {
+                  "scheme": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "version",
+                      "topics",
+                      "fallbackTopicId"
+                    ],
+                    "properties": {
+                      "version": {
+                        "type": "integer",
+                        "enum": [
+                          1
+                        ]
+                      },
+                      "fallbackTopicId": {
+                        "type": "string",
+                        "maxLength": 50
+                      },
+                      "topics": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 20,
+                        "description": "Priority order; fallback is selected only if no other topic matches.",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "id",
+                            "name",
+                            "when",
+                            "exclude",
+                            "examples"
+                          ],
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,49}$"
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 100
+                            },
+                            "when": {
+                              "type": "string",
+                              "maxLength": 6000
+                            },
+                            "exclude": {
+                              "type": "string",
+                              "maxLength": 6000
+                            },
+                            "examples": {
+                              "type": "array",
+                              "maxItems": 30,
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 1000
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "expectedDraftRevision": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true
+                  },
+                  "businessContext": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 60000,
+                    "description": "Optional legacy context cleanup. Checked and activated atomically with this draft; omission preserves current context."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "description": "Invalid scheme, failed checks or missing topic coverage."
+          },
+          "404": {
+            "description": "Project not accessible to this account."
+          },
+          "409": {
+            "description": "Draft/project changed or another check is running; reload before retrying."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Save a new unchecked draft using optimistic concurrency",
+        "tags": [
+          "Operator Analytics"
+        ]
+      }
+    },
+    "/api/operator-analytics/projects/{id}/topic-scheme/check": {
+      "post": {
+        "description": "Text is sent to configured analytics providers. Draft/history store hashes and outcomes, never the test transcript. All labelled checks must match and cover every topic before apply.",
+        "operationId": "TopicSchemeController_check",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Project id. Access is scoped to the authenticated owner or administrator.",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "revision",
+                  "cases"
+                ],
+                "properties": {
+                  "revision": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "cases": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "text"
+                      ],
+                      "properties": {
+                        "text": {
+                          "type": "string",
+                          "minLength": 10,
+                          "maxLength": 60000
+                        },
+                        "expectedTopicId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 50
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "description": "Invalid scheme, failed checks or missing topic coverage."
+          },
+          "404": {
+            "description": "Project not accessible to this account."
+          },
+          "409": {
+            "description": "Draft/project changed or another check is running; reload before retrying."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Preview full analysis without changing call analyses or billing records",
+        "tags": [
+          "Operator Analytics"
+        ]
+      }
+    },
+    "/api/operator-analytics/projects/{id}/topic-scheme/apply": {
+      "post": {
+        "operationId": "TopicSchemeController_apply",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Project id. Access is scoped to the authenticated owner or administrator.",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "revision"
+                ],
+                "properties": {
+                  "revision": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "description": "Invalid scheme, failed checks or missing topic coverage."
+          },
+          "404": {
+            "description": "Project not accessible to this account."
+          },
+          "409": {
+            "description": "Draft/project changed or another check is running; reload before retrying."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activate an unchanged, successfully checked draft for future analyses",
+        "tags": [
+          "Operator Analytics"
+        ]
+      }
     }
   },
   "info": {

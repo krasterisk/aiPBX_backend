@@ -195,8 +195,11 @@ export class HelpdeskEmailContextService {
     async getTopicSettings(actorId:number|undefined,dto:HelpdeskBoundSupportDto) {
         const context = await this.getBoundSupportContext(actorId,dto);
         const topics = context.reporting.callTaxonomy;
+        const project = await this.projects.findOne({ where: { id: dto.projectId, userId: String(dto.cabinetId) }, attributes: ['id', 'topicSchemeState'] });
         return {clientId:context.clientId,projectId:context.projectId,contract:TOPICS_CONTRACT,
-            topics,hash:topicHash(topics),historicalReanalysis:false};
+            topics,hash:topicHash(topics),historicalReanalysis:false,
+            managedScheme: project?.topicSchemeState?.active ? { revision: project.topicSchemeState.active.revision,
+                scheme: project.topicSchemeState.active.scheme, editThroughCheckedDraft: true } : null};
     }
 
     async editTopics(actorId:number|undefined,dto:HelpdeskTopicEditDto) {
@@ -211,6 +214,7 @@ export class HelpdeskEmailContextService {
             if (!project) throw new ForbiddenException('Project outside selected cabinet');
             const current = project.callTaxonomy ?? [];
             if (topicHash(current) === dto.after_hash) return {changed:false,topics:current};
+            if (project.topicSchemeState?.active) throw new BadRequestException('Topics use a structured scheme; change it through a checked topic-scheme draft');
             const topics = compileTopicEdit(current,dto.edit);
             if (topicHash(topics) !== dto.after_hash) throw new BadRequestException('Approved result hash mismatch');
             project.callTaxonomy = topics;

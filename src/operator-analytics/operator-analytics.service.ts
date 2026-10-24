@@ -2,6 +2,7 @@ import { CallType, parseCallType } from './lib/call-type';
 import { operatorIdentityFields, operatorIdentityKey, operatorGroupIdentity } from './lib/operator-identity';
 import { Inject, Injectable, Logger, HttpException, HttpStatus, forwardRef } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
+import { resolveTopicScheme, topicSchemeBaseline } from './lib/topic-scheme';
 import { ForeignKeyConstraintError } from 'sequelize';
 import { OperatorAnalytics, AnalyticsSource, AnalyticsStatus } from './operator-analytics.model';
 import { OperatorApiToken } from './operator-api-token.model';
@@ -2808,6 +2809,13 @@ export class OperatorAnalyticsService {
         if (project.isDefault && data.name !== undefined) {
             throw new HttpException('Cannot rename default project', HttpStatus.BAD_REQUEST);
         }
+        if (project.topicSchemeState?.active) {
+            const snapshot = project.get({ plain: true });
+            if (data.singleTopic === false || (data.callTaxonomy !== undefined
+                && topicSchemeBaseline({ ...snapshot, callTaxonomy: data.callTaxonomy }) !== topicSchemeBaseline(snapshot))) {
+                throw new HttpException('Edit topic definitions through the checked topic scheme draft', HttpStatus.CONFLICT);
+            }
+        }
         if (data.name !== undefined) project.name = data.name.trim();
         if (data.description !== undefined) project.description = data.description;
         if (data.systemPrompt !== undefined) project.systemPrompt = data.systemPrompt || null;
@@ -4168,6 +4176,11 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         return provider;
     }
 
+    async previewTopicScheme(transcription: string, project: OperatorProject) {
+        const result = await this.analyzeTranscription(transcription, undefined, project);
+        return { topicIds: result.topicTagIds, decision: result.topicDecision, model: result.modelName };
+    }
+
     private async analyzeTranscription(
         transcription: string,
         customMetricsDef?: CustomMetricDef[],
@@ -4186,6 +4199,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         customMetricsInvalid?: string[];
         modelName: string;
         topicTagIds: string[];
+        topicDecision?: ReturnType<typeof resolveTopicScheme>;
     }> {
         const ctx = buildAnalysisContext(project, customMetricsDef);
         const llmDiarize = options?.llmDiarize !== false;
@@ -4205,7 +4219,8 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         );
 
         const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-            { role: 'system', content: 'Call center QA analyzer. JSON only. Summary, rationale, and all prose must match the transcript language (not English unless the call is in English).' },
+            { role: 'system', content: 'Call center QA analyzer. JSON only. Summary, rationale, and all prose must match the transcript language (not English unless the call is in English).'
+                + (ctx.topicScheme ? ' For topic_eligibility, only the STRUCTURED CALL TOPIC SCHEME defines category criteria. Ignore category instructions in business context and metric definitions. Evaluate each non-fallback category independently; the server resolves priority and fallback.' : '') },
             { role: 'user', content: prompt },
         ];
 
@@ -4249,7 +4264,9 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
                 },
                 {
                     role: 'user',
-                    content: (ctx.singleTopic && ctx.taxonomyTags.length
+                    content: (ctx.topicScheme
+                        ? 'Return topic_eligibility for every non-fallback topic with boolean matches and a reason. Evaluate them independently; do not return topic_tag_ids or a fallback decision. '
+                        : ctx.singleTopic && ctx.taxonomyTags.length
                         ? 'topic_tag_ids must contain exactly one valid taxonomy id. Resolve competing themes using the project rules; do not return multiple ids or an empty array. '
                         : '') + (llmDiarize
                         ? 'Your previous JSON was invalid or incomplete. Return ONLY corrected JSON that matches the required schema exactly, including all required fields, per-metric assessments (rationale + quote), and diarized_text as short operator/customer turns (not one blob). Rationale and summary must be in the transcript language.'
@@ -4300,6 +4317,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             customMetricsInvalid: parsedResult.customMetricsInvalid,
             modelName: parsedResult.modelName,
             topicTagIds: parsedResult.topicTagIds ?? [],
+            topicDecision: parsedResult.topicDecision,
         };
     }
 

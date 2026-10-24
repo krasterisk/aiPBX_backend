@@ -30,6 +30,8 @@ import { BillingModule } from '../billing/billing.module';
 import { MailerModule } from '../mailer/mailer.module';
 import { TelegramModule } from '../telegram/telegram.module';
 import { InsightsCacheService } from './insights-cache.service';
+import { TopicSchemeService } from './topic-scheme.service';
+import { TopicSchemeController } from './topic-scheme.controller';
 
 @Module({
     imports: [
@@ -42,8 +44,9 @@ import { InsightsCacheService } from './insights-cache.service';
         MailerModule,
         TelegramModule,
     ],
-    controllers: [OperatorAnalyticsController],
+    controllers: [OperatorAnalyticsController, TopicSchemeController],
     providers: [
+        TopicSchemeService,
         OperatorAnalyticsService,
         OperatorDigestService,
         OperatorAlertService,

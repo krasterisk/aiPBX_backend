@@ -1,3 +1,5 @@
+import { applyAnalyticsSelection } from './lib/analytics-selection';
+import { withCallTypeCounts } from './lib/call-type-series';
 import { analyticsDate } from './lib/analytics-date';
 import { buildHourlySeries } from './lib/hourly-series';
 import { CallType, parseCallType } from './lib/call-type';
@@ -1854,6 +1856,7 @@ export class OperatorAnalyticsService {
     }
 
     async getCdrs(query: {
+        operatorFilters?: string;
         userId?: string;
         startDate?: string;
         endDate?: string;
@@ -1932,6 +1935,8 @@ export class OperatorAnalyticsService {
                     operatorName: query.operatorName,
                     operatorId: query.operatorId,
                     operatorNameExact: query.operatorNameExact,
+                    operatorFilters: query.operatorFilters,
+                    callType: query.callType,
                 },
                 isAdmin,
                 realUserId,
@@ -1952,6 +1957,8 @@ export class OperatorAnalyticsService {
                     operatorName: query.operatorName,
                     operatorId: query.operatorId,
                     operatorNameExact: query.operatorNameExact,
+                    operatorFilters: query.operatorFilters,
+                    callType: query.callType,
                 },
                 isAdmin,
                 realUserId,
@@ -1982,6 +1989,7 @@ export class OperatorAnalyticsService {
             where[Op.or] = searchConditions;
         }
 
+        applyAnalyticsSelection(where, scoped);
         const sortField = query.sortField || 'createdAt';
         const sortOrder = query.sortOrder || 'DESC';
         const orderClause: any[] = [[sortField, sortOrder]];
@@ -2028,6 +2036,7 @@ export class OperatorAnalyticsService {
 
     async getOperatorEvidence(
         query: {
+            operatorFilters?: string;
             callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             userId?: string;
@@ -2050,6 +2059,8 @@ export class OperatorAnalyticsService {
         const order = query.order ?? 'worst';
 
         const filters = {
+            operatorFilters: query.operatorFilters,
+            callType: query.callType,
             userId: query.userId,
             startDate: query.startDate,
             endDate: query.endDate,
@@ -2130,6 +2141,7 @@ export class OperatorAnalyticsService {
     }
 
     async getDashboard(query: {
+        operatorFilters?: string;
         userId?: string;
         startDate?: string;
         endDate?: string;
@@ -2269,7 +2281,12 @@ export class OperatorAnalyticsService {
         }
 
         const averageDuration = recordsForDerived.reduce((sum, r) => sum + (r.duration || 0), 0) / aggregationCount;
-        const timeSeries = { ...this.buildTimeSeries(recordsForDerived, query.startDate, query.endDate), hourly: buildHourlySeries(recordsForDerived, query.startDate, query.endDate) };
+        const legacySeries = this.buildTimeSeries(recordsForDerived, query.startDate, query.endDate);
+        const timeSeries = {
+            daily: withCallTypeCounts(legacySeries.daily, recordsForDerived),
+            monthly: withCallTypeCounts(legacySeries.monthly, recordsForDerived),
+            hourly: withCallTypeCounts(buildHourlySeries(recordsForDerived, query.startDate, query.endDate), recordsForDerived),
+        };
 
         let customMetricsAggregated: Record<string, { type: string; value?: number; distribution?: Record<string, number> }> = {};
         let tagStats: TagStat[] | undefined;

@@ -6439,6 +6439,28 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "callType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "incoming",
+                "outgoing",
+                "internal"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "operatorFilters",
+            "required": false,
+            "in": "query",
+            "description": "JSON array of account-scoped operator identities; union within authorized scope",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -6466,6 +6488,28 @@
             "required": false,
             "in": "query",
             "description": "Stable source-namespaced employee ID; takes precedence over name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "callType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "incoming",
+                "outgoing",
+                "internal"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "operatorFilters",
+            "required": false,
+            "in": "query",
+            "description": "JSON array of account-scoped operator identities; union within authorized scope",
             "schema": {
               "type": "string"
             }
@@ -6549,6 +6593,28 @@
             "required": false,
             "in": "query",
             "description": "Stable source-namespaced employee ID; takes precedence over name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "callType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "incoming",
+                "outgoing",
+                "internal"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "operatorFilters",
+            "required": false,
+            "in": "query",
+            "description": "JSON array of account-scoped operator identities; union within authorized scope",
             "schema": {
               "type": "string"
             }
@@ -11637,6 +11703,9 @@
       "DashboardTimePointDto": {
         "type": "object",
         "properties": {
+          "byCallType": {
+            "$ref": "#/components/schemas/DashboardCallTypeCountsDto"
+          },
           "label": {
             "type": "string",
             "description": "UTC date, month, or ISO hour-bucket start"
@@ -11685,6 +11754,25 @@
           "daily",
           "monthly",
           "hourly"
+        ]
+      },
+      "DashboardCallTypeCountsDto": {
+        "type": "object",
+        "properties": {
+          "incoming": {
+            "type": "number"
+          },
+          "outgoing": {
+            "type": "number"
+          },
+          "internal": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "incoming",
+          "outgoing",
+          "internal"
         ]
       }
     }

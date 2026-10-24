@@ -1514,6 +1514,17 @@ describe('OperatorAnalyticsService', () => {
             expect(result.tagStats).toBeUndefined();
         });
 
+        it('returns the three call types in the real dashboard service and preserves authorized selection', async () => {
+            setupDashboardWithRecords(['incoming', 'outgoing', 'internal'].map(callType => ({ ...dashboardRecord(), callType })));
+            const operatorFilters = JSON.stringify([{ userId: '42', operatorId: '203' }, { userId: '42', operatorId: '218' }]);
+            const result = await service.getDashboard({ projectId: 1, userId: 'foreign', operatorFilters }, false, '42');
+            expect(mockAiCdrRepo.count.mock.calls[0][0].where).toEqual(expect.objectContaining({
+                userId: '42', projectId: 1, [Op.and]: expect.arrayContaining([{ [Op.or]: [{ userId: '42', operatorId: '203' }, { userId: '42', operatorId: '218' }] }]),
+            }));
+            expect(result.timeSeries.daily[0].byCallType).toEqual({ incoming: 1, outgoing: 1, internal: 1 });
+            expect(result.timeSeries.monthly[0].byCallType).toEqual({ incoming: 1, outgoing: 1, internal: 1 });
+        });
+
         it('returns an empty tagStats list when taxonomy exists but nothing matched', async () => {
             setupDashboardWithRecords([
                 dashboardRecord({ tags: [], tagNames: {} }),
@@ -2186,6 +2197,14 @@ describe('OperatorAnalyticsService', () => {
             expect(call.where.userId).toBe('42');
         });
 
+        it('intersects multi-operator and call-type selection with CDR tenant and project scopes', async () => {
+            const operatorFilters = JSON.stringify([{ userId: '42', operatorId: '203' }, { userId: '999', operatorId: '218' }]);
+            await service.getCdrs({ userId: '999', projectId: 5, operatorFilters, callType: 'outgoing' }, false, '42');
+            const where = mockAiCdrRepo.findAndCountAll.mock.calls[0][0].where;
+            expect(where).toEqual(expect.objectContaining({ userId: '42', projectId: 5 }));
+            expect(where[Op.and]).toEqual(expect.arrayContaining([{ callType: 'outgoing' }, { [Op.or]: [{ userId: '42', operatorId: '203' }, { userId: '999', operatorId: '218' }] }]));
+        });
+
         it('should return paginated result with defaults', async () => {
             mockAiCdrRepo.findAndCountAll.mockResolvedValue({
                 rows: [], count: 0,
@@ -2635,6 +2654,13 @@ describe('OperatorAnalyticsService', () => {
     describe('getOperatorEvidence', () => {
         beforeEach(() => {
             mockAiCdrRepo.findAll = jest.fn().mockResolvedValue([]);
+        });
+
+        it('carries union and type filters into metric evidence without replacing the tenant scope', async () => {
+            await service.getOperatorEvidence({ projectId: 5, operatorFilters: JSON.stringify([{ operatorId: '203' }, { operatorId: '218' }]), callType: 'internal' }, false, '42', '42');
+            const where = mockAiCdrRepo.findAll.mock.calls[0][0].where;
+            expect(where).toEqual(expect.objectContaining({ userId: '42', projectId: 5 }));
+            expect(where[Op.and]).toEqual(expect.arrayContaining([{ callType: 'internal' }, { [Op.or]: [{ operatorId: '203' }, { operatorId: '218' }] }]));
         });
 
         it('scopes non-admin requests to the caller user id and ignores supplied userId', async () => {

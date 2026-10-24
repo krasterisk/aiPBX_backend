@@ -1,8 +1,11 @@
+import { applyAnalyticsSelection, appendAnalyticsSelectionSql } from './analytics-selection';
 import { analyticsDate } from './analytics-date';
 import { Op, Sequelize } from 'sequelize';
 import { ALL_DEFAULT_METRIC_KEYS } from '../interfaces/operator-metrics.interface';
 
 export interface DashboardCdrFilters {
+    operatorFilters?: string;
+    callType?: string;
     userId?: string;
     projectId?: number;
     /** Calls whose analysis was stored with no project. Wins over projectId. */
@@ -59,6 +62,7 @@ export function buildDashboardCdrWhere(
         where.projectId = query.projectId;
     }
 
+    applyAnalyticsSelection(where, query);
     return where;
 }
 
@@ -119,6 +123,7 @@ export async function countLowQualityCdrs(
         replacements.userId = filters.userId;
     }
 
+    appendAnalyticsSelectionSql(dialect, c, filters, clauses, replacements);
     pushProjectClause(dialect, c, filters, clauses, replacements);
     if (filters.operatorId) {
         clauses.push(`${c}.${q('operatorId', dialect)} = :operatorId`);
@@ -201,6 +206,7 @@ export async function aggregateMetricsFromSql(
         replacements.userId = filters.userId;
     }
 
+    appendAnalyticsSelectionSql(dialect, c, filters, cdrClauses, replacements);
     pushProjectClause(dialect, c, filters, cdrClauses, replacements);
     if (filters.operatorId) {
         cdrClauses.push(`${c}.${q('operatorId', dialect)} = :operatorId`);
@@ -350,6 +356,7 @@ function appendCdrFilterClauses(
         replacements.userId = filters.userId;
     }
 
+    appendAnalyticsSelectionSql(dialect, c, filters, clauses, replacements);
     pushProjectClause(dialect, c, filters, clauses, replacements);
     if (filters.operatorId) {
         clauses.push(`${c}.${q('operatorId', dialect)} = :operatorId`);

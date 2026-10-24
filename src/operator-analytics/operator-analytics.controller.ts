@@ -691,6 +691,8 @@ export class OperatorAnalyticsController {
     }
 
     @Get('cdrs')
+    @ApiQuery({ name: 'operatorFilters', required: false, type: String, description: 'JSON array of account-scoped operator identities; union within authorized scope' })
+    @ApiQuery({ name: 'callType', required: false, enum: ['incoming', 'outgoing', 'internal'] })
     @ApiQuery({ name: 'operatorId', required: false, type: String, description: 'Stable source-namespaced employee ID; takes precedence over name' })
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
@@ -702,6 +704,8 @@ export class OperatorAnalyticsController {
     async getCdrs(
         @Req() req: RequestWithUser,
         @Query() query: {
+            operatorFilters?: string;
+            callType?: CallType;
             startDate?: string;
             endDate?: string;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
@@ -728,6 +732,8 @@ export class OperatorAnalyticsController {
     // ─── Dashboard (JWT Auth) ────────────────────────────────────────
 
     @Get('dashboard')
+    @ApiQuery({ name: 'operatorFilters', required: false, type: String, description: 'JSON array of account-scoped operator identities; union within authorized scope' })
+    @ApiQuery({ name: 'callType', required: false, enum: ['incoming', 'outgoing', 'internal'] })
     @ApiQuery({ name: 'operatorId', required: false, type: String, description: 'Stable source-namespaced employee ID; takes precedence over name' })
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
@@ -741,6 +747,8 @@ export class OperatorAnalyticsController {
     async getDashboard(
         @Req() req: RequestWithUser,
         @Query() query: {
+            operatorFilters?: string;
+            callType?: CallType;
             userId?: string;
             startDate?: string;
             endDate?: string;
@@ -782,6 +790,8 @@ export class OperatorAnalyticsController {
     }
 
     @Get('operator-evidence')
+    @ApiQuery({ name: 'operatorFilters', required: false, type: String, description: 'JSON array of account-scoped operator identities; union within authorized scope' })
+    @ApiQuery({ name: 'callType', required: false, enum: ['incoming', 'outgoing', 'internal'] })
     @ApiQuery({ name: 'operatorId', required: false, type: String, description: 'Stable source-namespaced employee ID; takes precedence over name' })
     @ApiBearerAuth()
     @Roles('ADMIN', 'USER')
@@ -791,6 +801,8 @@ export class OperatorAnalyticsController {
     async getOperatorEvidence(
         @Req() req: RequestWithUser,
         @Query() query: {
+            operatorFilters?: string;
+            callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             userId?: string;
             startDate?: string;

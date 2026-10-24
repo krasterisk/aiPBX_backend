@@ -84,7 +84,7 @@ export interface OperatorDashboardResponse {
     aggregatedMetrics: Record<string, number>;
     customMetricsAggregated: Record<string, { type: string; value?: number; distribution?: Record<string, number> }>;
     sentimentDistribution: { positive: number; neutral: number; negative: number };
-    timeSeries: { monthly: unknown[]; daily: unknown[]; hourly?: Array<{ label: string; callsCount: number; avgScore: number; avgDuration: number }> };
+    timeSeries: { monthly: unknown[]; daily: unknown[]; hourly?: Array<{ label: string; callsCount: number; byCallType?: { incoming: number; outgoing: number; internal: number }; avgScore: number; avgDuration: number }> };
     insightsAvailable?: boolean;
     excludedLowQualityCount?: number;
     agentScorecards?: AgentScorecard[];

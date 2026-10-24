@@ -123,3 +123,10 @@ describe('dashboard-aggregation', () => {
         });
     });
 });
+
+it('uses exact ISO boundaries for dashboard SQL without changing tenant scope', () => {
+    const where = buildDashboardCdrWhere({ startDate: '2026-10-24T06:30:00.123Z', endDate: '2026-10-24T06:59:59.999Z', userId: 'other', projectId: 5 }, false, '99', value => ({ like: value }));
+    expect(where.userId).toBe('99');
+    expect(where.projectId).toBe(5);
+    expect(where.createdAt?.[Op.between]).toEqual([new Date('2026-10-24T06:30:00.123Z'), new Date('2026-10-24T06:59:59.999Z')]);
+});

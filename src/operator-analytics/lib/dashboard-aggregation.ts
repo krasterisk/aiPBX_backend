@@ -1,3 +1,4 @@
+import { analyticsDate } from './analytics-date';
 import { Op, Sequelize } from 'sequelize';
 import { ALL_DEFAULT_METRIC_KEYS } from '../interfaces/operator-metrics.interface';
 
@@ -34,14 +35,14 @@ export function buildDashboardCdrWhere(
     if (query.startDate && query.endDate) {
         where.createdAt = {
             [Op.between]: [
-                new Date(`${query.startDate}T00:00:00`),
-                new Date(`${query.endDate}T23:59:59`),
+                analyticsDate(query.startDate, 'start'),
+                analyticsDate(query.endDate, 'end'),
             ],
         };
     } else if (query.startDate) {
-        where.createdAt = { [Op.gte]: new Date(`${query.startDate}T00:00:00`) };
+        where.createdAt = { [Op.gte]: analyticsDate(query.startDate, 'start') };
     } else if (query.endDate) {
-        where.createdAt = { [Op.lte]: new Date(`${query.endDate}T23:59:59`) };
+        where.createdAt = { [Op.lte]: analyticsDate(query.endDate, 'end') };
     }
 
     if (query.operatorId) {
@@ -132,14 +133,14 @@ export async function countLowQualityCdrs(
     }
     if (filters.startDate && filters.endDate) {
         clauses.push(`${c}.${q('createdAt', dialect)} BETWEEN :from AND :to`);
-        replacements.from = new Date(`${filters.startDate}T00:00:00`);
-        replacements.to = new Date(`${filters.endDate}T23:59:59`);
+        replacements.from = analyticsDate(filters.startDate, 'start');
+        replacements.to = analyticsDate(filters.endDate, 'end');
     } else if (filters.startDate) {
         clauses.push(`${c}.${q('createdAt', dialect)} >= :from`);
-        replacements.from = new Date(`${filters.startDate}T00:00:00`);
+        replacements.from = analyticsDate(filters.startDate, 'start');
     } else if (filters.endDate) {
         clauses.push(`${c}.${q('createdAt', dialect)} <= :to`);
-        replacements.to = new Date(`${filters.endDate}T23:59:59`);
+        replacements.to = analyticsDate(filters.endDate, 'end');
     }
 
     const qualityExpr = qualityJsonExpr(dialect, a);
@@ -214,14 +215,14 @@ export async function aggregateMetricsFromSql(
     }
     if (filters.startDate && filters.endDate) {
         cdrClauses.push(`${c}.${q('createdAt', dialect)} BETWEEN :from AND :to`);
-        replacements.from = new Date(`${filters.startDate}T00:00:00`);
-        replacements.to = new Date(`${filters.endDate}T23:59:59`);
+        replacements.from = analyticsDate(filters.startDate, 'start');
+        replacements.to = analyticsDate(filters.endDate, 'end');
     } else if (filters.startDate) {
         cdrClauses.push(`${c}.${q('createdAt', dialect)} >= :from`);
-        replacements.from = new Date(`${filters.startDate}T00:00:00`);
+        replacements.from = analyticsDate(filters.startDate, 'start');
     } else if (filters.endDate) {
         cdrClauses.push(`${c}.${q('createdAt', dialect)} <= :to`);
-        replacements.to = new Date(`${filters.endDate}T23:59:59`);
+        replacements.to = analyticsDate(filters.endDate, 'end');
     }
 
     let qualityJoin = '';
@@ -363,14 +364,14 @@ function appendCdrFilterClauses(
     }
     if (filters.startDate && filters.endDate) {
         clauses.push(`${c}.${q('createdAt', dialect)} BETWEEN :from AND :to`);
-        replacements.from = new Date(`${filters.startDate}T00:00:00`);
-        replacements.to = new Date(`${filters.endDate}T23:59:59`);
+        replacements.from = analyticsDate(filters.startDate, 'start');
+        replacements.to = analyticsDate(filters.endDate, 'end');
     } else if (filters.startDate) {
         clauses.push(`${c}.${q('createdAt', dialect)} >= :from`);
-        replacements.from = new Date(`${filters.startDate}T00:00:00`);
+        replacements.from = analyticsDate(filters.startDate, 'start');
     } else if (filters.endDate) {
         clauses.push(`${c}.${q('createdAt', dialect)} <= :to`);
-        replacements.to = new Date(`${filters.endDate}T23:59:59`);
+        replacements.to = analyticsDate(filters.endDate, 'end');
     }
 }
 

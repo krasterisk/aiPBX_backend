@@ -1,3 +1,5 @@
+import { analyticsDate } from './lib/analytics-date';
+import { buildHourlySeries } from './lib/hourly-series';
 import { CallType, parseCallType } from './lib/call-type';
 import { operatorIdentityFields, operatorIdentityKey, operatorGroupIdentity } from './lib/operator-identity';
 import { Inject, Injectable, Logger, HttpException, HttpStatus, forwardRef } from '@nestjs/common';
@@ -1886,14 +1888,14 @@ export class OperatorAnalyticsService {
         if (query.startDate && query.endDate) {
             where.createdAt = {
                 [Op.between]: [
-                    new Date(`${query.startDate}T00:00:00`),
-                    new Date(`${query.endDate}T23:59:59`),
+                    analyticsDate(query.startDate, 'start'),
+                    analyticsDate(query.endDate, 'end'),
                 ],
             };
         } else if (query.startDate) {
-            where.createdAt = { [Op.gte]: new Date(`${query.startDate}T00:00:00`) };
+            where.createdAt = { [Op.gte]: analyticsDate(query.startDate, 'start') };
         } else if (query.endDate) {
-            where.createdAt = { [Op.lte]: new Date(`${query.endDate}T23:59:59`) };
+            where.createdAt = { [Op.lte]: analyticsDate(query.endDate, 'end') };
         }
 
         if (query.operatorId) {
@@ -2161,7 +2163,7 @@ export class OperatorAnalyticsService {
                 aggregatedMetrics: this.emptyAggregatedMetrics(),
                 customMetricsAggregated: {},
                 sentimentDistribution: { positive: 0, neutral: 0, negative: 0 },
-                timeSeries: { monthly: [], daily: [] },
+                timeSeries: { monthly: [], daily: [], hourly: [] },
                 excludedLowQualityCount: 0,
                 agentScorecards: [],
                 unsuccessfulCount: 0,
@@ -2267,7 +2269,7 @@ export class OperatorAnalyticsService {
         }
 
         const averageDuration = recordsForDerived.reduce((sum, r) => sum + (r.duration || 0), 0) / aggregationCount;
-        const timeSeries = this.buildTimeSeries(recordsForDerived, query.startDate, query.endDate);
+        const timeSeries = { ...this.buildTimeSeries(recordsForDerived, query.startDate, query.endDate), hourly: buildHourlySeries(recordsForDerived, query.startDate, query.endDate) };
 
         let customMetricsAggregated: Record<string, { type: string; value?: number; distribution?: Record<string, number> }> = {};
         let tagStats: TagStat[] | undefined;

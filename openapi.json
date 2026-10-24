@@ -6482,6 +6482,9 @@
                   "properties": {
                     "operatorTopicStats": {
                       "$ref": "#/components/schemas/OperatorTopicStatsDto"
+                    },
+                    "timeSeries": {
+                      "$ref": "#/components/schemas/DashboardTimeSeriesDto"
                     }
                   }
                 }
@@ -11629,6 +11632,59 @@
           "consentObtained",
           "consentSource",
           "audioSha256"
+        ]
+      },
+      "DashboardTimePointDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "UTC date, month, or ISO hour-bucket start"
+          },
+          "callsCount": {
+            "type": "number"
+          },
+          "avgScore": {
+            "type": "number"
+          },
+          "avgDuration": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "label",
+          "callsCount",
+          "avgScore",
+          "avgDuration"
+        ]
+      },
+      "DashboardTimeSeriesDto": {
+        "type": "object",
+        "properties": {
+          "daily": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardTimePointDto"
+            }
+          },
+          "monthly": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardTimePointDto"
+            }
+          },
+          "hourly": {
+            "description": "Zero-filled UTC hours for single-day ranges (up to 25 hours including DST); empty for longer ranges or no records. Daily/monthly fields are unchanged.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardTimePointDto"
+            }
+          }
+        },
+        "required": [
+          "daily",
+          "monthly",
+          "hourly"
         ]
       }
     }

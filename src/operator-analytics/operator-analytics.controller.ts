@@ -1,3 +1,4 @@
+import { DashboardTimeSeriesDto } from './dto/dashboard-time-series.dto';
 import { CallType, parseCallType } from './lib/call-type';
 import { multipartAnalyzeSchema, urlAnalyzeSchema } from './lib/ingestion-api-schema';
 import {
@@ -732,10 +733,10 @@ export class OperatorAnalyticsController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @ApiOperation({ summary: 'Get aggregated dashboard data' })
-    @ApiExtraModels(OperatorTopicStatsDto)
+    @ApiExtraModels(OperatorTopicStatsDto, DashboardTimeSeriesDto)
     @ApiResponse({ status: 200, description: 'Dashboard metrics', schema: {
         type: 'object', additionalProperties: true,
-        properties: { operatorTopicStats: { $ref: getSchemaPath(OperatorTopicStatsDto) } },
+        properties: { operatorTopicStats: { $ref: getSchemaPath(OperatorTopicStatsDto) }, timeSeries: { $ref: getSchemaPath(DashboardTimeSeriesDto) } },
     } })
     async getDashboard(
         @Req() req: RequestWithUser,

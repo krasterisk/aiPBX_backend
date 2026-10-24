@@ -1422,7 +1422,7 @@ describe('OperatorAnalyticsService', () => {
             expect(result.totalCost).toBe(0);
             expect(result.averageDuration).toBe(0);
             expect(result.averageScore).toBe(0);
-            expect(result.timeSeries).toEqual({ monthly: [], daily: [] });
+            expect(result.timeSeries).toEqual({ monthly: [], daily: [], hourly: [] });
             expect(result.sentimentDistribution).toEqual({
                 positive: 0, neutral: 0, negative: 0,
             });

@@ -825,6 +825,8 @@ export class OperatorAnalyticsController {
         const realUserId = isAdmin ? null : authUserId;
         return this.service.getOperatorEvidence(
             {
+                operatorFilters: query.operatorFilters,
+                callType: query.callType,
                 operatorName: query.operatorName?.trim() || undefined,
                 operatorId: query.operatorId,
                 operatorExtension: query.operatorExtension,

@@ -56,7 +56,9 @@ export function qualityReadScope(filters: DashboardCdrFilters, isAdmin: boolean,
 }
 
 /** Correlated predicate for an already-authorized/paginated CDR query; never transfers period IDs. */
-export function qualityDistributionPredicate(filter: { sentiment?: string | null; success?: boolean | null }): string {
+export function qualityDistributionPredicate(filter: { sentiment?: string | null; success?: boolean | null; withoutOutcome?: boolean }): string {
+    if (filter.withoutOutcome && typeof filter.success === 'boolean') throw new Error('Conflicting outcome filters');
+    if (filter.withoutOutcome && filter.sentiment) return `(${qualityDistributionPredicate({ withoutOutcome: true })} AND ${qualityDistributionPredicate({ sentiment: filter.sentiment })})`;
     const metrics = postgresJsonbCast('q.metrics');
     const parts = [
         `q."channelId"="AiCdr"."channelId"`,
@@ -74,7 +76,8 @@ export function qualityDistributionPredicate(filter: { sentiment?: string | null
                 filter.success ? 'true' : 'false'
             }'`
         );
-    return `EXISTS (SELECT 1 FROM "aiAnalytics" q WHERE ${parts.join(' AND ')})`;
+    if (filter.withoutOutcome) parts.push(`COALESCE(q."qualitySummary"::jsonb->>'success',${metrics}->'scenario_analysis'->>'success',${metrics}->>'success') IN ('true','false')`);
+    return `${filter.withoutOutcome ? 'NOT ' : ''}EXISTS (SELECT 1 FROM "aiAnalytics" q WHERE ${parts.join(' AND ')})`;
 }
 
 const counts = `count(*)::int AS "callsCount", count(score)::int AS "scoredCalls", avg(score) AS "averageScore", avg(duration) AS "averageDuration",
@@ -210,6 +213,7 @@ export async function qualityDashboard(
         excludedLowQualityCount: total.excludedLowQualityCount,
         unsuccessfulCount: total.unsuccessfulCount,
         successfulCount: total.successfulCount,
+        unknownOutcomeCount: total.callsCount - total.successfulCount - total.unsuccessfulCount,
         failureReasons: row.failures.map((g: any) => ({
             ...g,
             shareOfUnsuccessful: percent(g.count, total.unsuccessfulCount),

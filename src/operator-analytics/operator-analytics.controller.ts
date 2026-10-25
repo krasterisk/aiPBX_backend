@@ -745,6 +745,7 @@ export class OperatorAnalyticsController {
     @ApiOperation({ summary: 'Get CDR list of analyzed calls' })
     @ApiQuery({ name: 'withoutTopic', required: false, type: Boolean, description: 'Calls without any stored topic' })
     @ApiQuery({ name: 'withoutOperator', required: false, type: Boolean, description: 'Calls with a missing or unknown operator' })
+    @ApiQuery({ name: 'withoutOutcome', required: false, type: Boolean, description: 'Missing, unusable or unrecognized conversation outcome' })
     @ApiResponse({ status: 200, description: 'Paginated CDR list' })
     async getCdrs(
         @Req() req: RequestWithUser,
@@ -760,6 +761,7 @@ export class OperatorAnalyticsController {
             withoutOperator?: string;
             sentiment?: string;
             success?: string;
+            withoutOutcome?: string;
             projectId?: number;
             withoutProject?: string;
             page?: number;

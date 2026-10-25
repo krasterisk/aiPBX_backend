@@ -6414,6 +6414,15 @@
         "operationId": "OperatorAnalyticsController_getCdrs",
         "parameters": [
           {
+            "name": "withoutOutcome",
+            "required": false,
+            "in": "query",
+            "description": "Missing, unusable or unrecognized conversation outcome",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "withoutOperator",
             "required": false,
             "in": "query",

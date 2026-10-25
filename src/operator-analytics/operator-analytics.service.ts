@@ -1,3 +1,4 @@
+import { dashboardCallFacts, callOutcome, callDistributionCondition, withScoringAverages } from './lib/dashboard-call-facts';
 import { QualityPreviewService, previewObservation } from './quality/quality-preview.service';
 import { randomUUID } from 'crypto';
 import { qualityDashboard, qualityEvidence, qualityDistributionPredicate } from './quality/quality-dashboard';
@@ -43,7 +44,6 @@ import {
     buildDashboardCdrWhere,
     countLowQualityCdrs,
     DASHBOARD_PAGE_SIZE,
-    findChannelIdsForDistribution,
     isWithoutProject,
 } from './lib/dashboard-aggregation';
 import { buildTagStats } from './lib/tag-stats';
@@ -1905,6 +1905,7 @@ export class OperatorAnalyticsService {
         withoutOperator?: string | boolean;
         sentiment?: string;
         success?: string | boolean;
+        withoutOutcome?: string | boolean;
         projectId?: number;
         withoutProject?: string | boolean;
         page?: number;
@@ -1960,50 +1961,13 @@ export class OperatorAnalyticsService {
             )];
         }
 
-        const publishedDistribution = this.qualityScoring?.enabled && this.aiCdrRepository.sequelize.getDialect()==='postgres';
-        if (publishedDistribution && (sentimentKey || successFlag!==null)) where[Op.and]=[...(where[Op.and]||[]),Sequelize.literal(qualityDistributionPredicate({sentiment:sentimentKey,success:successFlag}))];
-        if (!publishedDistribution && sentimentKey) {
-            const channelIds = await findChannelIdsForDistribution(
-                this.aiCdrRepository.sequelize,
-                {
-                    userId: query.userId,
-                    projectId: scoped.projectId,
-                    withoutProject: scoped.withoutProject,
-                    startDate: query.startDate,
-                    endDate: query.endDate,
-                    operatorName: query.operatorName,
-                    operatorId: query.operatorId,
-                    operatorNameExact: query.operatorNameExact,
-                    operatorFilters: query.operatorFilters,
-                    callType: query.callType,
-                },
-                isAdmin,
-                realUserId,
-                { sentiment: sentimentKey as 'positive' | 'neutral' | 'negative' },
-            );
-            this.applyChannelIdFilter(where, channelIds, '__no_matching_sentiment__');
-        }
-
-        if (!publishedDistribution && successFlag !== null) {
-            const channelIds = await findChannelIdsForDistribution(
-                this.aiCdrRepository.sequelize,
-                {
-                    userId: query.userId,
-                    projectId: scoped.projectId,
-                    withoutProject: scoped.withoutProject,
-                    startDate: query.startDate,
-                    endDate: query.endDate,
-                    operatorName: query.operatorName,
-                    operatorId: query.operatorId,
-                    operatorNameExact: query.operatorNameExact,
-                    operatorFilters: query.operatorFilters,
-                    callType: query.callType,
-                },
-                isAdmin,
-                realUserId,
-                { success: successFlag },
-            );
-            this.applyChannelIdFilter(where, channelIds, '__no_matching_success__');
+        const withoutOutcome = isWithoutProject(query.withoutOutcome);
+        if (withoutOutcome && successFlag !== null) throw new HttpException('Conflicting outcome filters', HttpStatus.BAD_REQUEST);
+        if (sentimentKey || successFlag !== null || withoutOutcome) {
+            const condition = this.qualityScoring?.enabled && this.aiCdrRepository.sequelize.getDialect() === 'postgres'
+                ? qualityDistributionPredicate({ sentiment: sentimentKey, success: successFlag, withoutOutcome })
+                : callDistributionCondition(this.aiCdrRepository.sequelize.getDialect(), { sentiment: sentimentKey, success: successFlag, withoutOutcome });
+            where[Op.and] = [...(where[Op.and] || []), Sequelize.literal(condition)];
         }
 
         // Search logic (name, phone, transcription — additive)
@@ -2225,7 +2189,7 @@ export class OperatorAnalyticsService {
                 timeSeries: { monthly: [], daily: [], hourly: [] },
                 excludedLowQualityCount: 0,
                 agentScorecards: [],
-                unsuccessfulCount: 0,
+                successfulCount: 0, unsuccessfulCount: 0, unknownOutcomeCount: 0,
                 failureReasons: [],
                 ...(tagStats !== undefined ? { tagStats } : {}),
                 ...(emptyTopics ? { operatorTopicStats: emptyTopics } : {}),
@@ -2275,41 +2239,19 @@ export class OperatorAnalyticsService {
 
         let aggregatedMetrics: Record<string, number>;
         let averageScore: number;
-        let successRate: number;
-        let sentimentDistribution: { positive: number; neutral: number; negative: number };
 
         if (sqlAgg.usedSql && sqlAgg.aggregationCount > 0) {
             aggregatedMetrics = { ...sqlAgg.numericAverages };
             averageScore = parseFloat(
                 (numericKeys.reduce((s, k) => s + (aggregatedMetrics[k] || 0), 0) / numericKeys.length).toFixed(2),
             );
-            const denom = sqlAgg.aggregationCount || 1;
-            successRate = parseFloat(((sqlAgg.successCount / denom) * 100).toFixed(2));
-            const sentimentTotal = sqlAgg.positiveCount + sqlAgg.neutralCount + sqlAgg.negativeCount || denom;
-            sentimentDistribution = {
-                positive: parseFloat(((sqlAgg.positiveCount / sentimentTotal) * 100).toFixed(2)),
-                neutral: parseFloat(((sqlAgg.neutralCount / sentimentTotal) * 100).toFixed(2)),
-                negative: parseFloat(((sqlAgg.negativeCount / sentimentTotal) * 100).toFixed(2)),
-            };
         } else {
             const sums: Record<string, number> = {};
             numericKeys.forEach(k => { sums[k] = 0; });
-            let successCount = 0;
-            let positiveCount = 0;
-            let neutralCount = 0;
-            let negativeCount = 0;
-
             recordsForDerived.forEach(r => {
                 const m = r.analytics?.metrics;
                 if (!m) return;
                 numericKeys.forEach(k => { sums[k] += (m[k] || 0); });
-                if (m.success) successCount++;
-                const sentiment = (
-                    r.analytics?.sentiment || m.customer_sentiment || ''
-                ).toString().toLowerCase();
-                if (sentiment === 'positive') positiveCount++;
-                else if (sentiment === 'neutral') neutralCount++;
-                else if (sentiment === 'negative') negativeCount++;
             });
 
             aggregatedMetrics = {};
@@ -2319,21 +2261,20 @@ export class OperatorAnalyticsService {
             averageScore = parseFloat(
                 (numericKeys.reduce((s, k) => s + aggregatedMetrics[k], 0) / numericKeys.length).toFixed(2),
             );
-            successRate = parseFloat(((successCount / aggregationCount) * 100).toFixed(2));
-            sentimentDistribution = {
-                positive: parseFloat(((positiveCount / aggregationCount) * 100).toFixed(2)),
-                neutral: parseFloat(((neutralCount / aggregationCount) * 100).toFixed(2)),
-                negative: parseFloat(((negativeCount / aggregationCount) * 100).toFixed(2)),
-            };
+
         }
 
         const averageDuration = recordsForDerived.reduce((sum, r) => sum + (r.duration || 0), 0) / aggregationCount;
         const legacySeries = this.buildTimeSeries(recordsForDerived, query.startDate, query.endDate);
+        const allSeries = this.buildTimeSeries(aggregationRecords, query.startDate, query.endDate);
         const timeSeries = {
-            daily: withCallTypeCounts(legacySeries.daily, recordsForDerived),
-            monthly: withCallTypeCounts(legacySeries.monthly, recordsForDerived),
-            hourly: withCallTypeCounts(buildHourlySeries(recordsForDerived, query.startDate, query.endDate), recordsForDerived),
+            daily: withCallTypeCounts(withScoringAverages(allSeries.daily, legacySeries.daily), aggregationRecords),
+            monthly: withCallTypeCounts(withScoringAverages(allSeries.monthly, legacySeries.monthly), aggregationRecords),
+            hourly: withCallTypeCounts(withScoringAverages(
+                buildHourlySeries(aggregationRecords, query.startDate, query.endDate),
+                buildHourlySeries(recordsForDerived, query.startDate, query.endDate)), aggregationRecords),
         };
+        const callFacts = dashboardCallFacts(aggregationRecords);
 
         let customMetricsAggregated: Record<string, { type: string; value?: number; distribution?: Record<string, number> }> = {};
         let tagStats: TagStat[] | undefined;
@@ -2361,7 +2302,7 @@ export class OperatorAnalyticsService {
         }
 
         const agentScorecards = this.buildAgentScorecards(recordsForDerived, projectScore);
-        const failure = collectFailureReasons(recordsForDerived);
+        const failure = collectFailureReasons(aggregationRecords.filter(record => callOutcome(record) === false));
         const operatorTopicStats = project?.callTaxonomy?.length
             ? buildOperatorTopicStats(aggregationRecords, project.callTaxonomy)
             : undefined;
@@ -2376,22 +2317,20 @@ export class OperatorAnalyticsService {
         agentScorecards.sort((a, b) => b.callsCount - a.callsCount);
 
         return {
-            totalAnalyzed,
+            totalAnalyzed: aggregationRecords.length,
             totalCost: parseFloat(totalCost.toFixed(isRubTenant() ? 2 : 4)),
             totalAmountCurrency: totalAmountCurrency != null
                 ? parseFloat(totalAmountCurrency.toFixed(2))
                 : null,
             averageDuration: parseFloat(averageDuration.toFixed(2)),
             averageScore,
-            successRate,
             aggregatedMetrics,
             customMetricsAggregated,
-            sentimentDistribution,
             timeSeries,
             insightsAvailable: aggregationCount >= resolveInsightsMinCalls(),
             excludedLowQualityCount,
             agentScorecards,
-            unsuccessfulCount: failure.unsuccessfulCount,
+            ...callFacts,
             failureReasons: failure.reasons,
             ...(operatorTopicStats ? { operatorTopicStats } : {}),
             ...(tagStats !== undefined ? { tagStats } : {}),
@@ -3757,7 +3696,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             const page = await this.aiCdrRepository.findAll({
                 where,
                 include: [{ model: AiAnalytics, as: 'analytics' }],
-                order: [['createdAt', 'ASC']],
+                order: [['createdAt', 'ASC'], ['id', 'ASC']],
                 limit: DASHBOARD_PAGE_SIZE,
                 offset,
             });
@@ -4661,7 +4600,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             }
 
             if (buildMonthly) {
-                const monthlyLabel = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                const monthlyLabel = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
                 if (!monthlyGroups[monthlyLabel]) {
                     monthlyGroups[monthlyLabel] = { calls: 0, totalScore: 0, totalDuration: 0 };
                 }

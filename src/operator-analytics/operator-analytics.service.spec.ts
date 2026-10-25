@@ -1535,6 +1535,18 @@ describe('OperatorAnalyticsService', () => {
             expect(result.tagStats).toEqual([]);
         });
 
+        it('uses all calls for chart volume and exact known outcomes, while low-ASR stays outside scoring', async () => {
+            const rows = [dashboardRecord(), dashboardRecord({ metrics:{ success:false } }),
+                dashboardRecord({ metrics:{ success:true, _quality:{ quality:'low' } } })];
+            setupDashboardWithRecords(rows);
+            mockAiCdrRepo.count.mockResolvedValue(99); // The final counters must share the loaded snapshot.
+            const d = await service.getDashboard({projectId:1},false,'42');
+            expect(d.totalAnalyzed).toBe(3);
+            expect(d.timeSeries.daily.reduce((sum,p)=>sum+p.callsCount,0)).toBe(3);
+            expect(d.timeSeries.daily[0].byCallType).toEqual({incoming:3,outgoing:0,internal:0});
+            expect(d).toMatchObject({successfulCount:1,unsuccessfulCount:1,unknownOutcomeCount:1,successRate:50});
+        });
+
         it('includes per-theme statistics for a selected project', async () => {
             setupDashboardWithRecords([
                 dashboardRecord({ tags: ['billing'], tagNames: { billing: 'Счета' } }),
@@ -2298,83 +2310,17 @@ describe('OperatorAnalyticsService', () => {
             expect(call.where[Op.or]).toBeDefined();
         });
 
-        it('filters by sentiment via aiCdr-joined metric values', async () => {
-            mockAiCdrRepo.sequelize.query.mockResolvedValueOnce([[
-                { channelId: '20' },
-                { channelId: '21' },
-            ]]);
-
-            await service.getCdrs({
-                sentiment: 'negative',
-                projectId: 3,
-                startDate: '2026-01-01',
-                endDate: '2026-01-31',
-            }, false, '42');
-
-            const [sql, opts] = mockAiCdrRepo.sequelize.query.mock.calls[0];
-            expect(sql).toContain('customer_sentiment');
-            expect(sql).toContain('aiCdr');
-            expect(opts.replacements).toMatchObject({
-                sentiment: 'negative',
-                userId: '42',
-                projectId: 3,
-            });
+        it.each([{ sentiment: 'negative' }, { success: 'false' }, { withoutOutcome: 'true' }])('filters saved outcomes without capped lookup queries: %o', async (filter) => {
+            await service.getCdrs({ ...filter, projectId: 3, userId: 'foreign', startDate: '2026-01-01', endDate: '2026-01-31' }, false, '42');
+            expect(mockAiCdrRepo.sequelize.query).not.toHaveBeenCalled();
             const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
-            expect(call.where.channelId).toEqual({ [Op.in]: ['20', '21'] });
+            expect(call.where).toMatchObject({ userId:'42', projectId:3 });
+            expect(call.where[Op.and][0].val).toContain('aiAnalytics');
+            expect(call.where[Op.and][0].val).not.toContain('LIMIT');
+            expect(call.where).not.toHaveProperty('channelId');
         });
-
-        it('filters by success=false via aiCdr-joined metric values', async () => {
-            mockAiCdrRepo.sequelize.query.mockResolvedValueOnce([[{ channelId: '9' }]]);
-
-            await service.getCdrs({ success: 'false' }, true, null);
-
-            const [sql, opts] = mockAiCdrRepo.sequelize.query.mock.calls[0];
-            expect(sql).toContain("metricId");
-            expect(sql).toContain('success');
-            expect(opts.replacements.successBool).toBe(false);
-            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
-            expect(call.where.channelId).toEqual({ [Op.in]: ['9'] });
-        });
-
-        it('falls back to aiAnalytics.sentiment when metric_values are empty', async () => {
-            mockAiCdrRepo.sequelize.query
-                .mockResolvedValueOnce([[]])
-                .mockResolvedValueOnce([[{ channelId: '77' }]]);
-
-            await service.getCdrs({ sentiment: 'positive' }, false, '7');
-
-            expect(mockAiCdrRepo.sequelize.query).toHaveBeenCalledTimes(2);
-            const [fallbackSql] = mockAiCdrRepo.sequelize.query.mock.calls[1];
-            expect(fallbackSql).toContain('aiAnalytics');
-            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
-            expect(call.where.channelId).toEqual({ [Op.in]: ['77'] });
-        });
-
-        it('returns nothing when sentiment matches no rows in either source', async () => {
-            mockAiCdrRepo.sequelize.query
-                .mockResolvedValueOnce([[]])
-                .mockResolvedValueOnce([[]]);
-
-            await service.getCdrs({ sentiment: 'positive' }, false, '7');
-
-            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
-            expect(call.where.channelId).toEqual({ [Op.in]: ['__no_matching_sentiment__'] });
-        });
-
-        it('composes sentiment filter with projectId on CDR query', async () => {
-            mockAiCdrRepo.sequelize.query.mockResolvedValueOnce([[{ channelId: '5' }]]);
-
-            await service.getCdrs({ sentiment: 'Neutral', projectId: 2 }, false, '42');
-
-            const [, opts] = mockAiCdrRepo.sequelize.query.mock.calls[0];
-            expect(opts.replacements).toMatchObject({
-                sentiment: 'neutral',
-                projectId: 2,
-                userId: '42',
-            });
-            const call = mockAiCdrRepo.findAndCountAll.mock.calls[0][0];
-            expect(call.where.projectId).toBe(2);
-            expect(call.where.channelId).toEqual({ [Op.in]: ['5'] });
+        it('rejects contradictory known/unknown outcome filters', async () => {
+            await expect(service.getCdrs({ success:'true', withoutOutcome:'true' },false,'42')).rejects.toThrow('Conflicting outcome');
         });
 
         it('rejects invalid sentiment values', async () => {

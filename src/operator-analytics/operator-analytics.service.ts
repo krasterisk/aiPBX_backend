@@ -1,4 +1,4 @@
-import { dashboardCallFacts, callOutcome, callDistributionCondition, withScoringAverages } from './lib/dashboard-call-facts';
+import { dashboardCallFacts, callOutcome, callDistributionCondition } from './lib/dashboard-call-facts';
 import { QualityPreviewService, previewObservation } from './quality/quality-preview.service';
 import { randomUUID } from 'crypto';
 import { qualityDashboard, qualityEvidence, qualityDistributionPredicate } from './quality/quality-dashboard';
@@ -40,7 +40,6 @@ import {
     type DiarizationSource,
 } from './lib/channel-diarize';
 import {
-    aggregateMetricsFromSql,
     buildDashboardCdrWhere,
     countLowQualityCdrs,
     DASHBOARD_PAGE_SIZE,
@@ -2085,11 +2084,7 @@ export class OperatorAnalyticsService {
 
         // Legacy compatibility path, retained until explicit v2 activation/backfill.
         const aggregationRecords = await this.loadDashboardCdrPages(where);
-        const eligibleRecords = aggregationRecords.filter(r => {
-            const quality = (r.analytics?.metrics as any)?._quality?.quality as TranscriptionQualityLevel | undefined;
-            return quality !== 'low' && quality !== 'unusable';
-        });
-        const recordsForDerived = eligibleRecords.length > 0 ? eligibleRecords : aggregationRecords;
+        const recordsForDerived = aggregationRecords;
 
         let customMetricIds: string[] = [];
         let defaultKeys: readonly string[] | undefined;
@@ -2196,12 +2191,12 @@ export class OperatorAnalyticsService {
             };
         }
 
-        const excludedLowQualityCount = await countLowQualityCdrs(
+        const excludedLowQualityCount = isAdmin ? await countLowQualityCdrs(
             this.aiCdrRepository.sequelize,
             scoped,
             isAdmin,
             realUserId,
-        );
+        ) : 0;
 
         const totalsRow = await this.aiCdrRepository.findOne({
             where,
@@ -2221,31 +2216,14 @@ export class OperatorAnalyticsService {
             ? totalAmountCurrency
             : totalCostUsd;
 
-        const sqlAgg = await aggregateMetricsFromSql(
-            this.aiCdrRepository.sequelize,
-            scoped,
-            isAdmin,
-            realUserId,
-            excludedLowQualityCount > 0,
-        );
-
         const aggregationRecords = await this.loadDashboardCdrPages(where);
-        const eligibleRecords = aggregationRecords.filter(r => {
-            const quality = (r.analytics?.metrics as any)?._quality?.quality as TranscriptionQualityLevel | undefined;
-            return quality !== 'low' && quality !== 'unusable';
-        });
-        const recordsForDerived = eligibleRecords.length > 0 ? eligibleRecords : aggregationRecords;
+        const recordsForDerived = aggregationRecords;
         const aggregationCount = recordsForDerived.length;
 
         let aggregatedMetrics: Record<string, number>;
         let averageScore: number;
 
-        if (sqlAgg.usedSql && sqlAgg.aggregationCount > 0) {
-            aggregatedMetrics = { ...sqlAgg.numericAverages };
-            averageScore = parseFloat(
-                (numericKeys.reduce((s, k) => s + (aggregatedMetrics[k] || 0), 0) / numericKeys.length).toFixed(2),
-            );
-        } else {
+        {
             const sums: Record<string, number> = {};
             numericKeys.forEach(k => { sums[k] = 0; });
             recordsForDerived.forEach(r => {
@@ -2265,14 +2243,11 @@ export class OperatorAnalyticsService {
         }
 
         const averageDuration = recordsForDerived.reduce((sum, r) => sum + (r.duration || 0), 0) / aggregationCount;
-        const legacySeries = this.buildTimeSeries(recordsForDerived, query.startDate, query.endDate);
         const allSeries = this.buildTimeSeries(aggregationRecords, query.startDate, query.endDate);
         const timeSeries = {
-            daily: withCallTypeCounts(withScoringAverages(allSeries.daily, legacySeries.daily), aggregationRecords),
-            monthly: withCallTypeCounts(withScoringAverages(allSeries.monthly, legacySeries.monthly), aggregationRecords),
-            hourly: withCallTypeCounts(withScoringAverages(
-                buildHourlySeries(aggregationRecords, query.startDate, query.endDate),
-                buildHourlySeries(recordsForDerived, query.startDate, query.endDate)), aggregationRecords),
+            daily: withCallTypeCounts(allSeries.daily, aggregationRecords),
+            monthly: withCallTypeCounts(allSeries.monthly, aggregationRecords),
+            hourly: withCallTypeCounts(buildHourlySeries(aggregationRecords, query.startDate, query.endDate), aggregationRecords),
         };
         const callFacts = dashboardCallFacts(aggregationRecords);
 

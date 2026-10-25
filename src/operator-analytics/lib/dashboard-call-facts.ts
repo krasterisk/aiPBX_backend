@@ -5,8 +5,7 @@ interface CallObservation {
 }
 export function callOutcome(record: CallObservation): boolean | null {
     const metrics = record.analytics?.metrics;
-    if (!metrics || typeof metrics !== 'object' || Array.isArray(metrics) ||
-        ['low', 'unusable'].includes(metrics._quality?.quality)) return null;
+    if (!metrics || typeof metrics !== 'object' || Array.isArray(metrics)) return null;
     if (typeof metrics.success === 'boolean') return metrics.success;
     return typeof metrics.scenario_analysis?.success === 'boolean' ? metrics.scenario_analysis.success : null;
 }
@@ -18,7 +17,6 @@ export function dashboardCallFacts(records: CallObservation[]) {
         if (outcome === true) successfulCount++;
         else if (outcome === false) unsuccessfulCount++;
         const metrics = record.analytics?.metrics;
-        if (['low', 'unusable'].includes(metrics?._quality?.quality)) continue;
         const mood = String(record.analytics?.sentiment || metrics?.customer_sentiment || '').toLowerCase();
         if (Object.prototype.hasOwnProperty.call(moods, mood)) moods[mood]++;
     }
@@ -54,8 +52,7 @@ export function callDistributionCondition(
     const booleanType = dialect === 'postgres' ? 'boolean' : 'BOOLEAN';
     const outcome = `(CASE WHEN ${type(['success'])}='${booleanType}' THEN ${text(['success'])}
         WHEN ${type(['scenario_analysis', 'success'])}='${booleanType}' THEN ${text(['scenario_analysis', 'success'])} END)`;
-    const parts = [`d.${q('channelId')}=${q(outerAlias)}.${q('channelId')}`,
-        `COALESCE(${text(['_quality', 'quality'])},'ok') NOT IN ('low','unusable')`];
+    const parts = [`d.${q('channelId')}=${q(outerAlias)}.${q('channelId')}`];
     if (filter.withoutOutcome) parts.push(`${outcome} IN ('true','false')`);
     else if (typeof filter.success === 'boolean') parts.push(`${outcome}='${filter.success ? 'true' : 'false'}'`);
     if (filter.sentiment) {

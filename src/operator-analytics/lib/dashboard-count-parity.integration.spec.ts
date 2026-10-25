@@ -35,8 +35,8 @@ if (url && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname))
             ['nested', { scenario_analysis: { success: false } }, '01'],
             ['priority', { success: false, scenario_analysis: { success: true } }, '01'],
             ['string', { success: 'true', customer_sentiment: 'Positive' }, '01'],
-            ['low', { success: true, _quality: { quality: 'low' } }, '02'],
-            ['unusable', { success: false, _quality: { quality: 'unusable' } }, '02'],
+            ['low', { success: true, greeting_quality: 20, customer_sentiment: 'Negative', _quality: { quality: 'low' } }, '02'],
+            ['unusable', { success: false, greeting_quality: 40, customer_sentiment: 'Neutral', _quality: { quality: 'unusable' } }, '02'],
             ['nul', { success: true, summary: 'hello\u0000world' }, '01'],
             ['none', null, '01'],
         ] as const) {
@@ -58,8 +58,16 @@ if (url && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname))
     it('matches every displayed day/direction and exact outcome, including low-only days and >5000 successes', async () => {
         const d = await service.getDashboard(q, false, '99');
         expect(d.totalAnalyzed).toBe(6012);
+        expect(d.aggregatedMetrics.greeting_quality).toBe(Number(((6005*80+20+40)/6012).toFixed(2)));
+        const lowDay = await service.getDashboard({ ...q, startDate: '2026-10-02T00:00:00.000Z' }, false, '99');
+        expect(lowDay).toMatchObject({ totalAnalyzed: 2, successfulCount: 1, unsuccessfulCount: 1, unknownOutcomeCount: 0, excludedLowQualityCount: 0 });
+        expect(lowDay.aggregatedMetrics.greeting_quality).toBe(30);
+        for (const sentiment of ['negative','neutral']) expect((await service.getCdrs({ ...q, sentiment, limit: 1 }, false, '99')).total).toBe(1);
+        const adminDay = await service.getDashboard({ ...q, startDate: '2026-10-02T00:00:00.000Z' }, true, '99');
+        expect(adminDay.excludedLowQualityCount).toBe(2);
+        expect(adminDay.aggregatedMetrics).toEqual(lowDay.aggregatedMetrics);
         expect(d.timeSeries.daily.reduce((sum, point) => sum + point.callsCount, 0)).toBe(d.totalAnalyzed);
-        expect(d).toMatchObject({ successfulCount: 6006, unsuccessfulCount: 2, unknownOutcomeCount: 4 });
+        expect(d).toMatchObject({ successfulCount: 6007, unsuccessfulCount: 3, unknownOutcomeCount: 2 });
         for (const point of d.timeSeries.daily) {
             const scope = { ...q, startDate: point.label + 'T00:00:00.000Z', endDate: point.label + 'T23:59:59.999Z', page: 1, limit: 1 };
             expect((await service.getCdrs(scope, false, '99')).total).toBe(point.callsCount);

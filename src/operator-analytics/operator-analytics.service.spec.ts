@@ -1535,7 +1535,7 @@ describe('OperatorAnalyticsService', () => {
             expect(result.tagStats).toEqual([]);
         });
 
-        it('uses all calls for chart volume and exact known outcomes, while low-ASR stays outside scoring', async () => {
+        it('uses all calls for chart volume and exact known outcomes, including saved low-ASR results', async () => {
             const rows = [dashboardRecord(), dashboardRecord({ metrics:{ success:false } }),
                 dashboardRecord({ metrics:{ success:true, _quality:{ quality:'low' } } })];
             setupDashboardWithRecords(rows);
@@ -1544,7 +1544,7 @@ describe('OperatorAnalyticsService', () => {
             expect(d.totalAnalyzed).toBe(3);
             expect(d.timeSeries.daily.reduce((sum,p)=>sum+p.callsCount,0)).toBe(3);
             expect(d.timeSeries.daily[0].byCallType).toEqual({incoming:3,outgoing:0,internal:0});
-            expect(d).toMatchObject({successfulCount:1,unsuccessfulCount:1,unknownOutcomeCount:1,successRate:50});
+            expect(d).toMatchObject({successfulCount:2,unsuccessfulCount:1,unknownOutcomeCount:0,successRate:66.67});
         });
 
         it('includes per-theme statistics for a selected project', async () => {

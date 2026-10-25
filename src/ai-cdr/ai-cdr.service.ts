@@ -19,6 +19,7 @@ import { CallTag } from "../operator-analytics/operator-call-tag.model";
 import { isOperatorAnalyticsSource } from "../operator-analytics/lib/analytics-source";
 import { isRubTenant } from '../shared/tenant/tenant-currency';
 import { buildCsatWhereCondition, parseCsatFilter } from './parse-csat-filter';
+import { applyJournalSelection, journalDateWhere, journalOption, JournalQuery } from './journal-selection';
 
 interface AudioTranscriptionEvent {
     type: 'conversation.item.input_audio_transcription.completed';
@@ -315,11 +316,33 @@ export class AiCdrService {
         }
     }
 
-    async get(query: GetAiCdrDto, isAdmin: boolean, realUserId: string) {
+    async getJournalOptions(query: JournalQuery, isAdmin: boolean, realUserId: string) {
+        if (!isAdmin && !realUserId) throw new HttpException('Missing account', HttpStatus.BAD_REQUEST);
+        const userId = isAdmin ? (query.userId || undefined) : realUserId;
+        const dates = journalDateWhere(query.startDate, query.endDate);
+        const rows = await this.aiCdrRepository.findAll({
+            where: { ...(userId ? { userId: String(userId) } : {}), ...(dates ? { createdAt: dates } : {}) },
+            attributes: ['userId', 'operatorId', 'assistantId', 'assistantName'],
+            group: ['userId', 'operatorId', 'assistantId', 'assistantName'],
+            order: [['assistantName', 'ASC']],
+            limit: 1000,
+            raw: true,
+        });
+        const options = new Map<string, ReturnType<typeof journalOption>>();
+        for (const row of rows) {
+            const option = journalOption(row);
+            if (option) options.set(option.value, option);
+        }
+        return { people: [...options.values()], limitReached: rows.length === 1000 };
+    }
+
+    async get(query: GetAiCdrDto, isAdmin: boolean, realUserId: string, journalMode = false) {
         try {
             const page = Number(query.page);
             const limit = Number(query.limit);
             const offset = (page - 1) * limit;
+            if (journalMode && (!Number.isInteger(page) || page < 1 || !Number.isInteger(limit) || limit < 1 || limit > 1000))
+                throw new HttpException('Invalid journal pagination', HttpStatus.BAD_REQUEST);
             const search = query.search;
             const endDate = query.endDate;
             const startDate = query.startDate;
@@ -370,7 +393,11 @@ export class AiCdrService {
             };
 
             // Обработка случаев, когда указаны оба параметра startDate и endDate
-            if (startDate && endDate) {
+            if (journalMode) {
+                const dates = journalDateWhere(startDate, endDate);
+                if (dates) whereClause.createdAt = dates;
+                applyJournalSelection(whereClause, query as JournalQuery);
+            } else if (startDate && endDate) {
                 whereClause.createdAt = {
                     // [sequelize.Op.gte]: sequelize.literal(`DATE('${startDate}')`),
                     // [sequelize.Op.lte]: sequelize.literal(`DATE('${endDate}')`)
@@ -429,15 +456,24 @@ export class AiCdrService {
                 if (query.projectId !== undefined && query.projectId !== '') {
                     tagWhere.projectId = Number(query.projectId);
                 }
-                const tagRows = await this.callTagRepository.findAll({
-                    where: tagWhere,
-                    attributes: ['channelId'],
-                    limit: 5000,
-                });
-                const channelIds = tagRows.map(r => r.channelId);
-                whereClause.channelId = {
-                    [Op.in]: channelIds.length ? channelIds : ['__no_matching_tag__'],
-                };
+                if (journalMode) {
+                    // The query generator escapes values; no capped ID list or untrusted SQL.
+                    const generator = (this.aiCdrRepository.sequelize.getQueryInterface() as any).queryGenerator;
+                    const sql = generator.selectQuery(this.callTagRepository.getTableName(), {
+                        attributes: ['channelId'], where: tagWhere,
+                    }).replace(/;\s*$/, '');
+                    whereClause.channelId = { [Op.in]: sequelize.literal(`(${sql})`) };
+                } else {
+                    const tagRows = await this.callTagRepository.findAll({
+                        where: tagWhere,
+                        attributes: ['channelId'],
+                        limit: 5000,
+                    });
+                    const channelIds = tagRows.map(r => r.channelId);
+                    whereClause.channelId = {
+                        [Op.in]: channelIds.length ? channelIds : ['__no_matching_tag__'],
+                    };
+                }
             }
 
             const sortField = query.sortField || 'createdAt';
@@ -501,7 +537,7 @@ export class AiCdrService {
 
             // Build a sum-specific where clause that strips $analytics.*$ conditions
             // so that no JOIN is required and the 'cost' column is unambiguous.
-            const sumWhereClause: any = Object.fromEntries(
+            const sumWhereClause: any = journalMode ? { ...whereClause } : Object.fromEntries(
                 Object.entries(whereClause).filter(([key]) => !String(key).startsWith('$analytics'))
             );
             // Also strip from Op.or array

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/sequelize';
 import { HttpException, HttpStatus } from '@nestjs/common';
-import { Op } from 'sequelize';
+import { Op, Sequelize } from 'sequelize';
 import { AiCdrService } from './ai-cdr.service';
 import { AiCdr } from './ai-cdr.model';
 import { AiEvents } from './ai-events.model';
@@ -100,6 +100,7 @@ describe('AiCdrService', () => {
             findOne: jest.fn(),
             findByPk: jest.fn(),
             findAndCountAll: jest.fn(),
+            findAll: jest.fn().mockResolvedValue([]),
             sum: jest.fn(),
             sequelize: {
                 query: jest.fn(),
@@ -517,6 +518,44 @@ describe('AiCdrService', () => {
             await expect(service.getDialogs('channel-001'))
                 .rejects
                 .toThrow(HttpException);
+        });
+    });
+
+    describe('preview journal real service query', () => {
+        it('preserves tenant and ISO interval while forwarding union selections to the repository', async () => {
+            mockAiCdrRepository.findAndCountAll.mockResolvedValue({ count: 0, rows: [] });
+            mockAiCdrRepository.sum.mockResolvedValue(0);
+            await service.get({ page: 2, limit: 20, search: '', userId: 'foreign', startDate: '2026-10-24T17:00:00Z', endDate: '2026-10-25T16:59:59.999Z', sources: '["call","external-api"]', callTypes: '["incoming","outgoing"]', people: '[{"userId":"99","operatorId":"218"},{"userId":"foreign","operatorId":"218"}]' } as any, false, '99', true);
+            const query = mockAiCdrRepository.findAndCountAll.mock.calls[0][0];
+            expect(query.where.userId).toBe('99');
+            expect(query.offset).toBe(20);
+            expect(query.where.createdAt[Op.gte].toISOString()).toBe('2026-10-24T17:00:00.000Z');
+            expect(query.where.createdAt[Op.lte].toISOString()).toBe('2026-10-25T16:59:59.999Z');
+            expect(query.where[Op.and]).toHaveLength(3);
+        });
+        it('reads only distinct scoped identities for filter options', async () => {
+            mockAiCdrRepository.findAll.mockResolvedValue([{ userId: '99', operatorId: '218', assistantName: 'Operator' }]);
+            const options = await service.getJournalOptions({ userId: 'other', startDate: '2026-10-25T00:00:00Z' } as any, false, '99');
+            expect(mockAiCdrRepository.findAll).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ userId: '99' }), attributes: ['userId', 'operatorId', 'assistantId', 'assistantName'], limit: 1000 }));
+            expect(JSON.parse(options.people[0].value)).toEqual({ userId: '99', operatorId: '218' });
+        });
+        it('uses an escaped tenant-scoped tag subquery instead of truncating at5000IDs', async () => {
+            const orm = new Sequelize({ dialect: 'postgres', database: 'unused', username: 'unused', password: 'unused', logging: false });
+            mockAiCdrRepository.sequelize.getQueryInterface = () => orm.getQueryInterface();
+            mockCallTagRepository.getTableName = () => 'operator_call_tags';
+            mockAiCdrRepository.findAndCountAll.mockResolvedValue({ count: 0, rows: [] });
+            mockAiCdrRepository.sum.mockResolvedValue(0);
+            await service.get({ page: 1, limit: 20, search: '', userId: 'foreign', tagId: "service'quote" } as any, false, '99', true);
+            const clause = mockAiCdrRepository.findAndCountAll.mock.calls[0][0].where.channelId[Op.in].val;
+            expect(clause).toContain("service''quote");
+            expect(clause).toContain("'99'");
+            expect(clause).not.toContain('LIMIT');
+            expect(mockCallTagRepository.findAll).not.toHaveBeenCalled();
+            await orm.close();
+        });
+        it('rejects unbounded pagination before querying', async () => {
+            await expect(service.get({ page: 1, limit: 100000, search: '' } as any, false, '99', true)).rejects.toThrow();
+            expect(mockAiCdrRepository.findAndCountAll).not.toHaveBeenCalled();
         });
     });
 

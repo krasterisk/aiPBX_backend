@@ -7,6 +7,7 @@ import { AiEvents } from "./ai-events.model";
 import { AiCdr } from "./ai-cdr.model";
 import { GetAiCdrDto } from "./dto/getAiCdr.dto";
 import { GetDashboardDto } from "./dto/getDashboardDto";
+import { JournalQuery } from './journal-selection';
 
 interface RequestWithUser extends Request {
     isAdmin?: boolean
@@ -18,6 +19,25 @@ interface RequestWithUser extends Request {
 export class AiCdrController {
 
     constructor(private aiCdrService: AiCdrService) { }
+
+    @ApiOperation({ summary: 'Preview journal with server-side multiselect (legacy page unchanged)' })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get('journal')
+    journal(@Query() query: JournalQuery, @Req() request: RequestWithUser) {
+        const isAdmin = request.isAdmin ?? false;
+        const userId = isAdmin ? null : request.vpbxUserId || request.tokenUserId;
+        return this.aiCdrService.get(query, isAdmin, userId, true);
+    }
+
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get('journal/options')
+    journalOptions(@Query() query: JournalQuery, @Req() request: RequestWithUser) {
+        const isAdmin = request.isAdmin ?? false;
+        const userId = isAdmin ? null : request.vpbxUserId || request.tokenUserId;
+        return this.aiCdrService.getJournalOptions(query, isAdmin, userId);
+    }
 
     @ApiOperation({ summary: "reports list page" })
     @ApiResponse({ status: 200, type: AiCdr })

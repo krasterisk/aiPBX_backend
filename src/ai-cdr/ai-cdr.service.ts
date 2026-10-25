@@ -1,3 +1,6 @@
+import { QualityPreviewAnalytics } from '../operator-analytics/quality/quality-preview-analytics.model';
+import { journalOrderExpression } from './journal-order';
+import { postgresJsonbCast } from '../operator-analytics/lib/dashboard-aggregation';
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from "@nestjs/sequelize";
 import { AiCdrDto } from "./dto/ai-cdr.dto";
@@ -336,7 +339,7 @@ export class AiCdrService {
         return { people: [...options.values()], limitReached: rows.length === 1000 };
     }
 
-    async get(query: GetAiCdrDto, isAdmin: boolean, realUserId: string, journalMode = false) {
+    async get(query: GetAiCdrDto, isAdmin: boolean, realUserId: string, journalMode = false, qualityPreview = false) {
         try {
             const page = Number(query.page);
             const limit = Number(query.limit);
@@ -489,13 +492,16 @@ export class AiCdrService {
 
             // Build order clause based on field type
             let orderClause: any[];
-            const isAssociatedSort = sortField === 'csat' || sortField === 'sentiment' || sortField === 'scenarioSuccess';
+            const journalOrder = qualityPreview ? journalOrderExpression(sortField, this.dialect) : null;
+            const isAssociatedSort = Boolean(journalOrder) || sortField === 'csat' || sortField === 'sentiment' || sortField === 'scenarioSuccess';
             const isCsatFilter = Boolean(csatWhere);
             // subQuery: false needed when sorting/searching by JOINed fields
             const needsFlatQuery = isAssociatedSort || isCsatFilter || (search && search.trim() !== '');
             const nullsLast = this.dialect === 'postgres' ? ' NULLS LAST' : '';
 
-            if (sortField === 'csat') {
+            if (journalOrder) {
+                orderClause = [[sequelize.literal(`${journalOrder} ${sortOrder}${nullsLast}`)]];
+            } else if (sortField === 'csat') {
                 orderClause = this.dialect === 'postgres'
                     ? [[sequelize.literal(`"analytics"."csat" ${sortOrder}${nullsLast}`)]]
                     : [[{ model: AiAnalytics, as: 'analytics' }, 'csat', sortOrder]];
@@ -514,17 +520,36 @@ export class AiCdrService {
             }
             orderClause = [...orderClause, ['id', sortOrder]];
 
+            const previewAlias = (value: any): any => {
+                if (typeof value === 'string') return value;
+                if (!value || typeof value !== 'object' || value instanceof Date) return value;
+                if (Array.isArray(value)) return value.map(previewAlias);
+                if (value.val && typeof value.val === 'string') return sequelize.literal(value.val.replace(/"analytics"/g, '"previewAnalytics"'));
+                if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+                return Reflect.ownKeys(value).reduce((out: any, key) => {
+                    out[typeof key === 'string' ? key.replace(/\$analytics\./g, '$previewAnalytics.') : key] = previewAlias(value[key]); return out;
+                }, {});
+            };
+            const selectedWhere = qualityPreview ? previewAlias(whereClause) : whereClause;
+            if (qualityPreview) orderClause = orderClause.map(entry => {
+                if (entry[0]?.val) return [sequelize.literal(entry[0].val.replace(/"analytics"/g, '"previewAnalytics"'))];
+                return entry;
+            });
             const { count, rows } = await this.aiCdrRepository.findAndCountAll({
                 offset,
                 limit,
                 subQuery: needsFlatQuery ? false : undefined,
-                where: whereClause,
+                where: selectedWhere,
                 order: orderClause,
                 include: [
                     {
-                        model: AiAnalytics,
-                        as: 'analytics',
+                        model: qualityPreview ? QualityPreviewAnalytics : AiAnalytics,
+                        as: qualityPreview ? 'previewAnalytics' : 'analytics',
                         required: false,
+                        ...(qualityPreview && this.dialect === 'postgres' ? { attributes: {
+                            exclude: ['metrics'],
+                            include: [[sequelize.literal(`jsonb_build_object('_topics', (${postgresJsonbCast(qualityPreview ? '"previewAnalytics"."metrics"' : '"analytics"."metrics"')})->'_topics', 'success', (${postgresJsonbCast(qualityPreview ? '"previewAnalytics"."metrics"' : '"analytics"."metrics"')})->'success', 'scenario_analysis', jsonb_build_object('success', (${postgresJsonbCast(qualityPreview ? '"previewAnalytics"."metrics"' : '"analytics"."metrics"')})->'scenario_analysis'->'success'))`), 'metrics']],
+                        } } : {}),
                     },
                     {
                         model: BillingRecord,
@@ -577,7 +602,7 @@ export class AiCdrService {
 
             let transcriptionMap = new Map<string, string>();
             let recordUrlMap = new Map<string, string>();
-            if (analyticsIds.length > 0) {
+            if (analyticsIds.length > 0 && !qualityPreview) {
                 const oaRecords = await this.operatorAnalyticsRepository.findAll({
                     where: { id: { [Op.in]: analyticsIds } },
                     attributes: ['id', 'transcription', 'recordUrl'],
@@ -592,6 +617,7 @@ export class AiCdrService {
 
             const enrichedRows = rows.map(row => {
                 const json = row.toJSON() as any;
+                if (qualityPreview) { json.analytics = json.previewAnalytics; delete json.previewAnalytics; }
                 json.transcription = transcriptionMap.get(row.channelId) || null;
                 if (!json.recordUrl) {
                     json.recordUrl = recordUrlMap.get(row.channelId) || json.recordUrl;

@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class OperatorEvidenceItemDto {
+    @ApiPropertyOptional({ nullable: true, description: 'Normalized quality value under this call rule snapshot, 0–100' })
+    normalizedScore?: number | null;
     @ApiProperty({ example: '12345' })
     channelId: string;
 
@@ -18,6 +20,8 @@ export class OperatorEvidenceItemDto {
 }
 
 export class OperatorEvidenceMetricDto {
+    @ApiPropertyOptional({ nullable: true })
+    normalizedAverage?: number | null;
     @ApiProperty({ example: 'greeting_quality' })
     metricId: string;
 
@@ -59,8 +63,8 @@ export class OperatorEvidenceResponseDto {
     @ApiProperty({ example: 38 })
     scoredCalls: number;
 
-    @ApiProperty({ example: 71.25 })
-    averageScore: number;
+    @ApiProperty({ example: 71.25, nullable: true })
+    averageScore: number | null;
 
     @ApiProperty({ example: false })
     sampleCapped: boolean;

@@ -1,3 +1,4 @@
+import { QualityPreviewAnalytics } from '../operator-analytics/quality/quality-preview-analytics.model';
 import { Column, DataType, HasMany, HasOne, Model, Table } from "sequelize-typescript";
 import { AiAnalytics } from "../ai-analytics/ai-analytics.model";
 import { BillingRecord } from "../billing/billing-record.model";
@@ -31,6 +32,9 @@ interface CreateAiCdr {
 
 @Table({ tableName: "aiCdr" })
 export class AiCdr extends Model<AiCdr, CreateAiCdr> {
+    @HasOne(() => QualityPreviewAnalytics, { foreignKey: 'channelId', sourceKey: 'channelId' })
+    previewAnalytics: QualityPreviewAnalytics;
+
     @ApiProperty({ description: 'Stable source-namespaced external employee ID; scoped by account', required: false, nullable: true })
     @Column({ type: DataType.STRING(128), allowNull: true })
     operatorId: string;

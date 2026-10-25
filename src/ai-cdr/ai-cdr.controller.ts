@@ -20,6 +20,14 @@ export class AiCdrController {
 
     constructor(private aiCdrService: AiCdrService) { }
 
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    @Get('quality-preview')
+    qualityPreview(@Query() query: JournalQuery, @Req() request: RequestWithUser) {
+        const admin = request.isAdmin ?? false;
+        return this.aiCdrService.get(query, admin, admin ? null : request.vpbxUserId || request.tokenUserId, true, true);
+    }
+
     @ApiOperation({ summary: 'Preview journal with server-side multiselect (legacy page unchanged)' })
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)

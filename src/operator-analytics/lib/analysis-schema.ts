@@ -220,6 +220,7 @@ export interface AnalysisTaxonomyTag {
 }
 
 export interface AnalysisBuildContext {
+    qualityScoring?: boolean;
     topicScheme?: TopicScheme;
     visibleDefaultMetrics: DefaultMetricKey[];
     customMetrics: AnalysisCustomMetric[];
@@ -471,10 +472,10 @@ export function buildZodAnalysisSchema(ctx: AnalysisBuildContext, options?: Anal
     for (const key of SUMMARY_ASSESSMENT_KEYS) {
         assessmentShape[key] = assessmentSchema();
     }
-    shape.assessments = z.object(assessmentShape).partial();
+    shape.assessments = ctx.qualityScoring ? z.object(assessmentShape) : z.object(assessmentShape).partial();
 
     for (const key of ctx.visibleDefaultMetrics) {
-        shape[key] = scoreSchema();
+        shape[key] = ctx.qualityScoring ? scoreSchema().nullable() : scoreSchema();
     }
 
     shape.customer_sentiment = z.enum(['Positive', 'Neutral', 'Negative']);
@@ -482,6 +483,12 @@ export function buildZodAnalysisSchema(ctx: AnalysisBuildContext, options?: Anal
     shape.summary = z.string();
     shape.success = z.boolean();
     shape.analysis_confidence = z.number().min(0).max(1);
+    if (ctx.qualityScoring) {
+        const statuses: Record<string, z.ZodTypeAny> = {};
+        for (const key of ctx.visibleDefaultMetrics) statuses[`default:${key}`] = z.enum(['assessed', 'not_applicable', 'insufficient_evidence']);
+        for (const metric of ctx.customMetrics) statuses[`custom:${metric.id}`] = z.enum(['assessed', 'not_applicable', 'insufficient_evidence']);
+        shape.criterion_statuses = z.object(statuses).strict();
+    }
     shape.insufficient_content = z.boolean();
     if (options?.llmDiarize !== false) {
         shape.diarized_text = z.array(z.object({
@@ -549,8 +556,13 @@ export function buildOpenAiJsonSchema(ctx: AnalysisBuildContext, options?: Analy
     required.push('assessments');
 
     for (const key of ctx.visibleDefaultMetrics) {
-        properties[key] = { type: 'integer', minimum: 0, maximum: 100 };
+        properties[key] = { type: ctx.qualityScoring ? ['integer', 'null'] : 'integer', minimum: 0, maximum: 100 };
         required.push(key);
+    }
+    if (ctx.qualityScoring) {
+        const keys = [...ctx.visibleDefaultMetrics.map(key => `default:${key}`), ...ctx.customMetrics.map(metric => `custom:${metric.id}`)];
+        properties.criterion_statuses = { type: 'object', properties: Object.fromEntries(keys.map(key => [key, { type: 'string', enum: ['assessed', 'not_applicable', 'insufficient_evidence'] }])), required: keys, additionalProperties: false };
+        required.push('criterion_statuses');
     }
 
     properties.customer_sentiment = { type: 'string', enum: ['Positive', 'Neutral', 'Negative'] };
@@ -657,7 +669,10 @@ export function buildAnalysisPrompt(
     },
 ): string {
     const metricLines = ctx.visibleDefaultMetrics.map((key, index) => {
-        return `${index + 1}. ${key}: ${METRIC_RUBRIC_DESCRIPTIONS[key]}`;
+        const rubric = ctx.qualityScoring && key === 'objection_handling'
+            ? OBJECTION_HANDLING_RUBRIC.replace('no objection → score 100;', 'no objection → not_applicable with null value;')
+            : METRIC_RUBRIC_DESCRIPTIONS[key];
+        return `${index + 1}. ${key}: ${rubric}`;
     }).join('\n');
 
     const assessmentKeys = [
@@ -743,21 +758,21 @@ export function buildAnalysisPrompt(
                 : 'diarized_text: split into short utterances; speakers lowercase English operator|customer only; do not glue the whole call into one item.';
 
     const metricJsonLines = ctx.visibleDefaultMetrics
-        .map(key => `  "${key}": <0|25|50|75|100>`)
+        .map(key => `  "${key}": <0|25|50|75|100${ctx.qualityScoring ? '|null' : ''}>`)
         .join(',\n');
 
     const globalScoring = [
         'GLOBAL SCORING:',
         SCORE_ANCHOR_INSTRUCTION,
-        CHECKLIST_SCORE_MAP,
-        NA_AS_PRESENT_NOTE,
-        FULL_SCORE_INSTRUCTION,
+        ctx.qualityScoring ? 'Use explicit criterion_statuses. For each criterion: assessed with a supported answer, not_applicable when the whole criterion is irrelevant, insufficient_evidence when the recording cannot establish the answer. For not_applicable or insufficient_evidence return null for its value. Exclude irrelevant checklist items instead of counting them as successful. If every checklist item is irrelevant, mark the criterion not_applicable. A missing recording fragment is not evidence of absence: if the beginning or a substantial part is missing, mark greeting/ID and objection handling insufficient_evidence unless their relevant behavior is actually recorded. Do not conclude no objection occurred from an incomplete conversation. Never infer a violation from a missing recording fragment. Do not compute any overall score or weights.' : CHECKLIST_SCORE_MAP,
+        ctx.qualityScoring ? '' : NA_AS_PRESENT_NOTE,
+        ctx.qualityScoring ? FULL_SCORE_INSTRUCTION.replace('every checklist item', 'every applicable checklist item') : FULL_SCORE_INSTRUCTION,
         SCOPE_INSTRUCTION,
         BUSINESS_CONTEXT_INSTRUCTION,
         successRule,
         CSAT_INSTRUCTION,
         PROCESS_VS_OUTCOME_INSTRUCTION,
-        OUT_OF_SCOPE_EXAMPLE,
+        ctx.qualityScoring ? 'Example: a polite accepted refusal outside company scope can still be successful and receive neutral/positive sentiment. If no objection was raised, objection_handling is not_applicable with null, not 100. Assess only what this transcript actually supports.' : OUT_OF_SCOPE_EXAMPLE,
     ].join(' ');
 
     return `
@@ -770,11 +785,12 @@ ${OUTPUT_LANGUAGE_INSTRUCTION}
 
 ${globalScoring}
 
-SCORING ORDER: (1) classify in-scope vs business limit; (2) mark each checklist item present, absent, or N/A (N/A = present); (3) map the count to 100/75/50/25/0; (4) write the rationale naming only a missing operator behavior — never "customer did not receive the service". Assessments for ${assessmentKeys.join(', ')} and the summary stay in the transcript language.
+SCORING ORDER: ${ctx.qualityScoring ? '(1) determine business scope; (2) establish applicability and evidence for each criterion; (3) score applicable observed behavior only, using the rubric; (4) explain the selected status and answer. N/A never counts as successful behavior.' : '(1) classify in-scope vs business limit; (2) mark each checklist item present, absent, or N/A (N/A = present); (3) map the count to 100/75/50/25/0; (4) write the rationale naming only a missing operator behavior — never "customer did not receive the service".'} Assessments for ${assessmentKeys.join(', ')} and the summary stay in the transcript language.
 
 JSON shape:
 {
-  "assessments": { "<key>": { "rationale": "<1 short sentence, transcript language>", "quote": "<snippet or empty>" }, ... },
+  "assessments": ${ctx.qualityScoring ? JSON.stringify(Object.fromEntries(assessmentKeys.map(key=>[key,{rationale:'<1 short sentence, transcript language>',quote:'<snippet or empty>'}]))) : '{ "<key>": { "rationale": "<1 short sentence, transcript language>", "quote": "<snippet or empty>" }, ... }'},
+${ctx.qualityScoring ? '  "criterion_statuses": ' + JSON.stringify(Object.fromEntries([...ctx.visibleDefaultMetrics.map(key => `default:${key}`), ...ctx.customMetrics.map(metric => `custom:${metric.id}`)].map(key => [key, 'assessed|not_applicable|insufficient_evidence']))) + ',' : ''}
 ${metricJsonLines}${metricJsonLines ? ',' : ''}
   "customer_sentiment": "Positive|Neutral|Negative",
   "csat": <1-5>,
@@ -789,6 +805,7 @@ ${metricLines}
 ${customMetricsPromptBlock}
 ${taxonomyPromptBlock}
 
+${ctx.qualityScoring ? `Mandatory assessments: return EVERY key ${JSON.stringify(assessmentKeys)}, including csat, customer_sentiment and success. Each must have rationale and quote. Summary-level assessments are mandatory even when criterion values are null.` : ''}
 ${diarizedInstruction}
 Return ONLY JSON.
 `.trim();
@@ -825,6 +842,19 @@ export function parseAndValidateAnalysisResponse(
     }
 
     const data = result.data as Record<string, any>;
+    if (ctx.qualityScoring) {
+        for (const [key, status] of Object.entries(data.criterion_statuses)) {
+            const [origin, ...idParts] = key.split(':');
+            const id = idParts.join(':');
+            const value = origin === 'custom' ? data.custom_metrics?.[id] : data[id];
+            if (status !== 'assessed' && !data.assessments?.[id]?.rationale?.trim()) throw new AnalysisSchemaValidationError(`Missing applicability reason: ${key}`, rawContent);
+            if (status !== 'assessed' && value != null || status === 'assessed' && value == null) {
+                throw new AnalysisSchemaValidationError(`Applicability/value mismatch: ${key}`, rawContent);
+            }
+        }
+        data._criterion_statuses = data.criterion_statuses;
+        delete data.criterion_statuses;
+    }
     const { values: customMetricsResult, invalid: customMetricsInvalid } =
         sanitizeCustomMetricValues(data.custom_metrics || null, ctx);
     const topicDecision = ctx.topicScheme ? resolveTopicScheme(ctx.topicScheme, data.topic_eligibility) : undefined;

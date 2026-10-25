@@ -1,3 +1,4 @@
+import { QualityPreviewAnalytics } from '../operator-analytics/quality/quality-preview-analytics.model';
 import { forwardRef, Module } from '@nestjs/common';
 import { AiCdrController } from './ai-cdr.controller';
 import { AiCdrService } from "./ai-cdr.service";
@@ -19,7 +20,7 @@ import { CallTag } from "../operator-analytics/operator-call-tag.model";
   providers: [AiCdrService],
   imports: [
     SequelizeModule.forFeature([
-      AiCdr, AiEvents, Assistant, SipAccounts, OperatorAnalytics, AiAnalytics, BillingRecord, CallTag,
+      QualityPreviewAnalytics, AiCdr, AiEvents, Assistant, SipAccounts, OperatorAnalytics, AiAnalytics, BillingRecord, CallTag,
     ]),
     forwardRef(() => AuthModule),
     forwardRef(() => AiAnalyticsModule),

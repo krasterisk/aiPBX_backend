@@ -24,6 +24,11 @@ interface MetricValueCreationAttrs {
  */
 @Table({ tableName: 'operator_metric_values', timestamps: true, updatedAt: false })
 export class MetricValue extends Model<MetricValue, MetricValueCreationAttrs> {
+    @Column({ type: DataType.STRING(36), allowNull: true }) qualityRunId: string | null;
+    @Column({ type: DataType.STRING(24), allowNull: true }) qualityStatus: string | null;
+    @Column({ type: DataType.FLOAT, allowNull: true }) normalizedValue: number | null;
+    @Column({ type: DataType.FLOAT, allowNull: true }) qualityWeight: number | null;
+    @Column({ type: DataType.BOOLEAN, allowNull: true }) contributesToQuality: boolean | null;
     @ApiProperty({ example: 1 })
     @Column({ type: DataType.INTEGER, autoIncrement: true, primaryKey: true })
     id: number;

@@ -1,3 +1,9 @@
+import { QualityPreviewController } from './quality/quality-preview.controller';
+import { QualityPreviewService } from './quality/quality-preview.service';
+import { QualityPreviewAnalytics } from './quality/quality-preview-analytics.model';
+import { QualityPreviewValue } from './quality/quality-preview-values.model';
+import { QualityPreviewOverride } from './quality/quality-preview-overrides.model';
+import { QualityPreviewRun, QualityPreviewScorecard, QualityPreviewRules } from './quality/quality-preview.models';
 import { Module } from '@nestjs/common';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { ConfigModule } from '@nestjs/config';
@@ -32,10 +38,12 @@ import { TelegramModule } from '../telegram/telegram.module';
 import { InsightsCacheService } from './insights-cache.service';
 import { TopicSchemeService } from './topic-scheme.service';
 import { TopicSchemeController } from './topic-scheme.controller';
+import { QualityAnalysisRun, QualityScorecardRevision } from './quality/quality-score.models';
+import { QualityScoringService } from './quality/quality-scoring.service';
 
 @Module({
     imports: [
-        SequelizeModule.forFeature([OperatorAnalytics, OperatorApiToken, OperatorProject, MetricValue, MetricOverride, CallTag, Prices, User, AiCdr, AiAnalytics, BillingRecord]),
+        SequelizeModule.forFeature([OperatorAnalytics, OperatorApiToken, OperatorProject, MetricValue, MetricOverride, CallTag, Prices, User, AiCdr, AiAnalytics, BillingRecord, QualityAnalysisRun, QualityScorecardRevision, QualityPreviewAnalytics, QualityPreviewValue, QualityPreviewOverride, QualityPreviewRun, QualityPreviewScorecard, QualityPreviewRules]),
         ConfigModule,
         UsersModule,
         AuthModule,
@@ -44,8 +52,10 @@ import { TopicSchemeController } from './topic-scheme.controller';
         MailerModule,
         TelegramModule,
     ],
-    controllers: [OperatorAnalyticsController, TopicSchemeController],
+    controllers: [QualityPreviewController, OperatorAnalyticsController, TopicSchemeController],
     providers: [
+        QualityScoringService,
+        QualityPreviewService,
         TopicSchemeService,
         OperatorAnalyticsService,
         OperatorDigestService,

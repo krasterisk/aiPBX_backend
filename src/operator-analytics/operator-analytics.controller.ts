@@ -1,4 +1,5 @@
 import { DashboardTimeSeriesDto } from './dto/dashboard-time-series.dto';
+import { QualityDetailDto, QualityHistoryDto, QualityRulesDto } from './quality/quality-score.dto';
 import { CallType, parseCallType } from './lib/call-type';
 import { multipartAnalyzeSchema, urlAnalyzeSchema } from './lib/ingestion-api-schema';
 import {
@@ -55,6 +56,50 @@ export class OperatorAnalyticsController {
         private readonly digestService: OperatorDigestService,
         private readonly alertService: OperatorAlertService,
     ) { }
+
+    @Get('quality/:channelId')
+    @ApiResponse({ status: 200, type: QualityDetailDto })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    async qualityDetail(@Param('channelId') channelId: string, @Query('runId') runId: string | undefined, @Req() req: RequestWithUser) {
+        const userId = req.vpbxUserId || req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        if (runId && !/^[a-f0-9-]{36}$/i.test(runId)) throw new HttpException('Invalid evaluation id', HttpStatus.BAD_REQUEST);
+        return this.service.qualityDetail(channelId, userId, req.isAdmin ?? false, runId);
+    }
+
+    @Get('quality/:channelId/history')
+    @ApiResponse({ status: 200, type: [QualityHistoryDto] })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    async qualityHistory(@Param('channelId') channelId: string, @Query('limit') limit: string | undefined, @Query('before') before: string | undefined, @Req() req: RequestWithUser) {
+        const userId = req.vpbxUserId || req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        const size = limit === undefined ? 20 : Number(limit);
+        if (!Number.isInteger(size) || size < 1 || size > 100 || before && !/^[a-f0-9-]{36}$/i.test(before)) throw new HttpException('Invalid history pagination', HttpStatus.BAD_REQUEST);
+        return this.service.qualityHistory(channelId, userId, req.isAdmin ?? false, size, before);
+    }
+
+    @Get('projects/:id/quality-rules')
+    @ApiResponse({ status: 200, type: QualityRulesDto })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    async qualityRules(@Param('id') id: string, @Req() req: RequestWithUser) {
+        const userId = req.vpbxUserId || req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        return this.service.qualityRules(Number(id), userId, req.isAdmin ?? false);
+    }
+
+    @Patch('projects/:id/quality-rules')
+    @ApiResponse({ status: 200, type: QualityRulesDto })
+    @ApiBody({ schema: { type: 'object', additionalProperties: false, properties: { minimumCoverage: { type: 'number', minimum: 0, maximum: 1 }, criteria: { type: 'object', additionalProperties: { type: 'object' } } } } })
+    @Roles('ADMIN', 'USER')
+    @UseGuards(RolesGuard)
+    async saveQualityRules(@Param('id') id: string, @Body() config: import('./quality/quality-score').QualityScoreConfig, @Req() req: RequestWithUser) {
+        const userId = req.vpbxUserId || req.tokenUserId;
+        if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+        return this.service.qualityRules(Number(id), userId, req.isAdmin ?? false, config);
+    }
 
     // ─── Batch Progress (JWT Auth) ───────────────────────────
 

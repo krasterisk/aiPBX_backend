@@ -1,3 +1,7 @@
+import { QualityPreviewController } from '../src/operator-analytics/quality/quality-preview.controller';
+import { QualityPreviewService } from '../src/operator-analytics/quality/quality-preview.service';
+import { AiCdrController } from '../src/ai-cdr/ai-cdr.controller';
+import { AiCdrService } from '../src/ai-cdr/ai-cdr.service';
 /** Refresh only the analytics controller contract without opening a database/network connection. */
 import 'reflect-metadata';
 import { Test } from '@nestjs/testing';
@@ -17,8 +21,8 @@ import { TopicSchemeService } from '../src/operator-analytics/topic-scheme.servi
 
 async function main() {
     const module = await Test.createTestingModule({
-        controllers: [OperatorAnalyticsController, TopicSchemeController],
-        providers: [OperatorAnalyticsService, OperatorDigestService, OperatorAlertService, TopicSchemeService].map(provide => ({ provide, useValue: {} })),
+        controllers: [OperatorAnalyticsController, TopicSchemeController, QualityPreviewController, AiCdrController],
+        providers: [QualityPreviewService, AiCdrService, OperatorAnalyticsService, OperatorDigestService, OperatorAlertService, TopicSchemeService].map(provide => ({ provide, useValue: {} })),
     }).overrideGuard(ApiTokenGuard).useValue({ canActivate: () => true })
         .overrideGuard(RolesGuard).useValue({ canActivate: () => true }).compile();
     const app = module.createNestApplication();

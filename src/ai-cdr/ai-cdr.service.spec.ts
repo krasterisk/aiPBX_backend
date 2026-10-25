@@ -562,6 +562,19 @@ describe('AiCdrService', () => {
     // ─── get (CDR listing with pagination) ──────────────────────────────
 
     describe('get', () => {
+        it.each(['qualityScore', 'topic', 'scenarioSuccess'])('sorts the complete journal by %s while keeping legacy fallback unchanged', async (sortField) => {
+            mockAiCdrRepository.findAndCountAll.mockResolvedValue({ count: 0, rows: [] });
+            await service.get({ page: 1, limit: 20, search: '', sortField, sortOrder: 'ASC' } as any, false, '99', true, true);
+            let options = mockAiCdrRepository.findAndCountAll.mock.calls.at(-1)[0];
+            expect(options.subQuery).toBe(false);
+            expect(options.where.userId).toBe('99');
+            expect(options.order[0][0].val).toContain('ASC NULLS LAST');
+            if (sortField !== 'scenarioSuccess') {
+                await service.get({ page: 1, limit: 20, search: '', sortField, sortOrder: 'ASC' } as any, false, '99');
+                options = mockAiCdrRepository.findAndCountAll.mock.calls.at(-1)[0];
+                expect(options.order[0]).toEqual(['createdAt', 'ASC']);
+            }
+        });
         const baseQuery = {
             page: 1,
             limit: 10,

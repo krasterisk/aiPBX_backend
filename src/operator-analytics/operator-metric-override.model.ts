@@ -1,9 +1,11 @@
 import { Column, DataType, Model, Table } from 'sequelize-typescript';
 import { ApiProperty } from '@nestjs/swagger';
+import type { CriterionStatus } from './quality/quality-score';
 
 export type MetricOverrideOrigin = 'default' | 'custom' | 'summary';
 
 interface MetricOverrideCreationAttrs {
+    status?: CriterionStatus | null;
     channelId: string;
     userId: string;
     actorUserId: string;
@@ -23,6 +25,8 @@ interface MetricOverrideCreationAttrs {
  */
 @Table({ tableName: 'operator_metric_overrides', timestamps: true })
 export class MetricOverride extends Model<MetricOverride, MetricOverrideCreationAttrs> {
+    @ApiProperty({ nullable: true, required: false, enum: ['assessed','not_applicable','insufficient_evidence'] })
+    @Column({ type: DataType.STRING(24), allowNull: true }) status: CriterionStatus | null;
     @ApiProperty({ example: 1 })
     @Column({ type: DataType.INTEGER, autoIncrement: true, primaryKey: true })
     id: number;

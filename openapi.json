@@ -7646,6 +7646,447 @@
           "Operator Analytics"
         ]
       }
+    },
+    "/api/operator-analytics/quality/{channelId}": {
+      "get": {
+        "operationId": "OperatorAnalyticsController_qualityDetail",
+        "parameters": [
+          {
+            "name": "channelId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "runId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityDetailDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operator Analytics"
+        ]
+      }
+    },
+    "/api/operator-analytics/quality/{channelId}/history": {
+      "get": {
+        "operationId": "OperatorAnalyticsController_qualityHistory",
+        "parameters": [
+          {
+            "name": "channelId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QualityHistoryDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operator Analytics"
+        ]
+      }
+    },
+    "/api/operator-analytics/projects/{id}/quality-rules": {
+      "get": {
+        "operationId": "OperatorAnalyticsController_qualityRules",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityRulesDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operator Analytics"
+        ]
+      },
+      "patch": {
+        "operationId": "OperatorAnalyticsController_saveQualityRules",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "minimumCoverage": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "criteria": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityRulesDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operator Analytics"
+        ]
+      }
+    },
+    "/api/quality-preview/projects/{id}/rules": {
+      "get": {
+        "operationId": "QualityPreviewController_rules",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityRulesDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Quality preview"
+        ]
+      },
+      "patch": {
+        "operationId": "QualityPreviewController_saveRules",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityRulesDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Quality preview"
+        ]
+      }
+    },
+    "/api/quality-preview/calls/{channelId}": {
+      "get": {
+        "operationId": "QualityPreviewController_detail",
+        "parameters": [
+          {
+            "name": "channelId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "runId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityDetailDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Quality preview"
+        ]
+      }
+    },
+    "/api/quality-preview/calls/{channelId}/history": {
+      "get": {
+        "operationId": "QualityPreviewController_history",
+        "parameters": [
+          {
+            "name": "channelId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QualityHistoryDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Quality preview"
+        ]
+      }
+    },
+    "/api/quality-preview/calls/{channelId}/analyze": {
+      "post": {
+        "operationId": "QualityPreviewController_analyze",
+        "parameters": [
+          {
+            "name": "channelId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityDetailDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Quality preview"
+        ]
+      }
+    },
+    "/api/quality-preview/calls/{channelId}/overrides": {
+      "post": {
+        "operationId": "QualityPreviewController_correct",
+        "parameters": [
+          {
+            "name": "channelId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Quality preview"
+        ]
+      }
+    },
+    "/api/quality-preview/calls/{channelId}/overrides/{metricId}": {
+      "delete": {
+        "operationId": "QualityPreviewController_reset",
+        "parameters": [
+          {
+            "name": "channelId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "metricId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Quality preview"
+        ]
+      }
+    },
+    "/api/reports/quality-preview": {
+      "get": {
+        "operationId": "AiCdrController_qualityPreview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AiCdr"
+        ]
+      }
+    },
+    "/api/reports/journal": {
+      "get": {
+        "operationId": "AiCdrController_journal",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Preview journal with server-side multiselect (legacy page unchanged)",
+        "tags": [
+          "AiCdr"
+        ]
+      }
+    },
+    "/api/reports/journal/options": {
+      "get": {
+        "operationId": "AiCdrController_journalOptions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AiCdr"
+        ]
+      }
     }
   },
   "info": {
@@ -10872,6 +11313,11 @@
       "OperatorEvidenceItemDto": {
         "type": "object",
         "properties": {
+          "normalizedScore": {
+            "type": "number",
+            "nullable": true,
+            "description": "Normalized quality value under this call rule snapshot, 0–100"
+          },
           "channelId": {
             "type": "string",
             "example": "12345"
@@ -10903,6 +11349,10 @@
       "OperatorEvidenceMetricDto": {
         "type": "object",
         "properties": {
+          "normalizedAverage": {
+            "type": "number",
+            "nullable": true
+          },
           "metricId": {
             "type": "string",
             "example": "greeting_quality"
@@ -10980,7 +11430,8 @@
           },
           "averageScore": {
             "type": "number",
-            "example": 71.25
+            "example": 71.25,
+            "nullable": true
           },
           "sampleCapped": {
             "type": "boolean",
@@ -11773,6 +12224,380 @@
           "incoming",
           "outgoing",
           "internal"
+        ]
+      },
+      "AiAnalytics": {
+        "type": "object",
+        "properties": {
+          "qualityRunId": {
+            "type": "string",
+            "nullable": true
+          },
+          "qualitySummary": {
+            "type": "object",
+            "nullable": true
+          },
+          "qualityScorecardId": {
+            "type": "string",
+            "nullable": true
+          },
+          "qualityScore": {
+            "type": "number",
+            "nullable": true,
+            "description": "Published deterministic quality score, 0–100. Null is not zero."
+          },
+          "qualityStatus": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "scored",
+              "needs_review",
+              "unscorable"
+            ]
+          },
+          "qualityCoverage": {
+            "type": "number",
+            "nullable": true
+          },
+          "qualityVersion": {
+            "type": "string",
+            "nullable": true
+          },
+          "qualityContextIncomplete": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "channelId": {
+            "type": "string",
+            "example": "123",
+            "description": "Channel uniqueId"
+          },
+          "metrics": {
+            "type": "object",
+            "example": "{\"accuracy\": 90}",
+            "description": "Full analytics metrics JSON"
+          },
+          "summary": {
+            "type": "string",
+            "example": "Call was successful",
+            "description": "Short summary of the call"
+          },
+          "sentiment": {
+            "type": "string",
+            "example": "Positive",
+            "description": "Overall sentiment"
+          },
+          "csat": {
+            "type": "number",
+            "example": 5,
+            "description": "Model-predicted satisfaction (1-5), separate from quality and customer survey CSAT"
+          },
+          "cost": {
+            "type": "number",
+            "example": 0.05,
+            "description": "Cost of the analysis"
+          },
+          "tokens": {
+            "type": "number",
+            "example": 100,
+            "description": "Total tokens used"
+          }
+        },
+        "required": [
+          "channelId",
+          "metrics",
+          "summary",
+          "sentiment",
+          "csat",
+          "cost",
+          "tokens"
+        ]
+      },
+      "QualityCriterionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "default",
+              "custom"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "assessed",
+              "not_applicable",
+              "insufficient_evidence",
+              "missing",
+              "invalid"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "model",
+              "human",
+              "legacy"
+            ]
+          },
+          "value": {
+            "nullable": true,
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "normalized": {
+            "type": "number",
+            "nullable": true
+          },
+          "included": {
+            "type": "boolean"
+          },
+          "weight": {
+            "type": "number"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "quote": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "origin",
+          "status",
+          "source",
+          "value",
+          "normalized",
+          "included",
+          "weight"
+        ]
+      },
+      "QualityResultDto": {
+        "type": "object",
+        "properties": {
+          "score": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "candidateScore": {
+            "type": "number",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "scored",
+              "needs_review",
+              "unscorable"
+            ]
+          },
+          "coverage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "formulaVersion": {
+            "type": "string"
+          },
+          "contextIncomplete": {
+            "type": "boolean"
+          },
+          "criticalStatus": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "unknown"
+            ]
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QualityCriterionDto"
+            }
+          }
+        },
+        "required": [
+          "score",
+          "candidateScore",
+          "status",
+          "coverage",
+          "formulaVersion",
+          "contextIncomplete",
+          "criticalStatus",
+          "criteria"
+        ]
+      },
+      "QualityEvaluationDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "previousRunId": {
+            "type": "string",
+            "nullable": true
+          },
+          "scorecardRevisionId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/QualityResultDto"
+          }
+        },
+        "required": [
+          "id",
+          "previousRunId",
+          "scorecardRevisionId",
+          "kind",
+          "createdAt",
+          "result"
+        ]
+      },
+      "QualityDetailDto": {
+        "type": "object",
+        "properties": {
+          "corrections": {
+            "description": "Effective supervisor corrections for this revision.",
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "record": {
+            "$ref": "#/components/schemas/AiCdr"
+          },
+          "analytics": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AiAnalytics"
+              }
+            ]
+          },
+          "evaluation": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QualityEvaluationDto"
+              }
+            ]
+          },
+          "criteria": {
+            "description": "Public criterion rules; never internal prompts/context.",
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "minimumCoverage": {
+            "type": "number",
+            "nullable": true
+          }
+        },
+        "required": [
+          "corrections",
+          "record",
+          "analytics",
+          "evaluation",
+          "criteria",
+          "minimumCoverage"
+        ]
+      },
+      "QualityHistoryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "scorecardRevisionId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "coverage": {
+            "type": "number"
+          },
+          "formulaVersion": {
+            "type": "string"
+          },
+          "contextIncomplete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "scorecardRevisionId",
+          "kind",
+          "createdAt",
+          "score",
+          "status",
+          "coverage",
+          "formulaVersion",
+          "contextIncomplete"
+        ]
+      },
+      "QualityRulesDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "revisionId": {
+            "type": "string"
+          },
+          "minimumCoverage": {
+            "type": "number"
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "config": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "enabled",
+          "revisionId",
+          "minimumCoverage",
+          "criteria",
+          "config"
         ]
       }
     }

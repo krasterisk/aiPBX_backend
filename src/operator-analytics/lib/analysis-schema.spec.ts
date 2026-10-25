@@ -17,6 +17,28 @@ import {
 import { ALL_DEFAULT_METRIC_KEYS } from '../interfaces/operator-metrics.interface';
 
 describe('analysis-schema', () => {
+    describe('versioned quality applicability contract', () => {
+        const qualityCtx = buildAnalysisContext({ visibleDefaultMetrics: ['greeting_quality'], customMetricsSchema: [] } as any);
+        qualityCtx.qualityScoring = true;
+        const payload = (status: string, value: number | null, rationale = 'Synthetic evidence') => ({
+            assessments: Object.fromEntries(['greeting_quality','csat','customer_sentiment','success'].map(key=>[key,{rationale,quote:''}])),
+            greeting_quality:value,criterion_statuses:{'default:greeting_quality':status},customer_sentiment:'Neutral',csat:3,summary:'Synthetic',success:true,analysis_confidence:0.9,insufficient_content:false,diarized_text:[],
+        });
+        it('requires explicit applicability, null for N/A, rationale and no silent full score', () => {
+            const schema=buildOpenAiJsonSchema(qualityCtx) as any;
+            expect(schema.required).toContain('criterion_statuses');
+            expect(schema.properties.greeting_quality.type).toEqual(['integer','null']);
+            const parsed=parseAndValidateAnalysisResponse(JSON.stringify(payload('not_applicable',null)),qualityCtx,raw=>raw);
+            expect(parsed.metrics.greeting_quality).toBeNull();
+            expect(parsed.metrics._criterion_statuses).toEqual({'default:greeting_quality':'not_applicable'});
+            expect(()=>parseAndValidateAnalysisResponse(JSON.stringify(payload('not_applicable',100)),qualityCtx,raw=>raw)).toThrow();
+            expect(()=>parseAndValidateAnalysisResponse(JSON.stringify(payload('assessed',null)),qualityCtx,raw=>raw)).toThrow();
+            expect(()=>parseAndValidateAnalysisResponse(JSON.stringify(payload('not_applicable',null,'')),qualityCtx,raw=>raw)).toThrow();
+            const prompt=buildAnalysisPrompt('Synthetic transcript',qualityCtx);
+            expect(prompt).toContain('Do not compute any overall score or weights');
+            expect(prompt).not.toContain('N/A-as-present');
+        });
+    });
     const ctx = buildAnalysisContext({
         visibleDefaultMetrics: ['greeting_quality', 'script_compliance'],
         customMetricsSchema: [

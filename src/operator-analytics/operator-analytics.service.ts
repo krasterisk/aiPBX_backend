@@ -1,10 +1,15 @@
+import { QualityPreviewService } from './quality/quality-preview.service';
+import { randomUUID } from 'crypto';
+import { qualityDashboard, qualityEvidence, qualityDistributionPredicate } from './quality/quality-dashboard';
+import { QualityScoringService } from './quality/quality-scoring.service';
+import { createQualityScorecard, qualityHash, validateQualityConfig, QualityScoreConfig } from './quality/quality-score';
 import { applyAnalyticsSelection } from './lib/analytics-selection';
 import { withCallTypeCounts } from './lib/call-type-series';
 import { analyticsDate } from './lib/analytics-date';
 import { buildHourlySeries } from './lib/hourly-series';
 import { CallType, parseCallType } from './lib/call-type';
 import { operatorIdentityFields, operatorIdentityKey, operatorGroupIdentity } from './lib/operator-identity';
-import { Inject, Injectable, Logger, HttpException, HttpStatus, forwardRef } from '@nestjs/common';
+import { Inject, Injectable, Logger, HttpException, HttpStatus, forwardRef, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { resolveTopicScheme, topicSchemeBaseline } from './lib/topic-scheme';
 import { ForeignKeyConstraintError } from 'sequelize';
@@ -113,7 +118,7 @@ import { extractLlmJsonContent } from './lib/llm-json';
 import { buildOpenAiAnalyticsChatParams } from './lib/openai-chat-params';
 import { AnalyticsProvider, readAnalyticsStream, requestAnalyticsOllama, runAnalyticsProviderChain } from './lib/analytics-provider-chain';
 import { PROJECT_TEMPLATES } from './project-templates';
-import { OPERATOR_CDR_SOURCE } from './lib/analytics-source';
+import { OPERATOR_CDR_SOURCE, isOperatorAnalyticsSource } from './lib/analytics-source';
 import { Op, Sequelize } from 'sequelize';
 import OpenAI from 'openai';
 import { ConfigService } from '@nestjs/config';
@@ -138,7 +143,31 @@ export class OperatorAnalyticsService {
     private readonly sttProviders: Map<string, ITranscriptionProvider> = new Map();
 
     // ─── Batch Processing Tracker ─────────────────────────────────────
+    async qualityDetail(channelId: string, userId: string, isAdmin: boolean, runId?: string) {
+        if (!this.qualityScoring) throw new HttpException('Quality service unavailable', HttpStatus.SERVICE_UNAVAILABLE);
+        return this.qualityScoring.detail(channelId, userId, isAdmin, runId);
+    }
+
+    async qualityHistory(channelId: string, userId: string, isAdmin: boolean, limit?: number, before?: string) {
+        if (!this.qualityScoring) throw new HttpException('Quality service unavailable', HttpStatus.SERVICE_UNAVAILABLE);
+        return this.qualityScoring.history(channelId, userId, isAdmin, limit, before);
+    }
+
+    async qualityRules(projectId: number, userId: string, isAdmin: boolean, config?: QualityScoreConfig) {
+        if (!Number.isSafeInteger(projectId) || projectId < 1) throw new HttpException('Invalid project id', HttpStatus.BAD_REQUEST);
+        const project = await this.projectRepository.findOne({ where: { id: projectId, ...(!isAdmin ? { userId: String(userId) } : {}) } });
+        if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+        const snapshot = project.get({ plain: true });
+        let card;
+        try {
+            validateQualityConfig(config);
+            card = createQualityScorecard(config === undefined ? snapshot : { ...snapshot, qualityScoreConfig: config }, String(project.userId), { promptVersion: PROMPT_VERSION + '.quality-v2.1' });
+        } catch (e) { throw new HttpException((e as Error).message, HttpStatus.BAD_REQUEST); }
+        if (config !== undefined) await project.update({ qualityScoreConfig: config });
+        return { enabled: this.qualityScoring?.enabled === true, revisionId: qualityHash(card), minimumCoverage: card.minimumCoverage, criteria: card.criteria, config: config ?? project.qualityScoreConfig ?? {} };
+    }
     private readonly batches = new Map<string, BatchStatus>();
+    private readonly persistedQualityMetrics = new WeakSet<object>();
     private readonly BATCH_TTL = 60 * 60 * 1000; // 1 hour
 
     /** Shared agent for PBX recorders that use self-signed TLS certs. */
@@ -165,6 +194,8 @@ export class OperatorAnalyticsService {
         private readonly insightsCache: InsightsCacheService,
         @Inject(forwardRef(() => OperatorAlertService))
         private readonly alertService: OperatorAlertService,
+        @Optional() private readonly qualityScoring?: QualityScoringService,
+        @Optional() private readonly qualityPreview?: QualityPreviewService,
     ) {
         const apiKey = this.configService.get<string>('OPENAI_API_KEY') || process.env.OPENAI_API_KEY;
         this.openAiClient = new OpenAI({
@@ -765,7 +796,7 @@ export class OperatorAnalyticsService {
                 recordUrl: record.recordUrl || '',
             });
 
-            await this.aiAnalyticsRepository.create({
+            await this.persistAnalysisProjection({
                 channelId,
                 metrics: mergedMetrics,
                 summary: metrics.summary || '',
@@ -773,7 +804,7 @@ export class OperatorAnalyticsService {
                 csat: metrics.csat || null,
                 cost: totalCost,
                 tokens: totalTokens,
-            });
+            }, record.userId, record.projectId);
             await this.writeMetricValues(channelId, record.userId, record.projectId, schemaVersion, mergedMetrics);
             await this.writeAutoCallTags(channelId, record.userId, record.projectId, autoTagIds);
 
@@ -1195,7 +1226,7 @@ export class OperatorAnalyticsService {
                 recordUrl: record.recordUrl || '',
             });
 
-            await this.aiAnalyticsRepository.create({
+            await this.persistAnalysisProjection({
                 channelId,
                 metrics: mergedMetrics,
                 summary: metrics.summary || '',
@@ -1203,7 +1234,7 @@ export class OperatorAnalyticsService {
                 csat: metrics.csat || null,
                 cost: totalCost,
                 tokens: totalTokens,
-            });
+            }, record.userId, record.projectId);
             await this.writeMetricValues(channelId, record.userId, record.projectId, schemaVersion, mergedMetrics);
             await this.writeAutoCallTags(channelId, record.userId, record.projectId, autoTagIds);
 
@@ -1442,7 +1473,8 @@ export class OperatorAnalyticsService {
             where: { channelId: channelIdStr },
         });
         if (existingAnalytics) {
-            await existingAnalytics.update({
+            await this.persistAnalysisProjection({
+                channelId: channelIdStr,
                 metrics: mergedMetrics,
                 summary: metrics.summary || '',
                 sentiment: metrics.customer_sentiment || '',
@@ -1451,9 +1483,9 @@ export class OperatorAnalyticsService {
                     ? totalCost
                     : parseFloat((Number(existingAnalytics.cost || 0) + totalCost).toFixed(6)),
                 tokens: replaceCost ? totalTokens : (existingAnalytics.tokens || 0) + totalTokens,
-            });
+            }, record.userId, record.projectId, existingAnalytics);
         } else {
-            await this.aiAnalyticsRepository.create({
+            await this.persistAnalysisProjection({
                 channelId: channelIdStr,
                 metrics: mergedMetrics,
                 summary: metrics.summary || '',
@@ -1461,7 +1493,7 @@ export class OperatorAnalyticsService {
                 csat: metrics.csat || null,
                 cost: totalCost,
                 tokens: totalTokens,
-            });
+            }, record.userId, record.projectId);
         }
         await this.writeMetricValues(channelIdStr, record.userId, record.projectId, schemaVersion, mergedMetrics);
         await this.writeAutoCallTags(channelIdStr, record.userId, record.projectId, autoTagIds);
@@ -1685,6 +1717,7 @@ export class OperatorAnalyticsService {
         if (!Array.isArray(overrides) || overrides.length === 0) {
             throw new HttpException('No overrides provided', HttpStatus.BAD_REQUEST);
         }
+        if (this.qualityScoring && (this.qualityScoring.enabled || await this.aiAnalyticsRepository.count({ where: { channelId: String(channelId), qualityRunId: { [Op.ne]: null } } }))) return (await this.qualityScoring.reviseOverrides(String(channelId), ownerUserId, String(actorUserId), overrides)).overrides;
 
         for (const o of overrides) {
             if (!o || typeof o.metricId !== 'string' || !o.metricId) {
@@ -1731,7 +1764,11 @@ export class OperatorAnalyticsService {
         userId: string,
         isAdmin: boolean,
     ): Promise<{ deleted: number }> {
-        await this.assertRecordAccess(channelId, userId, isAdmin);
+        const record = await this.assertRecordAccess(channelId, userId, isAdmin);
+        if (this.qualityScoring && (this.qualityScoring.enabled || await this.aiAnalyticsRepository.count({ where: { channelId: String(channelId), qualityRunId: { [Op.ne]: null } } }))) {
+            const result = await this.qualityScoring.reviseOverrides(String(channelId), String(record.userId), String(userId), [], metricId);
+            return { deleted: result.deleted };
+        }
         const deleted = await this.metricOverrideRepository.destroy({
             where: { channelId: String(channelId), metricId },
         });
@@ -1923,7 +1960,9 @@ export class OperatorAnalyticsService {
             )];
         }
 
-        if (sentimentKey) {
+        const publishedDistribution = this.qualityScoring?.enabled && this.aiCdrRepository.sequelize.getDialect()==='postgres';
+        if (publishedDistribution && (sentimentKey || successFlag!==null)) where[Op.and]=[...(where[Op.and]||[]),Sequelize.literal(qualityDistributionPredicate({sentiment:sentimentKey,success:successFlag}))];
+        if (!publishedDistribution && sentimentKey) {
             const channelIds = await findChannelIdsForDistribution(
                 this.aiCdrRepository.sequelize,
                 {
@@ -1945,7 +1984,7 @@ export class OperatorAnalyticsService {
             this.applyChannelIdFilter(where, channelIds, '__no_matching_sentiment__');
         }
 
-        if (successFlag !== null) {
+        if (!publishedDistribution && successFlag !== null) {
             const channelIds = await findChannelIdsForDistribution(
                 this.aiCdrRepository.sequelize,
                 {
@@ -2076,7 +2115,11 @@ export class OperatorAnalyticsService {
             (v) => this.likeOp(v),
         );
 
-        // Same call set as the dashboard metric: the whole filtered period, not the last 300.
+        if (this.qualityScoring?.enabled) {
+            return qualityEvidence(this.aiCdrRepository.sequelize, filters, isAdmin, realUserId ?? '', query);
+        }
+
+        // Legacy compatibility path, retained until explicit v2 activation/backfill.
         const aggregationRecords = await this.loadDashboardCdrPages(where);
         const eligibleRecords = aggregationRecords.filter(r => {
             const quality = (r.analytics?.metrics as any)?._quality?.quality as TranscriptionQualityLevel | undefined;
@@ -2152,6 +2195,10 @@ export class OperatorAnalyticsService {
     }, isAdmin: boolean, realUserId: string) {
         const scoped = this.scopeProjectQuery(query);
         const where = buildDashboardCdrWhere(scoped, isAdmin, realUserId, (v) => this.likeOp(v));
+        if (this.qualityScoring?.enabled) {
+            const project = scoped.projectId ? await this.projectRepository.findByPk(scoped.projectId) : null;
+            return qualityDashboard(this.aiCdrRepository.sequelize, scoped, isAdmin, realUserId, project?.callTaxonomy ?? []);
+        }
         const numericKeys = [
             'greeting_quality', 'script_compliance', 'politeness_empathy',
             'active_listening', 'objection_handling', 'product_knowledge',
@@ -2856,6 +2903,15 @@ export class OperatorAnalyticsService {
             }
         }
         if (data.visibleDefaultMetrics !== undefined) project.visibleDefaultMetrics = data.visibleDefaultMetrics as DefaultMetricKey[];
+        if (project.qualityScoreConfig && (data.visibleDefaultMetrics !== undefined || data.customMetricsSchema !== undefined)) {
+            // Removed criteria cease to be future rules; immutable old cards keep them intact.
+            const snapshot = project.get({ plain: true });
+            const available = createQualityScorecard({ ...snapshot, qualityScoreConfig: null }, String(project.userId)).criteria;
+            const allowed = new Set(available.map(c=>`${c.origin}:${c.id}`));
+            project.qualityScoreConfig = { ...project.qualityScoreConfig, criteria: Object.fromEntries(Object.entries(project.qualityScoreConfig.criteria ?? {}).filter(([key])=>allowed.has(key))) };
+            try { createQualityScorecard(project.get({ plain: true }), String(project.userId)); }
+            catch (error) { throw new HttpException((error as Error).message, HttpStatus.BAD_REQUEST); }
+        }
         if (data.webhookUrl !== undefined) project.webhookUrl = data.webhookUrl || null;
         if (data.webhookEvents !== undefined) project.webhookEvents = data.webhookEvents as WebhookEvent[];
         if (data.webhookHeaders !== undefined) project.webhookHeaders = data.webhookHeaders;
@@ -3458,6 +3514,13 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         input: AnalysisCompletedWebhookInput,
     ): void {
         if (!project) return;
+        if (input.metrics) {
+            const publicMetrics = { ...input.metrics } as any;
+            delete publicMetrics._quality_card;
+            delete publicMetrics._quality_operation;
+            delete publicMetrics._quality_input;
+            input = { ...input, metrics: publicMetrics };
+        }
         this.callWebhook(project, 'analysis.completed', buildAnalysisCompletedWebhookData(input))
             .catch(err => this.logger.warn(`Webhook error: ${err.message}`));
     }
@@ -3781,7 +3844,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             recordUrl: target.recordUrl || source.recordUrl || '',
         });
 
-        await this.aiAnalyticsRepository.create({
+        await this.persistAnalysisProjection({
             channelId,
             metrics,
             summary: sourceCdr.analytics.summary || '',
@@ -3789,7 +3852,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             csat: sourceCdr.analytics.csat ?? null,
             cost: 0,
             tokens: 0,
-        });
+        }, target.userId, target.projectId, undefined, sourceChannelId);
         await this.writeMetricValues(
             channelId,
             target.userId,
@@ -3904,7 +3967,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
                 ? { _custom_meta: extras.customMeta }
                 : {}),
             ...(extras?.model || extras?.promptVersion
-                ? { _model: { ...(extras?.model ? { name: extras.model } : {}), ...(extras?.promptVersion ? { promptVersion: extras.promptVersion } : {}) } }
+                ? { _model: { ...(extras?.model ? { name: extras.model } : {}), ...(extras?.promptVersion ? { promptVersion: metrics._quality_card?.context?.promptVersion ?? extras.promptVersion } : {}) } }
                 : {}),
             ...(extras?.topicsBlock ? { _topics: extras.topicsBlock } : {}),
             ...(extras?.schemaVersion != null ? { _schema_version: extras.schemaVersion } : {}),
@@ -3940,7 +4003,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         }
         // Persisted separately so a missing promptVersion column never blocks schemaVersion.
         try {
-            await record.update({ promptVersion: PROMPT_VERSION });
+            await record.update({ promptVersion: this.qualityScoring?.enabled ? PROMPT_VERSION + '.quality-v2.1' : PROMPT_VERSION });
         } catch (e) {
             this.logger.warn(
                 `Could not persist promptVersion on record #${record.id} ` +
@@ -3954,6 +4017,35 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
      * Best-effort: never throws (JSON remains the source of truth).
      * Idempotent per channel (clears prior rows first) so regenerate stays consistent.
      */
+    private async persistAnalysisProjection(fields: Record<string, any>, userId: string, projectId?: number | null, existing?: AiAnalytics, cloneSource?: string) {
+        if (!this.qualityScoring?.enabled && !existing?.qualityRunId) {
+            const saved = existing ? await existing.update(fields) : await this.aiAnalyticsRepository.create(fields as any);
+            // Isolated best-effort shadow projection; it cannot fail or delay the legacy analysis result.
+            if (this.qualityPreview && process.env.QUALITY_PREVIEW_ENABLED !== 'false' && this.aiAnalyticsRepository.sequelize.getDialect() === 'postgres')
+                void this.qualityPreview.ensure(fields.channelId, String(userId)).catch(() => this.logger.warn('Quality preview projection pending'));
+            return saved;
+        }
+        let card = fields.metrics?._quality_card;
+        let operationId = fields.metrics?._quality_operation;
+        if (!card && existing?.qualityRunId && this.qualityScoring) {
+            card = createQualityScorecard({ id: projectId }, String(userId), { legacy: true, metrics: fields.metrics });
+            operationId = randomUUID();
+        }
+        const inputSnapshot = fields.metrics?._quality_input ?? null;
+        if (!card && cloneSource) {
+            card = await this.qualityScoring.snapshotForClone(cloneSource, String(userId), projectId ?? null);
+            operationId = `clone:${fields.channelId}:${cloneSource}`;
+        }
+        if (!card || !operationId || card.projectId !== (projectId ?? null) || card.userId && card.userId !== String(userId)) throw new Error('Missing or mismatched quality snapshot');
+        card = { ...card, userId: String(userId) };
+        delete fields.metrics._quality_card;
+        delete fields.metrics._quality_operation;
+        delete fields.metrics._quality_input;
+        const run = await this.qualityScoring.writeAnalysis({ userId: String(userId), projectId, channelId: fields.channelId, operationId, card, fields, inputSnapshot });
+        this.persistedQualityMetrics.add(fields.metrics);
+        return run;
+    }
+
     private async writeMetricValues(
         channelId: string,
         userId: string | null,
@@ -3961,6 +4053,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         schemaVersion: number | null,
         metrics: Record<string, any>,
     ): Promise<void> {
+        if (this.persistedQualityMetrics.has(metrics)) return;
         try {
             const base = {
                 channelId,
@@ -4195,6 +4288,43 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         return provider;
     }
 
+    private readonly qualityPreviewJobs = new Set<string>();
+    /** Explicit admin preview: frozen transcript, strict applicability prompt, isolated result; no STT or legacy writes. */
+    async analyzeQualityPreview(channelId: string, userId: string, isAdmin: boolean) {
+        if (!isAdmin) throw new HttpException('Admin preview required', HttpStatus.FORBIDDEN);
+        if (!this.qualityPreview) throw new HttpException('Preview unavailable', HttpStatus.SERVICE_UNAVAILABLE);
+        const cdr = await this.qualityPreview.authorize(channelId, userId, isAdmin);
+        if (!isOperatorAnalyticsSource(cdr.source) || !Number.isSafeInteger(Number(channelId)))
+            throw new HttpException('Saved operator transcript required', HttpStatus.BAD_REQUEST);
+        if (this.qualityPreviewJobs.has(channelId)) throw new HttpException('Preview already running', HttpStatus.CONFLICT);
+        this.qualityPreviewJobs.add(channelId);
+        try {
+            const record = await this.analyticsRepository.findOne({ where: { id: Number(channelId), userId: String(cdr.userId) } });
+            if (!record?.transcription?.trim()) throw new HttpException('Saved transcript unavailable', HttpStatus.BAD_REQUEST);
+            const project = cdr.projectId ? await this.projectRepository.findOne({ where: { id: cdr.projectId, userId: String(cdr.userId) } }) : null;
+            if (!project) throw new HttpException('Project required for preview', HttpStatus.BAD_REQUEST);
+            const rules = await this.qualityPreview.rules(project.id, String(cdr.userId), false);
+            project.setDataValue('qualityScoreConfig', rules.config);
+            const source = await this.qualityPreview.ensure(channelId, String(cdr.userId));
+            const analyzed = await this.analyzeTranscription(record.transcription, undefined, project, undefined, { llmDiarize: false, qualityPreview: true });
+            const raw = analyzed.metrics as any;
+            const card = raw._quality_card, operationId = raw._quality_operation, inputSnapshot = raw._quality_input;
+            delete raw._quality_card; delete raw._quality_operation; delete raw._quality_input;
+            const metrics = { ...raw, custom_metrics: analyzed.customMetricsResult,
+                _preview_source_hash: (source.metrics as any)._preview_source_hash,
+                _assessments: analyzed.assessments, _custom_meta: analyzed.customMeta,
+                _model: { name: analyzed.modelName, promptVersion: PROMPT_VERSION + '.quality-v2.1' },
+                _schema_version: project.currentSchemaVersion,
+                _topics: (source.metrics as any)._topics,
+                _quality: analyzed.insufficientContent ? { quality: 'low' } : (source.metrics as any)._quality,
+            };
+            await this.qualityPreview.scoring.writeAnalysis({ channelId, userId: String(cdr.userId), projectId: project.id,
+                operationId, card, inputSnapshot, fields: { metrics, summary: metrics.summary, sentiment: metrics.customer_sentiment,
+                    csat: metrics.csat, tokens: analyzed.usage?.total_tokens ?? 0 } });
+            return this.qualityPreview.scoring.detail(channelId, userId, true);
+        } finally { this.qualityPreviewJobs.delete(channelId); }
+    }
+
     async previewTopicScheme(transcription: string, project: OperatorProject) {
         const result = await this.analyzeTranscription(transcription, undefined, project);
         return { topicIds: result.topicTagIds, decision: result.topicDecision, model: result.modelName };
@@ -4205,7 +4335,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         customMetricsDef?: CustomMetricDef[],
         project?: OperatorProject,
         qualityHint?: TranscriptionQualityAssessment,
-        options?: { stereoDiarization?: 'energy' | 'channels'; channelDiarized?: boolean; llmDiarize?: boolean },
+        options?: { stereoDiarization?: 'energy' | 'channels'; channelDiarized?: boolean; llmDiarize?: boolean; qualityPreview?: boolean },
     ): Promise<{
         metrics: OperatorMetrics;
         customMetricsResult: any;
@@ -4221,6 +4351,9 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         topicDecision?: ReturnType<typeof resolveTopicScheme>;
     }> {
         const ctx = buildAnalysisContext(project, customMetricsDef);
+        ctx.qualityScoring = options?.qualityPreview === true || this.qualityScoring?.enabled === true;
+        const qualityCard = ctx.qualityScoring ? createQualityScorecard({ ...(project?.get ? project.get({ plain: true }) : project ?? {}), visibleDefaultMetrics: ctx.visibleDefaultMetrics, customMetricsSchema: ctx.customMetrics }, String(project?.userId ?? ''), { promptVersion: PROMPT_VERSION + '.quality-v2.1' }) : null;
+        const qualityOperation = ctx.qualityScoring ? randomUUID() : null;
         const llmDiarize = options?.llmDiarize !== false;
         const schemaOptions = { llmDiarize };
         const jsonSchema = buildOpenAiJsonSchema(ctx, schemaOptions);
@@ -4271,9 +4404,8 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             if (!(firstErr instanceof AnalysisSchemaValidationError)) {
                 throw firstErr;
             }
-            const preview = (firstErr.rawContent || '').slice(0, 300).replace(/\s+/g, ' ');
             this.logger.warn(
-                `[Analytics LLM] Invalid analysis JSON, retrying once: ${firstErr.message}. Preview: ${preview}`,
+                `[Analytics LLM] Invalid analysis JSON, retrying once: ${firstErr.message}`,
             );
             parsedResult = await requestValidated([
                 ...messages,
@@ -4325,7 +4457,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         }
 
         return {
-            metrics: parsedResult.metrics as OperatorMetrics,
+            metrics: (qualityCard ? { ...parsedResult.metrics, _quality_card: qualityCard, _quality_operation: qualityOperation, _quality_input: { transcription, transcriptHash: qualityHash(transcription) } } : parsedResult.metrics) as OperatorMetrics,
             customMetricsResult: parsedResult.customMetricsResult,
             usage: parsedResult.usage,
             diarizedText,

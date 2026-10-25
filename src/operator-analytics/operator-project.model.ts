@@ -30,6 +30,8 @@ export interface OperatorProjectCreationAttrs {
 
 @Table({ tableName: 'operator_projects' })
 export class OperatorProject extends Model<OperatorProject, OperatorProjectCreationAttrs> {
+    @ApiProperty({ required: false, description: 'Versioned quality criteria weights, scales and applicability policy' })
+    @Column({ type: DataType.JSON, allowNull: true }) qualityScoreConfig: import('./quality/quality-score').QualityScoreConfig | null;
     @ApiProperty({ required: false, description: 'Versioned topic scheme: active rules, draft, checks and applied history' })
     @Column({ type: DataType.JSON, allowNull: true })
     topicSchemeState: TopicSchemeState | null;

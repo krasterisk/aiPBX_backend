@@ -1,4 +1,4 @@
-import { QualityPreviewService } from './quality/quality-preview.service';
+import { QualityPreviewService, previewObservation } from './quality/quality-preview.service';
 import { randomUUID } from 'crypto';
 import { qualityDashboard, qualityEvidence, qualityDistributionPredicate } from './quality/quality-dashboard';
 import { QualityScoringService } from './quality/quality-scoring.service';
@@ -4306,20 +4306,22 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
             const rules = await this.qualityPreview.rules(project.id, String(cdr.userId), false);
             project.setDataValue('qualityScoreConfig', rules.config);
             const source = await this.qualityPreview.ensure(channelId, String(cdr.userId));
+            if (!source) throw new HttpException('Completed source analysis required', HttpStatus.CONFLICT);
             const analyzed = await this.analyzeTranscription(record.transcription, undefined, project, undefined, { llmDiarize: false, qualityPreview: true });
             const raw = analyzed.metrics as any;
-            const card = raw._quality_card, operationId = raw._quality_operation, inputSnapshot = raw._quality_input;
+            const card = previewObservation(raw._quality_card), operationId = raw._quality_operation, inputSnapshot = raw._quality_input;
             delete raw._quality_card; delete raw._quality_operation; delete raw._quality_input;
-            const metrics = { ...raw, custom_metrics: analyzed.customMetricsResult,
+            const sourceResponseJson = JSON.stringify({ metrics: raw, custom_metrics: analyzed.customMetricsResult, assessments: analyzed.assessments });
+            const metrics = previewObservation({ ...raw, custom_metrics: analyzed.customMetricsResult,
                 _preview_source_hash: (source.metrics as any)._preview_source_hash,
                 _assessments: analyzed.assessments, _custom_meta: analyzed.customMeta,
                 _model: { name: analyzed.modelName, promptVersion: PROMPT_VERSION + '.quality-v2.1' },
                 _schema_version: project.currentSchemaVersion,
                 _topics: (source.metrics as any)._topics,
                 _quality: analyzed.insufficientContent ? { quality: 'low' } : (source.metrics as any)._quality,
-            };
+            });
             await this.qualityPreview.scoring.writeAnalysis({ channelId, userId: String(cdr.userId), projectId: project.id,
-                operationId, card, inputSnapshot, fields: { metrics, summary: metrics.summary, sentiment: metrics.customer_sentiment,
+                operationId, card, inputSnapshot: { ...inputSnapshot, sourceResponseJson }, fields: { metrics, summary: metrics.summary, sentiment: metrics.customer_sentiment,
                     csat: metrics.csat, tokens: analyzed.usage?.total_tokens ?? 0 } });
             return this.qualityPreview.scoring.detail(channelId, userId, true);
         } finally { this.qualityPreviewJobs.delete(channelId); }

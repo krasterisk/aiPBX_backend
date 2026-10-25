@@ -479,4 +479,21 @@ suite('quality storage: real PostgreSQL migration and transactions', () => {
         expect(await QualityAnalysisRun.count()).toBe(0);
     }, 120000);
 
+    it('derives legacy JSON containing U+0000 without losing the encoded original or changing old answers', async () => {
+        await db.query('ALTER TABLE "aiAnalytics" ALTER COLUMN metrics TYPE JSON USING metrics::json');
+        const raw = { greeting_quality: 100, _assessments: { greeting_quality: { rationale: 'hello\u0000world', quote: 'literal \\u0000 stays literal' } } };
+        await analytics.create({ channelId: 'one', metrics: raw, summary: 'Synthetic' });
+        const projects = { findOne: jest.fn(async () => null) };
+        const preview = new QualityPreviewService(QualityPreviewRun, QualityPreviewScorecard, QualityPreviewAnalytics,
+            QualityPreviewValue, QualityPreviewOverride, QualityPreviewRules, analytics, cdrs, projects as any, undefined, overrides);
+        await preview.ensure('one','99');
+        const detail = await preview.scoring.detail('one','99',false);
+        expect(detail.analytics.metrics._assessments.greeting_quality.rationale).toBe('helloworld');
+        expect(detail.analytics.metrics._assessments.greeting_quality.quote).toBe('literal \\u0000 stays literal');
+        const run = await QualityPreviewRun.findByPk(detail.evaluation.id);
+        expect(JSON.parse(run.rawSnapshot.input.sourceJson).metrics).toEqual(raw);
+        expect((await analytics.findOne()).metrics).toEqual(raw);
+        expect(detail.evaluation.result.score).toBe(100);
+    });
+
 });

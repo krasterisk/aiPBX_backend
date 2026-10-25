@@ -1,3 +1,4 @@
+import { previewMetrics } from './quality-preview.service';
 import { OperatorAnalyticsService } from '../operator-analytics.service';
 
 function fixture() {
@@ -36,4 +37,11 @@ it('retains the prior preview and releases its job lock when the provider fails'
     await expect(service.analyzeQualityPreview('123', '1', true)).rejects.toThrow('Synthetic timeout');
     expect(service.qualityPreview.scoring.writeAnalysis).not.toHaveBeenCalled();
     expect(service.qualityPreviewJobs.size).toBe(0);
+});
+
+it('reads encoded historical objects while rejecting unsupported shapes without inventing scores', () => {
+    expect(previewMetrics(JSON.stringify({ greeting_quality: 75, rationale: 'a\u0000b' }))).toEqual({ greeting_quality: 75, rationale: 'ab' });
+    expect(previewMetrics(JSON.stringify(JSON.stringify({ greeting_quality: 50 })))).toEqual({ greeting_quality: 50 });
+    expect(previewMetrics('bad json')).toEqual({});
+    expect(previewMetrics([100])).toEqual({});
 });

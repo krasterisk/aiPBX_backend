@@ -12,6 +12,23 @@ import { QualityPreviewValue } from './quality-preview-values.model';
 import { QualityPreviewOverride } from './quality-preview-overrides.model';
 import { QualityPreviewRun, QualityPreviewScorecard, QualityPreviewRules } from './quality-preview.models';
 
+/** Historical PostgreSQL JSON can contain U+0000; JSONB snapshots cannot. Keep an encoded source alongside this observation copy. */
+export function previewObservation<T>(value: T): T {
+    if (typeof value === 'string') return value.replace(/\u0000/g, '') as T;
+    if (Array.isArray(value)) return value.map(item => previewObservation(item)) as T;
+    if (value && typeof value === 'object')
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [key.replace(/\u0000/g, ''), previewObservation(item)])) as T;
+    return value;
+}
+
+export function previewMetrics(value: unknown): Record<string, any> {
+    let parsed = value;
+    for (let depth = 0; depth < 2 && typeof parsed === 'string'; depth++) {
+        try { parsed = JSON.parse(parsed); } catch { return {}; }
+    }
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? previewObservation(parsed) : {};
+}
+
 /** Separate storage, same calculator/transaction implementation; never swaps global model bindings. */
 @Injectable()
 export class QualityPreviewService {
@@ -51,7 +68,8 @@ export class QualityPreviewService {
         if (existing?.metrics && (existing.metrics as any)._preview_source_hash === sourceHash) return existing;
         const project = cdr.projectId ? await this.projects.findOne({ where: { id: cdr.projectId, userId: String(cdr.userId) } }) : null;
         const config = project ? await this.configs.findOne({ where: { projectId: project.id, userId: String(cdr.userId) } }) : null;
-        const metrics = JSON.parse(JSON.stringify(original.metrics ?? {}));
+        const sourceJson = JSON.stringify({ metrics: original.metrics, summary: original.summary, sentiment: original.sentiment, csat: original.csat });
+        const metrics = previewMetrics(original.metrics);
         const legacy = createQualityScorecard({ id: cdr.projectId }, String(cdr.userId), { legacy: true, metrics });
         // Saved metadata supplies historical criterion definitions; current preview rules supply explicit weights.
         const card = createQualityScorecard({ id: cdr.projectId,
@@ -67,7 +85,7 @@ export class QualityPreviewService {
             operationId: `preview:${sourceHash}`, card,
             fields: { metrics, summary: original.summary, csat: original.csat, sentiment: original.sentiment },
             initialOverrides: !existing ? (await this.originalOverrides.findAll({ where: { channelId, userId: String(cdr.userId) } })).map(row => row.toJSON()) : [],
-            inputSnapshot: { sourceHash, derivation: 'saved answers; no new AI request' } });
+            inputSnapshot: { sourceHash, sourceJson, derivation: 'saved answers; no new AI request' } });
         return this.preview.findOne({ where: { channelId } });
     }
 

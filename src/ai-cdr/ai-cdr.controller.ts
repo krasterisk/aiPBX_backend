@@ -79,8 +79,8 @@ export class AiCdrController {
     @Roles('ADMIN', 'USER')
     @UseGuards(RolesGuard)
     @Get('/dialogs/:channelId')
-    getDialogs(@Param('channelId') channelId: string) {
-        return this.aiCdrService.getDialogs(channelId)
+    getDialogs(@Param('channelId') channelId: string, @Req() req: RequestWithUser) {
+        return this.aiCdrService.getDialogs(channelId, req.isAdmin ? undefined : String(req.vpbxUserId || req.tokenUserId))
     }
 
     @ApiOperation({ summary: "Get dashboard data" })

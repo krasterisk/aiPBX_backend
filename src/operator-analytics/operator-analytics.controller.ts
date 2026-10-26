@@ -201,6 +201,16 @@ export class OperatorAnalyticsController {
         return this.startAsyncFileUpload(files, userId, AnalyticsSource.FRONTEND, options, body.provider);
     }
 
+    @Post('regenerate-free/:channelId')
+    @ApiBearerAuth()
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Regenerate operator analysis without charging the customer (admin only)' })
+    async regenerateFree(@Param('channelId') channelId: string, @Req() req: RequestWithUser) {
+        if (req.isAdmin !== true) throw new HttpException('Admin required', HttpStatus.FORBIDDEN);
+        return this.service.regenerateAnalysis(channelId, req.vpbxUserId || req.tokenUserId, true, false);
+    }
+
     @Post('regenerate/:channelId')
     @ApiBearerAuth()
     @Roles('ADMIN')
@@ -751,6 +761,7 @@ export class OperatorAnalyticsController {
         @Req() req: RequestWithUser,
         @Query() query: {
             operatorFilters?: string;
+            sources?: string; callTypes?: string; people?: string; tagIds?: string; csat?: string;
             callType?: CallType;
             startDate?: string;
             endDate?: string;
@@ -795,6 +806,7 @@ export class OperatorAnalyticsController {
         @Req() req: RequestWithUser,
         @Query() query: {
             operatorFilters?: string;
+            sources?: string; callTypes?: string; people?: string; tagIds?: string; csat?: string;
             callType?: CallType;
             userId?: string;
             startDate?: string;
@@ -849,6 +861,7 @@ export class OperatorAnalyticsController {
         @Req() req: RequestWithUser,
         @Query() query: {
             operatorFilters?: string;
+            sources?: string; callTypes?: string; people?: string; tagIds?: string; csat?: string;
             callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             userId?: string;
@@ -872,6 +885,7 @@ export class OperatorAnalyticsController {
         const realUserId = isAdmin ? null : authUserId;
         return this.service.getOperatorEvidence(
             {
+                sources:query.sources,callTypes:query.callTypes,people:query.people,tagIds:query.tagIds,csat:query.csat,
                 operatorFilters: query.operatorFilters,
                 callType: query.callType,
                 operatorName: query.operatorName?.trim() || undefined,

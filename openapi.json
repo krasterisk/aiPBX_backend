@@ -8096,6 +8096,35 @@
           "AiCdr"
         ]
       }
+    },
+    "/api/operator-analytics/regenerate-free/{channelId}": {
+      "post": {
+        "operationId": "OperatorAnalyticsController_regenerateFree",
+        "parameters": [
+          {
+            "name": "channelId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Regenerate operator analysis without charging the customer (admin only)",
+        "tags": [
+          "Operator Analytics"
+        ]
+      }
     }
   },
   "info": {

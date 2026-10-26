@@ -461,3 +461,26 @@ export function maxChannelDuration(left: TranscriptionResult, right: Transcripti
 export function hasTimedSegments(result: TranscriptionResult): boolean {
     return Array.isArray(result.segments) && result.segments.length > 0;
 }
+
+/** Preserve only real STT timestamps for exact matching turns; never estimate times from text length. */
+export function alignDiarizedTimestamps(diarizedJson: string | null, segments?: Array<{ text?: string; start?: number; end?: number }>): string | null {
+    if (!diarizedJson || !segments?.length) return diarizedJson;
+    try {
+        const turns = JSON.parse(diarizedJson);
+        if (!Array.isArray(turns)) return diarizedJson;
+        const normalized = (text: string) => text.toLocaleLowerCase().replace(new RegExp('[^\\p{L}\\p{N}]+', 'gu'), ' ').trim();
+        let cursor = 0;
+        for (const turn of turns) {
+            if (typeof turn.text !== 'string') continue;
+            if (typeof turn.start === 'number' && Number.isFinite(turn.start)) continue;
+            const target = normalized(turn.text);
+            if (!target) continue;
+            const index = segments.findIndex((segment, i) => i >= cursor && typeof segment.start === 'number' && Number.isFinite(segment.start) && segment.start >= 0 && normalized(segment.text || '') === target);
+            if (index < 0) continue;
+            turn.start = segments[index].start;
+            if (typeof segments[index].end === 'number' && Number.isFinite(segments[index].end)) turn.end = segments[index].end;
+            cursor = index + 1;
+        }
+        return JSON.stringify(turns);
+    } catch { return diarizedJson; }
+}

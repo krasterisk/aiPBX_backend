@@ -22,7 +22,7 @@ import { CallTag } from "../operator-analytics/operator-call-tag.model";
 import { isOperatorAnalyticsSource } from "../operator-analytics/lib/analytics-source";
 import { isRubTenant } from '../shared/tenant/tenant-currency';
 import { buildCsatWhereCondition, parseCsatFilter } from './parse-csat-filter';
-import { applyJournalSelection, journalDateWhere, journalOption, JournalQuery } from './journal-selection';
+import { applyJournalSelection, journalDateWhere, journalOption, journalTags, JournalQuery } from './journal-selection';
 
 interface AudioTranscriptionEvent {
     type: 'conversation.item.input_audio_transcription.completed';
@@ -245,7 +245,8 @@ export class AiCdrService {
         }
     }
 
-    async getDialogs(channelId: string) {
+    async getDialogs(channelId: string, ownerId?: string) {
+        if (ownerId !== undefined && !await this.aiCdrRepository.findOne({where:{channelId,userId:ownerId}})) throw new HttpException('Call not found',HttpStatus.NOT_FOUND);
         try {
             const aiEvents = await this.aiEventsRepository.findAll({
                 where: { channelId },
@@ -269,7 +270,7 @@ export class AiCdrService {
                 return parsedEvents.flatMap((event: any) => {
                     if (event.type === 'conversation.item.input_audio_transcription.completed') {
                         return [{
-                            timestamp,
+                            timestamp: new Date(entry.createdAt).toISOString(),
                             role: 'User',
                             text: event.transcript
                         }];
@@ -283,7 +284,7 @@ export class AiCdrService {
                                 item.content.forEach((c: any) => {
                                     if (c.transcript) {
                                         entries.push({
-                                            timestamp,
+                                            timestamp: new Date(entry.createdAt).toISOString(),
                                             role: 'Assistant',
                                             text: c.transcript
                                         });
@@ -292,7 +293,7 @@ export class AiCdrService {
                             }
                             if (item.type === 'function_call') {
                                 entries.push({
-                                    timestamp,
+                                    timestamp: new Date(entry.createdAt).toISOString(),
                                     role: 'Assistant',
                                     text: `Function call: ${item.name}(${item.arguments})`
                                 });
@@ -303,7 +304,7 @@ export class AiCdrService {
 
                     if (event.type === 'conversation.item.created' && event.item?.type === 'function_call_output') {
                         return [{
-                            timestamp,
+                            timestamp: new Date(entry.createdAt).toISOString(),
                             role: 'System',
                             text: `Function result: ${event.item.output}`
                         }];
@@ -336,7 +337,20 @@ export class AiCdrService {
             const option = journalOption(row);
             if (option) options.set(option.value, option);
         }
-        return { people: [...options.values()], limitReached: rows.length === 1000 };
+        // Assistants remain selectable even when there were no calls in the selected period.
+        const assistants = await this.assistantRepository.findAll({
+            where: userId ? { userId: String(userId) } : {}, attributes: ['id', 'userId', 'name'], limit: 1000, raw: true,
+        });
+        // Historical identities (including removed robots) are independent of the selected dates.
+        const historical = await this.aiCdrRepository.findAll({
+            where: userId ? { userId: String(userId) } : {},
+            attributes: ['userId', 'operatorId', 'assistantId', 'assistantName'],
+            group: ['userId', 'operatorId', 'assistantId', 'assistantName'], order: [['assistantName', 'ASC']], limit: 1000, raw: true,
+        });
+        for (const row of [...historical, ...assistants.map(a => ({ userId: String(a.userId), assistantId: String(a.id), assistantName: a.name }))]) {
+            const option = journalOption(row); if (option) options.set(option.value, option);
+        }
+        return { people: [...options.values()].sort((a,b) => a.label.localeCompare(b.label)), limitReached: rows.length === 1000 || historical.length === 1000 || assistants.length === 1000 };
     }
 
     async get(query: GetAiCdrDto, isAdmin: boolean, realUserId: string, journalMode = false, qualityPreview = false) {
@@ -451,8 +465,9 @@ export class AiCdrService {
             }
 
             const tagId = typeof query.tagId === 'string' ? query.tagId.trim() : '';
-            if (tagId) {
-                const tagWhere: Record<string, unknown> = { tagId };
+            const tagIds = journalMode ? journalTags((query as JournalQuery).tagIds) : [];
+            if (tagId || tagIds.length) {
+                const tagWhere: Record<string, unknown> = { tagId: tagIds.length ? { [Op.in]: tagIds } : tagId };
                 if (userId !== undefined) {
                     tagWhere.userId = String(userId);
                 }

@@ -21,7 +21,23 @@ export class AiAnalyticsService {
         @Inject(forwardRef(() => OpenAiService)) private readonly openAiService: OpenAiService,
     ) { }
 
-    async analyzeCall(channelId: string) {
+    private readonly regenerations = new Set<string>();
+    async regenerateFree(channelId: string, isAdmin: boolean) {
+        if (!isAdmin) throw new HttpException('Admin required', HttpStatus.FORBIDDEN);
+        if (this.regenerations.has(channelId)) throw new HttpException('Regeneration already running', HttpStatus.CONFLICT);
+        this.regenerations.add(channelId);
+        try {
+        const call = await this.aiCdrRepository.findOne({ where: { channelId } });
+        if (!call) throw new HttpException('Call not found', HttpStatus.NOT_FOUND);
+        if (['external-api','external-front'].includes(call.source)) throw new HttpException('Use operator regeneration', HttpStatus.BAD_REQUEST);
+            const result = await this.analyzeCall(channelId, false);
+            if (!result) throw new HttpException('Analysis failed', HttpStatus.BAD_REQUEST);
+            await this.billingService.recordFreeAnalysis(channelId, String(call.userId), result.tokens);
+            return result;
+        } finally { this.regenerations.delete(channelId); }
+    }
+
+    async analyzeCall(channelId: string, chargeCustomer = true) {
         this.logger.log(`Starting analysis for channelId: ${channelId}`);
         try {
             const dialog = await this.aiCdrService.getDialogs(channelId);
@@ -142,12 +158,12 @@ Return ONLY valid JSON without markdown formatting.
             // Calculate cost via BillingService
             const totalTokens = result.usage ? result.usage.total_tokens : 0;
             let cost = 0;
-            if (totalTokens > 0) {
+            if (chargeCustomer && totalTokens > 0) {
                 cost = await this.billingService.chargeAnalytics(channelId, totalTokens);
             }
 
 
-            const analytics = await this.aiAnalyticsRepository.create({
+            const fields = {
                 channelId,
                 metrics,
                 summary: metrics.scenario_analysis?.summary,
@@ -155,7 +171,9 @@ Return ONLY valid JSON without markdown formatting.
                 csat: metrics.user_satisfaction?.csat,
                 cost: cost,
                 tokens: totalTokens
-            });
+            };
+            const existing = !chargeCustomer ? await this.aiAnalyticsRepository.findOne({ where: { channelId } }) : null;
+            const analytics = existing ? await existing.update({ ...fields, cost: existing.cost }) : await this.aiAnalyticsRepository.create(fields);
 
             this.logger.log(`Analysis saved for ${channelId}. Cost: ${cost}, Tokens: ${totalTokens}`);
             return analytics;

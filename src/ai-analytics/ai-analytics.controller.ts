@@ -33,6 +33,13 @@ export class AiAnalyticsController {
         return this.aiAnalyticsService.getAnalyticsDashboard(query, isAdmin, realUserId);
     }
 
+    @Post('regenerate-free/:channelId')
+    @Roles('ADMIN')
+    @UseGuards(RolesGuard)
+    regenerateFree(@Param('channelId') id: string, @Req() req: RequestWithUser) {
+        return this.aiAnalyticsService.regenerateFree(id, req.isAdmin === true);
+    }
+
     @ApiOperation({ summary: 'Get call analytics by channelId' })
     @ApiResponse({ status: 200, description: 'Analytics data' })
     @UseGuards(JwtAuthGuard)

@@ -32,6 +32,13 @@ export class BillingService {
 
 
 
+    /** Usage audit only: no balance mutation and no charged amount. */
+    async recordFreeAnalysis(channelId: string, userId: string, totalTokens: number) {
+        return this.billingRecordRepository.create({ channelId, userId, type: 'analytic_regen_free',
+            description: 'Admin regeneration; customer not charged', totalTokens, textTokens: totalTokens,
+            totalCost: 0, textCost: 0, sttCost: 0, audioCost: 0, currency: getTenantCurrency(), amountCurrency: 0 });
+    }
+
     constructor(
 
         @InjectModel(AiCdr) private readonly aiCdrRepository: typeof AiCdr,

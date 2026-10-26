@@ -1,9 +1,12 @@
+import { applyJournalSelection, journalTags } from '../../ai-cdr/journal-selection';
+import { parseCsatFilter } from '../../ai-cdr/parse-csat-filter';
 import { applyAnalyticsSelection, appendAnalyticsSelectionSql } from './analytics-selection';
 import { analyticsDate } from './analytics-date';
 import { Op, Sequelize } from 'sequelize';
 import { ALL_DEFAULT_METRIC_KEYS } from '../interfaces/operator-metrics.interface';
 
 export interface DashboardCdrFilters {
+    sources?: string; callTypes?: string; people?: string; tagIds?: string; csat?: string;
     operatorFilters?: string;
     callType?: string;
     userId?: string;
@@ -26,6 +29,7 @@ export function buildDashboardCdrWhere(
     isAdmin: boolean,
     realUserId: string,
     likeOp: (value: string) => Record<string, string>,
+    database?: Sequelize,
 ): Record<string, unknown> {
     const where: Record<string, unknown> = {};
 
@@ -63,7 +67,29 @@ export function buildDashboardCdrWhere(
     }
 
     applyAnalyticsSelection(where, query);
+    applyCallRecordFilters(where, query, database);
     return where;
+}
+
+/** Same optional call selections on every dashboard aggregate and its drilldown. */
+export function applyCallRecordFilters(where: any, query: DashboardCdrFilters, database?: Sequelize): void {
+    if (!query.sources && !query.callTypes && !query.people && !query.tagIds && !query.csat) return;
+    applyJournalSelection(where, query as any);
+    const tags = journalTags(query.tagIds);
+    const clauses: any[] = [];
+    const dialect = database?.getDialect() || 'postgres';
+    const quote = (name: string) => dialect === 'mysql' ? `\`${name}\`` : `"${name}"`;
+    if (tags.length) {
+        if (!database) throw new Error('Database required for topic filter');
+        clauses.push(Sequelize.literal(`EXISTS (SELECT 1 FROM ${quote('operator_call_tags')} t WHERE t.${quote('channelId')}=${quote('AiCdr')}.${quote('channelId')} AND t.${quote('userId')}=${quote('AiCdr')}.${quote('userId')} AND t.${quote('tagId')} IN (${tags.map(tag => database.escape(tag)).join(',')}))`));
+    }
+    const { scores, includeNone } = parseCsatFilter(query.csat);
+    if (scores.length || includeNone) {
+        const join = `SELECT 1 FROM ${quote('aiAnalytics')} a WHERE a.${quote('channelId')}=${quote('AiCdr')}.${quote('channelId')}`;
+        const conditions = [...(scores.length ? [`EXISTS (${join} AND a.csat IN (${scores.join(',')}))`] : []), ...(includeNone ? [`NOT EXISTS (${join} AND a.csat IS NOT NULL)`] : [])];
+        clauses.push(Sequelize.literal(`(${conditions.join(' OR ')})`));
+    }
+    if (clauses.length) where[Op.and] = [...(where[Op.and] || []), ...clauses];
 }
 
 function pushProjectClause(

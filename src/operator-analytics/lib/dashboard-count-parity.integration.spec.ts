@@ -1,3 +1,6 @@
+import { QualityScoringService } from '../quality/quality-scoring.service';
+import { AiCdrService } from '../../ai-cdr/ai-cdr.service';
+import { BillingRecord } from '../../billing/billing-record.model';
 import { randomUUID } from 'crypto';
 import { Client } from 'pg';
 import { Sequelize } from 'sequelize-typescript';
@@ -91,4 +94,33 @@ if (url && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname))
             expect((await service.getCdrs({ ...filters, startDate: new Date(start).toISOString(), endDate: new Date(end).toISOString(), limit: 1 }, false, '99')).total).toBe(point.callsCount);
         }
     }, 60000);
+    it('keeps shared topic unions/directions/people/source/CSAT identical in dashboard and both call lists', async()=>{
+        await CallTag.bulkCreate([
+            {channelId:'large-1',userId:'99',projectId:5,tagId:'booking'},
+            {channelId:'large-1',userId:'99',projectId:5,tagId:'service'},
+            {channelId:'large-2',userId:'99',projectId:5,tagId:'service'},
+            {channelId:'large-3',userId:'100',projectId:5,tagId:'booking'},
+            {channelId:'foreign',userId:'100',projectId:5,tagId:'booking'},
+        ]);
+        await AiAnalytics.update({csat:5},{where:{channelId:'large-1'}});
+        await AiAnalytics.update({csat:3},{where:{channelId:'large-2'}});
+        const filters={...q,userId:'100',tagIds:JSON.stringify(['booking','service']),sources:JSON.stringify(['external-api']),callTypes:JSON.stringify(['outgoing','internal']),people:JSON.stringify([{userId:'99',operatorId:'pbx:7'},{userId:'100',operatorId:'pbx:7'}])};
+        const journal=new AiCdrService(AiCdr,{} as any,AiAnalytics,BillingRecord,{} as any,OperatorAnalytics,CallTag,{} as any,{} as any);
+        expect((await service.getDashboard(filters,false,'99')).totalAnalyzed).toBe(2);
+        expect((await service.getCdrs({...filters,limit:10},false,'99')).total).toBe(2);
+        expect((await journal.get({...filters,search:'',page:1,limit:10} as any,false,'99',true)).count).toBe(2);
+        expect((await service.getDashboard({...filters,csat:'5'},false,'99')).totalAnalyzed).toBe(1);
+        expect((await service.getCdrs({...filters,csat:'5',limit:10},false,'99')).total).toBe(1);
+        expect((await service.getOperatorEvidence({...filters,csat:'5'},false,'99')).callsCount).toBe(1);
+    },60000);
+
+    it('returns itemized costs in authorized detail and refuses another account',async()=>{
+        await BillingRecord.create({channelId:'large-1',userId:'99',type:'analytic',totalCost:1,textCost:.8,sttCost:.2});
+        const detailService:any=Object.create(QualityScoringService.prototype);
+        Object.assign(detailService,{cdrs:AiCdr,analytics:AiAnalytics,overrides:{findAll:async()=>[]}});
+        const detail=await detailService.detail('large-1','99',false);
+        expect(detail.record.billingRecords).toEqual(expect.arrayContaining([expect.objectContaining({totalCost:1,textCost:.8,sttCost:.2})]));
+        await expect(detailService.detail('large-1','foreign',false)).rejects.toMatchObject({status:404});
+    });
+
 });

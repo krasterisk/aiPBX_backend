@@ -469,7 +469,7 @@ export class QualityScoringService {
     }
 
     async detail(channelId: string, userId: string, isAdmin: boolean, runId?: string): Promise<Record<string, any>> {
-        const cdr = await this.cdrs.findOne({ where: { channelId, ...(!isAdmin ? { userId: String(userId) } : {}) } });
+        const cdr = await this.cdrs.findOne({ where: { channelId, ...(!isAdmin ? { userId: String(userId) } : {}) }, ...(this.cdrs.associations?.billingRecords ? { include: [{ association: 'billingRecords' }] } : {}) });
         if (!cdr) throw new NotFoundException('Quality record not found');
         const analytics = await this.analytics.findOne({ where: { channelId } });
         const requestedId = runId || analytics?.qualityRunId;

@@ -7,6 +7,7 @@ export interface JournalQuery extends GetAiCdrDto {
     sources?: string;
     callTypes?: string;
     people?: string;
+    tagIds?: string;
 }
 export interface JournalPerson {
     userId: string;
@@ -28,6 +29,13 @@ function array(raw: unknown): unknown[] {
 export function journalValues(raw: unknown, allowed: string[]): string[] {
     const values = array(raw);
     if (values.some(v => typeof v !== 'string' || !allowed.includes(v))) throw new BadRequestException('Invalid journal value');
+    return [...new Set(values as string[])];
+}
+
+/** Selected topics are a union; caller still ANDs this with the authenticated call scope. */
+export function journalTags(raw: unknown): string[] {
+    const values = array(raw);
+    if (values.some(value => typeof value !== 'string' || !value.trim() || value.length > 200)) throw new BadRequestException('Invalid topic selection');
     return [...new Set(values as string[])];
 }
 

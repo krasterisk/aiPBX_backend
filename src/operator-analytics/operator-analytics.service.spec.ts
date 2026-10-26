@@ -360,6 +360,7 @@ describe('OperatorAnalyticsService', () => {
         let axiosGetSpy: jest.SpyInstance;
 
         beforeEach(() => {
+            mockAnalyticsRepo.findByPk.mockResolvedValue({ ...mockRecord, status: AnalyticsStatus.COMPLETED });
             mockUserRepo.findByPk.mockResolvedValue({ balance: 100 });
             mockProjectRepo.findByPk.mockResolvedValue(null);
             mockWhisperService.transcribe.mockResolvedValue({ text: '', duration: 1 });
@@ -385,6 +386,30 @@ describe('OperatorAnalyticsService', () => {
             axiosGetSpy?.mockRestore();
         });
 
+        it('refuses free regeneration for a non-admin before touching any record', async () => {
+            await expect(service.regenerateAnalysis('1','1',false,false)).rejects.toMatchObject({status:403});
+            expect(mockAnalyticsRepo.findByPk).not.toHaveBeenCalled();
+            expect(mockUsersService.decrementUserBalance).not.toHaveBeenCalled();
+        });
+        it('runs admin regeneration at zero balance without charging or erasing previous charges', async () => {
+            mockUserRepo.findByPk.mockResolvedValue({balance:0});
+            mockAiAnalyticsRepo.findOne = jest.fn().mockResolvedValue({cost:0.03});
+            const cdr=await mockAiCdrRepo.findOne();
+            jest.spyOn(service as any,'transcribePossiblyStereo').mockResolvedValue({sttResult:{text:'Synthetic operator transcript',duration:60,provider:'whisper'},billableSttDuration:60,llmTranscription:'Synthetic operator transcript',channelDiarizedJson:null,diarizationSource:null});
+            jest.spyOn(service as any,'rejectIfUnusable').mockResolvedValue(false);
+            jest.spyOn(service as any,'assessSttQuality').mockReturnValue({quality:'ok',confidence:1,reasons:[]});
+            jest.spyOn(service as any,'saveQualityOnRecord').mockResolvedValue(undefined);
+            jest.spyOn(service as any,'analyzeTranscription').mockResolvedValue({metrics:{success:true},usage:{total_tokens:100},diarizedText:null,modelName:'synthetic',topicTagIds:[]});
+            jest.spyOn(service as any,'persistAnalysisProjection').mockResolvedValue(undefined);
+            jest.spyOn(service as any,'emitAnalysisCompleted').mockReturnValue(undefined);
+            const balance=jest.spyOn(service as any,'checkBalance');
+            const charge=jest.spyOn(service as any,'chargeCost');
+            await service.regenerateAnalysis('1','1',true,false);
+            expect(balance).not.toHaveBeenCalled(); expect(charge).not.toHaveBeenCalled();
+            expect(mockUsersService.decrementUserBalance).not.toHaveBeenCalled();
+            expect(cdr.update).toHaveBeenCalledWith(expect.objectContaining({cost:0.01,amountCurrency:0.01}));
+            expect(mockBillingRecordRepo.create).toHaveBeenCalledWith(expect.objectContaining({type:'analytic_regen_free',totalCost:0,textCost:0,sttCost:0,totalTokens:100}));
+        });
         it('should reject regeneration when recording is shorter than 10 seconds', async () => {
             await expect(
                 service.regenerateAnalysis('1', '1', false),

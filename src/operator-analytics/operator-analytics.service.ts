@@ -24,6 +24,7 @@ import { CallTag } from './operator-call-tag.model';
 import { computeAudioSha256 } from './lib/audio-hash';
 import { probeAudio } from './lib/audio-probe';
 import {
+    alignDiarizedTimestamps,
     billableStereoDuration,
     combinedPlainText,
     diarizedTurnsToStorageJson,
@@ -41,7 +42,7 @@ import {
 } from './lib/channel-diarize';
 import {
     buildDashboardCdrWhere,
-    countLowQualityCdrs,
+    applyCallRecordFilters,
     DASHBOARD_PAGE_SIZE,
     isWithoutProject,
 } from './lib/dashboard-aggregation';
@@ -730,11 +731,12 @@ export class OperatorAnalyticsService {
             await this.saveQualityOnRecord(record, sttResult, finalQuality);
 
             // 5. Speaker labels: channel diarization wins; else LLM diarized_text
+            const timedDiarizedText = alignDiarizedTimestamps(diarizedText, sttResult.segments);
             if (channelDiarizedJson) {
                 await record.update({ transcription: channelDiarizedJson });
-            } else if (diarizedText) {
-                this.warnOnDiarizationLoss(record.id, sttResult.text, diarizedText);
-                await record.update({ transcription: diarizedText });
+            } else if (timedDiarizedText) {
+                this.warnOnDiarizationLoss(record.id, sttResult.text, timedDiarizedText);
+                await record.update({ transcription: timedDiarizedText });
             }
 
             // 6. Calculate cost and charge (LLM tokens + STT duration)
@@ -832,7 +834,7 @@ export class OperatorAnalyticsService {
                 filename,
                 metrics,
                 customMetrics: customMetricsResult as Record<string, unknown> | null,
-                transcription: channelDiarizedJson || diarizedText || sttResult.text || record.transcription,
+                transcription: channelDiarizedJson || timedDiarizedText || sttResult.text || record.transcription,
                 duration: record.duration ?? sttResult.duration,
                 operatorName: record.operatorName,
                 clientPhone: record.clientPhone,
@@ -1161,11 +1163,12 @@ export class OperatorAnalyticsService {
             });
             await this.saveQualityOnRecord(record, sttResult, finalQuality);
 
+            const timedDiarizedText = alignDiarizedTimestamps(diarizedText, sttResult.segments);
             if (channelDiarizedJson) {
                 await record.update({ transcription: channelDiarizedJson });
-            } else if (diarizedText) {
-                this.warnOnDiarizationLoss(record.id, sttResult.text, diarizedText);
-                await record.update({ transcription: diarizedText });
+            } else if (timedDiarizedText) {
+                this.warnOnDiarizationLoss(record.id, sttResult.text, timedDiarizedText);
+                await record.update({ transcription: timedDiarizedText });
             }
 
             const totalTokens = usage?.total_tokens || 0;
@@ -1262,7 +1265,7 @@ export class OperatorAnalyticsService {
                 filename: record.filename,
                 metrics,
                 customMetrics: customMetricsResult as Record<string, unknown> | null,
-                transcription: channelDiarizedJson || diarizedText || sttResult.text || record.transcription,
+                transcription: channelDiarizedJson || timedDiarizedText || sttResult.text || record.transcription,
                 duration: record.duration ?? sttResult.duration,
                 operatorName: record.operatorName,
                 clientPhone: record.clientPhone,
@@ -1305,7 +1308,15 @@ export class OperatorAnalyticsService {
         }
     }
 
-    async regenerateAnalysis(channelId: string, userId: string, isAdmin: boolean): Promise<AiCdr> {
+    private readonly regenerationJobs = new Set<string>();
+    async regenerateAnalysis(channelId: string, userId: string, isAdmin: boolean, chargeCustomer = true): Promise<AiCdr> {
+        if (!chargeCustomer && !isAdmin) throw new HttpException('Admin required for uncharged regeneration', HttpStatus.FORBIDDEN);
+        if (this.regenerationJobs.has(channelId)) throw new HttpException('Regeneration already running', HttpStatus.CONFLICT);
+        this.regenerationJobs.add(channelId);
+        try { return await this.regenerateAnalysisRun(channelId, userId, isAdmin, chargeCustomer); }
+        finally { this.regenerationJobs.delete(channelId); }
+    }
+    private async regenerateAnalysisRun(channelId: string, userId: string, isAdmin: boolean, chargeCustomer: boolean): Promise<AiCdr> {
         const recordId = Number(channelId);
         if (!Number.isFinite(recordId)) {
             throw new HttpException('Invalid channelId', HttpStatus.BAD_REQUEST);
@@ -1336,7 +1347,8 @@ export class OperatorAnalyticsService {
             throw new HttpException('Recording URL is missing', HttpStatus.BAD_REQUEST);
         }
 
-        await this.checkBalance(record.userId);
+        if (record.status === AnalyticsStatus.PROCESSING) throw new HttpException('Analysis already running', HttpStatus.CONFLICT);
+        if (chargeCustomer) await this.checkBalance(record.userId);
         await record.update({ status: AnalyticsStatus.PROCESSING, errorMessage: null });
 
         const channelIdStrEarly = String(recordId);
@@ -1404,21 +1416,22 @@ export class OperatorAnalyticsService {
         });
         await this.saveQualityOnRecord(record, sttResult, finalQuality);
 
+        const timedDiarizedText = alignDiarizedTimestamps(diarizedText, sttResult.segments);
         if (channelDiarizedJson) {
             await record.update({ transcription: channelDiarizedJson });
-        } else if (diarizedText) {
-            this.warnOnDiarizationLoss(record.id, sttResult.text, diarizedText);
-            await record.update({ transcription: diarizedText });
+        } else if (timedDiarizedText) {
+            this.warnOnDiarizationLoss(record.id, sttResult.text, timedDiarizedText);
+            await record.update({ transcription: timedDiarizedText });
         }
 
         const totalTokens = usage?.total_tokens || 0;
         const { inTokens: textTokensIn, outTokens: textTokensOut } = this.extractTokenSplit(usage);
-        const { totalCost, llmCost, sttCost } = await this.chargeCost(
+        const { totalCost, llmCost, sttCost } = chargeCustomer ? await this.chargeCost(
             record.userId,
             totalTokens,
             billableSttDuration,
             sttResult.provider,
-        );
+        ) : { totalCost: 0, llmCost: 0, sttCost: 0 };
 
         await record.update({ status: AnalyticsStatus.COMPLETED });
 
@@ -1458,14 +1471,14 @@ export class OperatorAnalyticsService {
         await aiCdr.update({
             callType: parseCallType(record.callType),
             duration: Math.round(sttResult.duration),
-            cost: replaceCost
+            cost: !chargeCustomer ? Number(aiCdr.cost || 0) : replaceCost
                 ? totalCost
                 : parseFloat((Number(aiCdr.cost || 0) + totalCost).toFixed(6)),
             tokens: replaceCost ? totalTokens : (aiCdr.tokens || 0) + totalTokens,
-            amountCurrency: replaceCost
+            amountCurrency: !chargeCustomer ? prevCdrAmountCurrency : replaceCost
                 ? Number(cdrCost.amountCurrency || 0)
                 : parseFloat((prevCdrAmountCurrency + Number(cdrCost.amountCurrency || 0)).toFixed(4)),
-            costCurrency: cdrCost.costCurrency || aiCdr.costCurrency,
+            costCurrency: !chargeCustomer ? aiCdr.costCurrency : cdrCost.costCurrency || aiCdr.costCurrency,
         });
 
         const existingAnalytics = await this.aiAnalyticsRepository.findOne({
@@ -1478,7 +1491,7 @@ export class OperatorAnalyticsService {
                 summary: metrics.summary || '',
                 sentiment: metrics.customer_sentiment || '',
                 csat: metrics.csat || null,
-                cost: replaceCost
+                cost: !chargeCustomer ? Number(existingAnalytics.cost || 0) : replaceCost
                     ? totalCost
                     : parseFloat((Number(existingAnalytics.cost || 0) + totalCost).toFixed(6)),
                 tokens: replaceCost ? totalTokens : (existingAnalytics.tokens || 0) + totalTokens,
@@ -1499,9 +1512,9 @@ export class OperatorAnalyticsService {
 
         await this.billingRecordRepository.create({
             channelId: channelIdStr,
-            type: 'analytic_regen',
+            type: chargeCustomer ? 'analytic_regen' : 'analytic_regen_free',
             userId: record.userId,
-            description: 'File analysis (regenerated)',
+            description: chargeCustomer ? 'File analysis (regenerated)' : 'Admin regeneration; customer not charged',
             totalTokens,
             textTokens: totalTokens,
             textTokensIn,
@@ -1512,7 +1525,7 @@ export class OperatorAnalyticsService {
             textCost: llmCost,
             ...billingFx,
         });
-        await this.checkProjectBudget(project, record.userId);
+        if (chargeCustomer) await this.checkProjectBudget(project, record.userId);
 
         this.logger.log(
             `Analysis regenerated for record #${recordId}, model=${modelName}, added cost=${totalCost} (llm=${llmCost}, stt=${sttCost})`,
@@ -1523,7 +1536,7 @@ export class OperatorAnalyticsService {
             filename: record.filename,
             metrics,
             customMetrics: customMetricsResult as Record<string, unknown> | null,
-            transcription: channelDiarizedJson || diarizedText || sttResult.text || record.transcription,
+            transcription: channelDiarizedJson || timedDiarizedText || sttResult.text || record.transcription,
             duration: record.duration ?? sttResult.duration,
             operatorName: record.operatorName,
             clientPhone: record.clientPhone,
@@ -1893,6 +1906,7 @@ export class OperatorAnalyticsService {
 
     async getCdrs(query: {
         operatorFilters?: string;
+        sources?: string; callTypes?: string; people?: string; tagIds?: string; csat?: string;
         userId?: string;
         startDate?: string;
         endDate?: string;
@@ -1992,6 +2006,7 @@ export class OperatorAnalyticsService {
         }
 
         applyAnalyticsSelection(where, scoped);
+        applyCallRecordFilters(where, scoped, this.aiCdrRepository.sequelize);
         const sortField = query.sortField || 'createdAt';
         const sortOrder = query.sortOrder || 'DESC';
         const orderClause: any[] = [[sortField, sortOrder]];
@@ -2039,6 +2054,7 @@ export class OperatorAnalyticsService {
     async getOperatorEvidence(
         query: {
             operatorFilters?: string;
+        sources?: string; callTypes?: string; people?: string; tagIds?: string; csat?: string;
             callType?: CallType;
             operatorName?: string; operatorId?: string; operatorExtension?: string;
             userId?: string;
@@ -2061,6 +2077,7 @@ export class OperatorAnalyticsService {
         const order = query.order ?? 'worst';
 
         const filters = {
+            sources:query.sources,callTypes:query.callTypes,people:query.people,tagIds:query.tagIds,csat:query.csat,
             operatorFilters: query.operatorFilters,
             callType: query.callType,
             userId: query.userId,
@@ -2076,6 +2093,7 @@ export class OperatorAnalyticsService {
             isAdmin,
             realUserId ?? '',
             (v) => this.likeOp(v),
+            this.aiCdrRepository.sequelize,
         );
 
         if (this.qualityScoring?.enabled) {
@@ -2144,6 +2162,7 @@ export class OperatorAnalyticsService {
 
     async getDashboard(query: {
         operatorFilters?: string;
+        sources?: string; callTypes?: string; people?: string; tagIds?: string; csat?: string;
         userId?: string;
         startDate?: string;
         endDate?: string;
@@ -2153,7 +2172,7 @@ export class OperatorAnalyticsService {
         withoutProject?: string | boolean;
     }, isAdmin: boolean, realUserId: string) {
         const scoped = this.scopeProjectQuery(query);
-        const where = buildDashboardCdrWhere(scoped, isAdmin, realUserId, (v) => this.likeOp(v));
+        const where = buildDashboardCdrWhere(scoped, isAdmin, realUserId, (v) => this.likeOp(v), this.aiCdrRepository.sequelize);
         if (this.qualityScoring?.enabled) {
             const project = scoped.projectId ? await this.projectRepository.findByPk(scoped.projectId) : null;
             return qualityDashboard(this.aiCdrRepository.sequelize, scoped, isAdmin, realUserId, project?.callTaxonomy ?? []);
@@ -2191,13 +2210,6 @@ export class OperatorAnalyticsService {
             };
         }
 
-        const excludedLowQualityCount = isAdmin ? await countLowQualityCdrs(
-            this.aiCdrRepository.sequelize,
-            scoped,
-            isAdmin,
-            realUserId,
-        ) : 0;
-
         const totalsRow = await this.aiCdrRepository.findOne({
             where,
             attributes: [
@@ -2217,6 +2229,7 @@ export class OperatorAnalyticsService {
             : totalCostUsd;
 
         const aggregationRecords = await this.loadDashboardCdrPages(where);
+        const excludedLowQualityCount = isAdmin ? aggregationRecords.filter(record => ['low','unusable'].includes(record.analytics?.metrics?._quality?.quality)).length : 0;
         const recordsForDerived = aggregationRecords;
         const aggregationCount = recordsForDerived.length;
 

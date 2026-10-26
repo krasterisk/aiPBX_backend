@@ -1,3 +1,4 @@
+import { alignDiarizedTimestamps } from './channel-diarize';
 import {
     billableStereoDuration,
     coalesceAdjacentTurns,
@@ -344,3 +345,8 @@ describe('channel-diarize', () => {
         });
     });
 });
+
+it('restores measured segment times for exact matching turns without fabricating unmatched times',()=>{
+ const value=alignDiarizedTimestamps(JSON.stringify([{speaker:'operator',text:'Hello!'},{speaker:'customer',text:'Unknown'},{speaker:'customer',text:'Hello!'}]),[{text:'Hello',start:1.25,end:2},{text:'Hello',start:4,end:5}]);
+ expect(JSON.parse(value!)).toEqual([{speaker:'operator',text:'Hello!',start:1.25,end:2},{speaker:'customer',text:'Unknown'},{speaker:'customer',text:'Hello!',start:4,end:5}]);
+})

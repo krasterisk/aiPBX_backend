@@ -1,5 +1,5 @@
 import { Op } from 'sequelize';
-import { applyJournalSelection, journalDateWhere, journalOption, journalPeople, journalValues } from './journal-selection';
+import { applyJournalSelection, journalDateWhere, journalOption, journalPeople, journalValues, journalTags } from './journal-selection';
 
 describe('journal selections', () => {
     it.each(['{}', 'null', '[1]', '["unknown"]', '[' + Array(101).fill('"call"').join(',') + ']'])('rejects invalid bounded values %s', raw => {
@@ -42,4 +42,9 @@ describe('journal selections', () => {
         expect(JSON.parse(journalOption({ userId: '99', assistantId: '0', assistantName: 'One' }).value)).toEqual({ userId: '99', name: 'One' });
         expect(journalOption({ userId: '99', assistantName: 'Unknown Operator' })).toBeNull();
     });
+});
+
+it('accepts a bounded deduplicated topic union and rejects ambiguous/unbounded values',()=>{
+ expect(journalTags('["a","b","a"]')).toEqual(['a','b']);
+ for(const raw of ['[1]','[""]','{}',JSON.stringify(Array(101).fill('a'))]) expect(()=>journalTags(raw)).toThrow();
 });

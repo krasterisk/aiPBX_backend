@@ -180,8 +180,14 @@ jobs:
             fi
 
             # ── Wait for health checks ──
-            echo "Waiting for backend to start..."
-            sleep 15
+            echo "Waiting for backend to become healthy (up to 120 seconds)..."
+            for attempt in $(seq 1 40); do
+              HEALTH=$(sudo docker inspect --format='{{.State.Health.Status}}' app-backend-1 2>/dev/null || echo "unknown")
+              if [ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "unhealthy" ]; then
+                break
+              fi
+              sleep 3
+            done
 
             # ── Verify deployment ──
             echo "Checking health..."

@@ -215,7 +215,7 @@ export class InvoiceService {
         }
 
         try {
-            await this.alfawebhook.ensureClientRegistered(org, String(input.userId), subject);
+            await this.alfawebhook.ensureClientRegistered(org, String(input.userId), subject, personalAccountNumber);
             if (!org.alfawebhookSyncedAt) {
                 await org.update({ alfawebhookSyncedAt: new Date() });
             }

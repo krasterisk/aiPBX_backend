@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { createHmac } from 'crypto';
 import { Organization } from '../organizations/organizations.model';
 
 export interface AlfawebhookClientSearchParams {
@@ -37,10 +38,31 @@ export class AlfawebhookClient {
     /**
      * Registers / updates client in alfawebhook (best-effort; alfawebhook accepts extended body).
      */
-    async ensureClientRegistered(org: Organization, licNum: string, subject: string): Promise<void> {
+    async ensureClientRegistered(org: Organization, licNum: string, subject: string, personalAccountNumber?: string): Promise<void> {
         const base = this.baseUrl();
         if (!base) {
             this.logger.debug('ALFAWEBHOOK_BASE_URL not set — skip client registration');
+            return;
+        }
+        const registrationSecret = (process.env.AIPBX_REGISTRATION_SECRET || '').trim();
+        if (registrationSecret) {
+            const body = {
+                inn: org.tin,
+                userId: licNum,
+                personalAccountNumber: personalAccountNumber || undefined,
+            };
+            const timestamp = String(Math.floor(Date.now() / 1000));
+            const message = [timestamp, body.inn, body.userId, body.personalAccountNumber || ''].join('\n');
+            const signature = createHmac('sha256', registrationSecret).update(message).digest('hex');
+            const response = await firstValueFrom(this.http.post(
+                `${base.replace(/\/$/, '')}/api/aipbx/clients`, body,
+                {
+                    timeout: 15000,
+                    maxRedirects: 0,
+                    headers: { 'x-aipbx-timestamp': timestamp, 'x-aipbx-signature': signature },
+                },
+            ));
+            if (response.data?.ok !== true) throw new Error('aiPBX binding registration was not acknowledged');
             return;
         }
         const url = `${base.replace(/\/$/, '')}/api/clients`;

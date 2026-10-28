@@ -69,6 +69,6 @@ import { QualityScoringService } from './quality/quality-scoring.service';
         ExternalSttProvider,
         ApiTokenGuard,
     ],
-    exports: [OperatorAnalyticsService, OperatorDigestService, OperatorAlertService],
+    exports: [OperatorAnalyticsService, OperatorDigestService, OperatorAlertService, TopicSchemeService],
 })
 export class OperatorAnalyticsModule { }

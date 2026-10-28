@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { TopicSchemeService } from './topic-scheme.service';
+import { topicSchemeBaseline } from './lib/topic-scheme';
 
 function fixture() {
     const p: any = { id: 5, userId: '99', singleTopic: false, topicSchemeState: null, systemPrompt: 'Business context', customMetricsSchema: [],
@@ -80,5 +81,37 @@ describe('TopicSchemeService ownership and apply gates', () => {
         expect(p.systemPrompt).toBe('Business context');
         await service.apply(5, '99', false, d.revision);
         expect(p.systemPrompt).toBe(cleanedContext);
+    });
+});
+
+
+describe('helpdesk optimistic and structural draft guard', () => {
+    it('rejects a stale project baseline under the draft lock', async () => {
+        const { service, scheme, p } = fixture();
+        const original = await service.draft(5, '99', false, { scheme, expectedDraftRevision: null });
+        p.topicSchemeState = { active: original.draft, draft: null, history: [] };
+        const before = JSON.stringify(p.topicSchemeState);
+        await expect(service.draft(5, '99', false, { scheme, expectedDraftRevision: null, expectedBaselineHash: 'a'.repeat(64), preserveStructure: true })).rejects.toBeInstanceOf(ConflictException);
+        expect(JSON.stringify(p.topicSchemeState)).toBe(before);
+    });
+    it('preserves identities, names, order and fallback, allowing only checked criteria changes', async () => {
+        for (const kind of ['name', 'order', 'fallback', 'valid']) {
+            const { service, scheme, p } = fixture();
+            const original = await service.draft(5, '99', false, { scheme, expectedDraftRevision: null });
+            p.topicSchemeState = { active: original.draft, draft: null, history: [] };
+            const changed = JSON.parse(JSON.stringify(scheme));
+            if (kind === 'name') changed.topics[0].name = 'Renamed';
+            if (kind === 'order') changed.topics.reverse();
+            if (kind === 'fallback') changed.fallbackTopicId = 'a';
+            if (kind === 'valid') changed.topics[0].when = 'New visit price also counts';
+            const input = { scheme: changed, expectedDraftRevision: null, expectedBaselineHash: topicSchemeBaseline(p), preserveStructure: true, helpdeskRequestId: 'a'.repeat(32) };
+            if (kind !== 'valid') await expect(service.draft(5, '99', false, input)).rejects.toBeInstanceOf(BadRequestException);
+            else {
+                const next = await service.draft(5, '99', false, input);
+                expect(next.active!.scheme).toEqual(scheme);
+                expect((next.draft as any).helpdeskRequestId).toBe('a'.repeat(32));
+                await expect(service.apply(5, '99', false, next.draft!.revision)).rejects.toBeInstanceOf(BadRequestException);
+            }
+        }
     });
 });

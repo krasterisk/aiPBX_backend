@@ -22,6 +22,7 @@ import { HelpdeskController } from './helpdesk.controller';
 import { HelpdeskToolsController } from './helpdesk-tools.controller';
 
 import { HelpdeskEmailContextController } from './helpdesk-email-context.controller';
+import { HelpdeskTopicSchemeController } from './helpdesk-topic-scheme.controller';
 import { HelpdeskEmailContextService } from './helpdesk-email-context.service';
 import { User } from '../users/users.model';
 import { Role } from '../roles/roles.model';
@@ -50,7 +51,7 @@ import { OperatorAnalyticsModule } from '../operator-analytics/operator-analytic
         forwardRef(() => AuthModule),
         forwardRef(() => OperatorAnalyticsModule),
     ],
-    controllers: [HelpdeskController, HelpdeskToolsController, HelpdeskEmailContextController],
+    controllers: [HelpdeskController, HelpdeskToolsController, HelpdeskEmailContextController, HelpdeskTopicSchemeController],
     providers: [
         HelpdeskEmailContextService,
         HelpdeskService,

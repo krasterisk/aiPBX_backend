@@ -9,6 +9,9 @@ import { assertTopicSchemeChecks, topicSchemeBaseline, topicSchemeTaxonomy, Topi
 const draftInput = z.object({
     scheme: z.unknown(), expectedDraftRevision: z.string().uuid().nullable(),
     businessContext: z.string().max(60000).nullable().optional(),
+    expectedBaselineHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    preserveStructure: z.literal(true).optional(),
+    helpdeskRequestId: z.string().regex(/^[a-f0-9]{32}$/).optional(),
 }).strict();
 const checkInput = z.object({
     revision: z.string().uuid(),
@@ -48,11 +51,21 @@ export class TopicSchemeService {
         const input = this.parse(draftInput, body);
         return this.locked(id, owner, admin, async project => {
             const state = this.state(project);
+            if (input.expectedBaselineHash && input.expectedBaselineHash !== topicSchemeBaseline(project)) throw new ConflictException('Project changed; reload before saving');
             if ((state.draft?.revision ?? null) !== input.expectedDraftRevision) throw new ConflictException('Draft changed; reload before saving');
             let scheme;
             try { scheme = validateTopicScheme(input.scheme, project.callTaxonomy, false); }
             catch { throw new BadRequestException('Invalid topic scheme or unknown topics'); }
+            if (input.preserveStructure) {
+                const active = state.active?.scheme;
+                if (!input.expectedBaselineHash || !active || scheme.fallbackTopicId !== active.fallbackTopicId
+                    || scheme.topics.length !== active.topics.length
+                    || scheme.topics.some((t, i) => t.id !== active.topics[i].id || t.name !== active.topics[i].name)) {
+                    throw new BadRequestException('Scoped edit must preserve topic identities, names, order and fallback');
+                }
+            }
             const draft = { revision: randomUUID(), scheme, checks: [], createdAt: new Date().toISOString(), baselineHash: topicSchemeBaseline(project),
+                ...(input.helpdeskRequestId ? { helpdeskRequestId: input.helpdeskRequestId } : {}),
                 ...(input.businessContext !== undefined ? { businessContext: input.businessContext } : {}) };
             project.topicSchemeState = { ...state, draft };
             return project.topicSchemeState;

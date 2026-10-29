@@ -56,6 +56,17 @@ export class RecoveryService implements OnModuleInit {
         timeSource:RECOVERY_TIME_POLICY,originalReceiptDatesPreserved:true,order:'originalReceivedAt ASC, recordId ASC',
         approvalRequired:true,customerPriceConsentRequired:true,started:false}})}
 
+    private async completedRecordings(owner:string,project:number,urls:string[]):Promise<Set<string>>{
+        if(!urls.length)return new Set();
+        // Bound quote latency: do not repeat an owner-history scan for each URL.
+        const related=await this.q('SELECT id,"recordUrl",status FROM operator_analytics WHERE "userId"=:owner AND "projectId"=:project AND "recordUrl" IN (:urls)',{owner,project,urls:[...new Set(urls)]});
+        if(!related.length)return new Set();const ids=related.map(r=>String(r.id));
+        const cdr=await this.q('SELECT "channelId" FROM "aiCdr" WHERE "userId"=:owner AND "projectId"=:project AND "channelId" IN (:ids)',{owner,project,ids});
+        const billed=await this.q('SELECT "channelId" FROM "billingRecords" WHERE "userId"=:owner AND "channelId" IN (:ids)',{owner,ids});
+        const done=new Set([...cdr,...billed].map(r=>r.channelId));
+        return new Set(related.filter(r=>r.status==='completed'||done.has(String(r.id))).map(r=>r.recordUrl));
+    }
+
     async createQuote(owner:string,project:number,input:{period?:string;timeZone:string;timePolicy:string;recordingOrigin:string;maxAmount?:number}){
         if(!this.ready||input.timePolicy!==RECOVERY_TIME_POLICY)throw Error('recovery_time_policy_not_configured');
         const period=processingPeriod(input.period,input.timeZone);
@@ -68,6 +79,7 @@ export class RecoveryService implements OnModuleInit {
             AND "errorMessage"='Insufficient balance' AND "createdAt">=(CAST(:start AS date)::timestamp AT TIME ZONE :zone)
             ORDER BY "createdAt",id LIMIT 10001`,{owner,project,start:period.start,zone:period.timeZone});
         if(rows.length>10000)throw Error('recovery_candidate_window_too_large');
+        const done=await this.completedRecordings(owner,project,rows.map(r=>r.recordUrl).filter(Boolean));
         const candidates:RecoveryCandidate[]=[];const keys=new Set<string>();
         for(const r of rows){
             const url=new URL(r.recordUrl);if(url.origin!==origin.origin)throw Error('recovery_recording_origin_mismatch');
@@ -76,10 +88,7 @@ export class RecoveryService implements OnModuleInit {
             const local=(k:string)=>localParts.find(p=>p.type===k)!.value;
             const day=local('year')+'-'+local('month')+'-'+local('day');if(day<period.start||day>period.end)continue;
             const key=recordingKey(owner,project,r.recordUrl);if(keys.has(key))continue;
-            const [done]=await this.q(`SELECT o.id FROM operator_analytics o WHERE o."userId"=:owner AND o."projectId"=:project
-                AND o."recordUrl"=:url AND (o.status='completed' OR EXISTS(SELECT 1 FROM "aiCdr" c WHERE c."channelId"=CAST(o.id AS text) AND c."userId"=:owner AND c."projectId"=:project)
-                OR EXISTS(SELECT 1 FROM "billingRecords" b WHERE b."channelId"=CAST(o.id AS text) AND b."userId"=:owner)) LIMIT 1`,{owner,project,url:r.recordUrl});
-            if(done)continue;keys.add(key);
+            if(done.has(r.recordUrl))continue;keys.add(key);
             candidates.push({recordId:r.id,recordingKey:key,receivedAt,ingestedAt:ingestedAt.toISOString(),recordHash:recoveryRecordHash(r)});
         }
         candidates.sort((a,b)=>a.receivedAt.localeCompare(b.receivedAt)||a.recordId-b.recordId);

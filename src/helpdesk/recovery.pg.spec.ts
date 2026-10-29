@@ -59,6 +59,14 @@ integration('recovery PostgreSQL atomicity / concurrency / dates',()=>{
         const [saved]=await select('SELECT quote FROM helpdesk_recovery_quotes');expect(saved.quote.candidates.map((r:any)=>r.recordId)).toEqual([2,1,3]);
         expect(q.originalReceiptDatesPreserved).toBe(true);expect(JSON.stringify(q)).not.toContain('recordUrl');expect(JSON.stringify(q)).not.toContain('filename');
     });
+    it('quotes 1000 records with a bounded number of database reads rather than one history scan per recording',async()=>{
+        await db.query(`INSERT INTO operator_analytics(id,"userId","projectId",filename,"recordUrl",status,"errorMessage","createdAt") SELECT i,'20',7,'synthetic.mp3','https://pbx.example.test/bulk/'||i,'error','Insufficient balance',now()-interval '1 day' FROM generate_series(200,1196) i`);
+        const reads=jest.spyOn(db,'query');const q=await quote();expect(q.count).toBe(1000);expect(reads.mock.calls.filter(c=>String(c[0]).startsWith('SELECT')).length).toBeLessThan(20);reads.mockRestore();expect(provider.prepareRecovery).not.toHaveBeenCalled();
+    });
+    it('excludes an already billed duplicate URL even when its legacy completion flag is missing',async()=>{
+        await db.query(`INSERT INTO operator_analytics(id,"userId","projectId",filename,"recordUrl",status,"createdAt")VALUES(4,'20',7,'duplicate.mp3','https://pbx.example.test/audio/1.mp3','error',now()-interval '1 day');INSERT INTO "billingRecords"("channelId","userId","totalCost")VALUES('4','20',0.01)`);
+        expect((await quote()).count).toBe(2);expect(provider.prepareRecovery).not.toHaveBeenCalled();
+    });
     it('processes oldest receipts first and keeps historical dates, with charge time separate',async()=>{
         const q=await quote();const started=await svc.enqueue('20',7,approval(q));await svc.tick();
         expect(provider.prepareRecovery.mock.calls.map((c:any)=>c[2].recordId)).toEqual([2,1,3]);

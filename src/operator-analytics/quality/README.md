@@ -55,3 +55,13 @@ Rollback must coordinate readers and writers. A flag-off Q1 backend preserves ve
 ## Verification limits
 
 Arithmetic/schema/transactions, idempotency, tenant isolation, cursor ties, corrections, CLI dry-run/apply and SQL aggregation have local automated coverage. Provider contract checks use synthetic dialogs. These do not establish broad scoring accuracy: rubric agreement and score calibration still require an independently labeled pilot. Production p50/p95 and large-period EXPLAIN qualification remain release gates.
+
+## Read-time compatibility
+
+Preview journal, operator lists, dashboard and evidence resolve older formula scores
+from the immutable run's answers, overrides and frozen scorecard using the same
+calculator and policy upgrade as detail reads. This does not write projections or
+history, invoke AI, or require a historical backfill. Only numeric projections are
+cached, keyed by immutable run and owner; raw snapshots are read in batches of250.
+PostgreSQL still groups and orders the complete selected set. Missing snapshots
+remain unscored rather than falling back to a score from a different formula.

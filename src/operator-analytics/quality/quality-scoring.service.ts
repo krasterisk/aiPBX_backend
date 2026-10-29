@@ -17,6 +17,7 @@ import {
     QUALITY_FORMULA_VERSION,
 } from './quality-score';
 import { isOperatorAnalyticsSource } from '../lib/analytics-source';
+import { appliedQualityScorecard } from './quality-read-projection';
 
 @Injectable()
 export class QualityScoringService {
@@ -45,14 +46,7 @@ export class QualityScoringService {
             if (!previous || previous.result.formulaVersion === QUALITY_FORMULA_VERSION) return;
             const revision = await this.cards.findOne({ where: { id: previous.scorecardRevisionId, userId }, transaction });
             if (!revision) throw new NotFoundException('Quality scorecard not found');
-            const card: QualityScorecard = {
-                ...revision.snapshot,
-                formulaVersion: QUALITY_FORMULA_VERSION,
-                criteria: revision.snapshot.criteria.map(rule => ({
-                    ...rule,
-                    included: rule.origin === 'custom' && rule.normalization.kind !== 'none' ? true : rule.included,
-                })),
-            };
+            const card = appliedQualityScorecard(revision.snapshot);
             const raw = previous.rawSnapshot;
             const result = calculateQualityScore(card, raw.metrics, raw.overrides ?? []);
             const run = await this.saveRun({ userId, channelId, projectId: previous.projectId,

@@ -5,9 +5,10 @@ import { analyticsDate } from '../lib/analytics-date';
 import { QUALITY_FORMULA_VERSION } from './quality-score';
 import { journalValues, journalPeople, journalTags } from '../../ai-cdr/journal-selection';
 import { parseCsatFilter } from '../../ai-cdr/parse-csat-filter';
+import { loadQualityReadProjections, qualityReadRelation } from './quality-read-projection';
 
 /** Fixed SQL scope shared by summary and evidence. Values are always bound. */
-export function qualityReadScope(filters: DashboardCdrFilters, isAdmin: boolean, userId: string, preview = false) {
+export function qualityReadScope(filters: DashboardCdrFilters, isAdmin: boolean, userId: string, preview = false, relation?: string) {
     const clauses = ['1=1'];
     const replacements: Record<string, any> = {};
     if (!isAdmin || filters.userId) {
@@ -76,7 +77,7 @@ export function qualityReadScope(filters: DashboardCdrFilters, isAdmin: boolean,
           CASE WHEN ${usable} THEN lower(COALESCE(a."qualitySummary"::jsonb->>'sentiment', a.sentiment, ${raw}->>'customer_sentiment')) END AS mood,
           CASE WHEN ${usable} THEN a.csat END AS csat
           , CASE WHEN a."qualitySummary"::jsonb ? 'successReason' THEN a."qualitySummary"::jsonb->>'successReason' ELSE ${raw}->'_assessments'->'success'->>'rationale' END AS "failureReason"
-        FROM "aiCdr" c LEFT JOIN "${preview ? 'quality_preview_analytics' : 'aiAnalytics'}" a ON a."channelId"=c."channelId"
+        FROM "aiCdr" c LEFT JOIN ${relation ?? `"${preview ? 'quality_preview_analytics' : 'aiAnalytics'}"`} a ON a."channelId"=c."channelId"
         WHERE ${clauses.join(' AND ')}
     )`;
     return { cte, replacements };
@@ -113,7 +114,7 @@ const counts = `count(*)::int AS "callsCount", count(score)::int AS "scoredCalls
     count(*) FILTER (WHERE mood='neutral')::int AS neutral, count(*) FILTER (WHERE mood='negative')::int AS negative`;
 const jsonRows = (sql: string) => `(SELECT COALESCE(jsonb_agg(to_jsonb(g)), '[]'::jsonb) FROM (${sql}) g)`;
 
-/** One database snapshot; only aggregate rows cross the DB boundary. No period scan in Node. */
+/** PostgreSQL groups the full selection after resolving historical numeric projections. */
 export async function qualityDashboard(
     db: Sequelize,
     filters: DashboardCdrFilters,
@@ -123,7 +124,8 @@ export async function qualityDashboard(
     preview = false
 ) {
     if (db.getDialect() !== 'postgres') throw new Error('Quality v2 aggregate activation requires PostgreSQL');
-    const { cte, replacements } = qualityReadScope(filters, isAdmin, userId, preview);
+    const resolved = preview ? await loadQualityReadProjections(db, { ...filters, userId: isAdmin ? filters.userId : userId }) : {};
+    const { cte, replacements } = qualityReadScope(filters, isAdmin, userId, preview, preview ? qualityReadRelation(db, resolved) : undefined);
     const hourRange =
         filters.startDate && filters.endDate
             ? analyticsDate(filters.endDate, 'end').getTime() - analyticsDate(filters.startDate, 'start').getTime()
@@ -287,7 +289,8 @@ export async function qualityEvidence(
     preview = false
 ) {
     if (db.getDialect() !== 'postgres') throw new Error('Quality v2 evidence activation requires PostgreSQL');
-    const { cte, replacements } = qualityReadScope(filters, isAdmin, userId, preview);
+    const resolved = preview ? await loadQualityReadProjections(db, { ...filters, userId: isAdmin ? filters.userId : userId }) : {};
+    const { cte, replacements } = qualityReadScope(filters, isAdmin, userId, preview, preview ? qualityReadRelation(db, resolved) : undefined);
     const page = Math.max(1, Number(query.evidencePage) || 1),
         size = Math.max(1, Math.min(100, Number(query.evidencePageSize) || 20));
     Object.assign(replacements, { offset: (page - 1) * size, last: page * size, metricId: query.metricId ?? null });

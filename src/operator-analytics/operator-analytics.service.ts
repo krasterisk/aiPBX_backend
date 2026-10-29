@@ -2,6 +2,7 @@ import { dashboardCallFacts, callOutcome, callDistributionCondition } from './li
 import { QualityPreviewService, previewObservation } from './quality/quality-preview.service';
 import { QualityPreviewAnalytics } from './quality/quality-preview-analytics.model';
 import { currentQualityProjection } from './quality/current-quality-projection';
+import { loadQualityReadProjections } from './quality/quality-read-projection';
 import { randomUUID } from 'crypto';
 import { qualityDashboard, qualityEvidence, qualityDistributionPredicate } from './quality/quality-dashboard';
 import { QualityScoringService } from './quality/quality-scoring.service';
@@ -2009,6 +2010,9 @@ export class OperatorAnalyticsService {
 
         applyAnalyticsSelection(where, scoped);
         applyCallRecordFilters(where, scoped, this.aiCdrRepository.sequelize, qualityPreview);
+        const qualityReads = qualityPreview ? await loadQualityReadProjections(this.aiCdrRepository.sequelize, {
+            ...scoped, userId: isAdmin ? query.userId : realUserId,
+        }) : {};
         const sortField = query.sortField || 'createdAt';
         const sortOrder = query.sortOrder || 'DESC';
         const orderClause: any[] = [[sortField, sortOrder]];
@@ -2040,7 +2044,7 @@ export class OperatorAnalyticsService {
 
         const enrichedData = data.map(row => {
             const json = row.toJSON() as any;
-            if (qualityPreview) { json.analytics = currentQualityProjection(json.previewAnalytics); delete json.previewAnalytics; }
+            if (qualityPreview) { json.analytics = currentQualityProjection(json.previewAnalytics, qualityReads); delete json.previewAnalytics; }
             json.callType = json.callType ?? 'incoming';
             const oa = oaMap.get(row.channelId);
             json.transcription = oa?.transcription || null;

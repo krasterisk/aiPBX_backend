@@ -41,11 +41,14 @@ it('uses the same saved projection for SQL aggregates, evidence, outcomes and se
         qualityPerson0operatorId: '302', qualityTypes: ['incoming'], qualityTags: ['service'], qualityCsat: [5] });
     expect(scope.cte).toContain('LEFT JOIN "quality_preview_analytics"');
     expect(qualityDistributionPredicate({ success: false }, true)).toContain('FROM "quality_preview_analytics"');
-    const query = jest.fn().mockRejectedValue(new Error('SQL captured'));
+    const query = jest.fn().mockImplementation(async (sql: string) => {
+        if (sql.includes('SELECT DISTINCT a."qualityRunId"')) return [];
+        throw new Error('SQL captured');
+    });
     const db = { getDialect: () => 'postgres', query };
     await expect(qualityDashboard(db as never, {}, false, '99', [], true)).rejects.toThrow('SQL captured');
-    expect(query.mock.calls[0][0]).toContain('JOIN quality_preview_values');
+    expect(query.mock.calls[1][0]).toContain('JOIN quality_preview_values');
     await expect(qualityEvidence(db as never, {}, false, '99', {}, true)).rejects.toThrow('SQL captured');
-    expect(query.mock.calls[1][0]).toContain('JOIN quality_preview_runs');
-    expect(query.mock.calls[1][0]).not.toContain('JOIN quality_analysis_runs');
+    expect(query.mock.calls[3][0]).toContain('JOIN quality_preview_runs');
+    expect(query.mock.calls[3][0]).not.toContain('JOIN quality_analysis_runs');
 });

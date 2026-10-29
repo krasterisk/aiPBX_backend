@@ -1,5 +1,6 @@
 import { QualityPreviewAnalytics } from '../operator-analytics/quality/quality-preview-analytics.model';
 import { currentQualityProjection } from '../operator-analytics/quality/current-quality-projection';
+import { loadQualityReadProjections, qualityReadOrder } from '../operator-analytics/quality/quality-read-projection';
 import { journalOrderExpression } from './journal-order';
 import { postgresJsonbCast } from '../operator-analytics/lib/dashboard-aggregation';
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
@@ -505,6 +506,7 @@ export class AiCdrService {
 
             // Prepare the where clause
             const { whereClause, csatWhere } = await this.cdrSelectionWhere(query, userId, journalMode);
+            const qualityReads = qualityPreview ? await loadQualityReadProjections(this.aiCdrRepository.sequelize, { ...query, userId }) : {};
 
             const sortField = query.sortField || 'createdAt';
             const sortOrder = query.sortOrder === 'ASC' ? 'ASC' : 'DESC';
@@ -519,7 +521,9 @@ export class AiCdrService {
 
             // Build order clause based on field type
             let orderClause: any[];
-            const journalOrder = qualityPreview ? journalOrderExpression(sortField, this.dialect, true) : null;
+            const journalOrder = qualityPreview && sortField === 'qualityScore' && this.dialect === 'postgres'
+                ? qualityReadOrder(this.aiCdrRepository.sequelize, qualityReads, 'analytics')
+                : qualityPreview ? journalOrderExpression(sortField, this.dialect, true) : null;
             const isAssociatedSort = Boolean(journalOrder) || sortField === 'csat' || sortField === 'sentiment' || sortField === 'scenarioSuccess';
             const isCsatFilter = Boolean(csatWhere);
             // subQuery: false needed when sorting/searching by JOINed fields
@@ -634,7 +638,7 @@ export class AiCdrService {
 
             const enrichedRows = rows.map(row => {
                 const json = row.toJSON() as any;
-                if (qualityPreview) { json.analytics = currentQualityProjection(json.previewAnalytics); delete json.previewAnalytics; }
+                if (qualityPreview) { json.analytics = currentQualityProjection(json.previewAnalytics, qualityReads); delete json.previewAnalytics; }
                 json.transcription = transcriptionMap.get(row.channelId) || null;
                 if (!json.recordUrl) {
                     json.recordUrl = recordUrlMap.get(row.channelId) || json.recordUrl;

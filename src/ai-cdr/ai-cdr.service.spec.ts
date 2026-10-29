@@ -103,7 +103,7 @@ describe('AiCdrService', () => {
             findAll: jest.fn().mockResolvedValue([]),
             sum: jest.fn(),
             sequelize: {
-                query: jest.fn(),
+                query: jest.fn().mockResolvedValue([]),
                 getDialect: jest.fn().mockReturnValue('postgres'),
                 transaction: jest.fn(async (cb: (t: unknown) => Promise<void>) => cb({})),
             },

@@ -540,13 +540,20 @@ describe('AiCdrService', () => {
             expect(mockAiCdrRepository.findAll).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ userId: '99' }), attributes: ['userId', 'operatorId', 'assistantId', 'assistantName'], limit: 1000 }));
             expect(JSON.parse(options.people[0].value)).toEqual({ userId: '99', operatorId: '218' });
         });
-        it('includes owned assistants without calls and historical robots outside the period', async () => {
-            mockAiCdrRepository.findAll.mockResolvedValueOnce([]).mockResolvedValueOnce([{ userId:'99', assistantId:'old', assistantName:'Archived bot' }]);
-            mockAssistantRepository.findAll.mockResolvedValue([{ id:7,userId:'99',name:'New bot' }]);
-            const result=await service.getJournalOptions({userId:'foreign',startDate:'2026-10-25'} as any,false,'99');
-            expect(result.people.map(x=>JSON.parse(x.value))).toEqual(expect.arrayContaining([{userId:'99',assistantId:'old'},{userId:'99',assistantId:'7'}]));
-            expect(mockAssistantRepository.findAll).toHaveBeenCalledWith(expect.objectContaining({where:{userId:'99'}}));
-            expect(mockAiCdrRepository.findAll.mock.calls[1][0].where).toEqual({userId:'99'});
+        it('does not add historical identities or robots without calls in the selection', async () => {
+            mockAiCdrRepository.findAll.mockResolvedValueOnce([]);
+            mockAssistantRepository.findAll.mockResolvedValue([{ id: 7, userId: '99', name: 'No calls' }]);
+            const result = await service.getJournalOptions({ userId: 'foreign', startDate: '2026-10-25' } as any, false, '99');
+            expect(result.people).toEqual([]);
+            expect(mockAiCdrRepository.findAll).toHaveBeenCalledTimes(1);
+            expect(mockAssistantRepository.findAll).not.toHaveBeenCalled();
+            expect(mockAiCdrRepository.findAll.mock.calls[0][0].where.userId).toBe('99');
+        });
+        it('requires an authenticated tenant and allows only admins to select another account', async () => {
+            await expect(service.getJournalOptions({ userId: 'foreign' } as any, false, null)).rejects.toThrow('Missing account');
+            mockAiCdrRepository.findAll.mockResolvedValue([]);
+            await service.getJournalOptions({ userId: '100' } as any, true, null);
+            expect(mockAiCdrRepository.findAll.mock.calls[0][0].where.userId).toBe('100');
         });
         it('uses an escaped tenant-scoped tag subquery instead of truncating at5000IDs', async () => {
             const orm = new Sequelize({ dialect: 'postgres', database: 'unused', username: 'unused', password: 'unused', logging: false });

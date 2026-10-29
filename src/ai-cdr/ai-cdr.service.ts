@@ -320,14 +320,153 @@ export class AiCdrService {
         }
     }
 
+    /** Shared by journal rows and its people facet, including authenticated account scope. */
+    private async cdrSelectionWhere(query: GetAiCdrDto, userId: string | undefined, journalMode: boolean) {
+        const search = query.search;
+        const startDate = query.startDate;
+        const endDate = query.endDate;
+        const searchConditions: any[] = [
+            {
+                callerId: {
+                    [sequelize.Op.like]: `%${search}%`
+                }
+            },
+            {
+                assistantName: {
+                    [sequelize.Op.like]: `%${search}%`
+                }
+            },
+            {
+                channelId: {
+                    [sequelize.Op.like]: `%${search}%`
+                }
+            },
+        ];
+
+        // Only search in associated analytics.summary when there's actual search text,
+        // otherwise Sequelize puts it in a subquery where the JOIN isn't available
+        if (search && search.trim() !== '') {
+            searchConditions.push({
+                '$analytics.summary$': {
+                    [sequelize.Op.like]: `%${search}%`
+                }
+            });
+        }
+
+        const whereClause: any = {
+            [sequelize.Op.or]: searchConditions
+        };
+
+        // Обработка случаев, когда указаны оба параметра startDate и endDate
+        if (journalMode) {
+            const dates = journalDateWhere(startDate, endDate);
+            if (dates) whereClause.createdAt = dates;
+            applyJournalSelection(whereClause, query as JournalQuery);
+        } else if (startDate && endDate) {
+            whereClause.createdAt = {
+                // [sequelize.Op.gte]: sequelize.literal(`DATE('${startDate}')`),
+                // [sequelize.Op.lte]: sequelize.literal(`DATE('${endDate}')`)
+                [sequelize.Op.between]: [startDate + " 00:00", endDate + " 23:59"]
+            };
+        }
+        // Обработка случая, когда указан только startDate
+        else if (startDate) {
+            whereClause.createdAt = {
+                [sequelize.Op.gte]: sequelize.literal(this.sqlDate(`'${startDate}'`))
+            };
+        }
+        // Обработка случая, когда указан только endDate
+        else if (endDate) {
+            whereClause.createdAt = {
+                [sequelize.Op.lte]: sequelize.literal(this.sqlDate(`'${endDate}'`))
+            };
+        }
+
+        if (userId !== undefined) {
+            whereClause.userId = String(userId);
+        }
+
+        const assistantIds = Array.isArray(query.assistantId)
+            ? query.assistantId
+            : typeof query.assistantId === 'string'
+                ? query.assistantId.split(',').map(id => id.trim()).filter(Boolean)
+                : [];
+
+        if (assistantIds && assistantIds.length > 0) {
+            whereClause.assistantId = {
+                [Op.in]: assistantIds
+            };
+        }
+
+        if (query.source) {
+            whereClause.source = query.source;
+        }
+
+        const { scores: csatScores, includeNone: includeNoCsat } = parseCsatFilter(query.csat);
+        const csatWhere = buildCsatWhereCondition(csatScores, includeNoCsat);
+        if (csatWhere) {
+            whereClause[sequelize.Op.and] = [...(whereClause[sequelize.Op.and] || []), csatWhere];
+        }
+
+        if (query.projectId !== undefined && query.projectId !== '') {
+            whereClause.projectId = Number(query.projectId);
+        }
+
+        const tagId = typeof query.tagId === 'string' ? query.tagId.trim() : '';
+        const tagIds = journalMode ? journalTags((query as JournalQuery).tagIds) : [];
+        if (tagId || tagIds.length) {
+            const tagWhere: Record<string, unknown> = { tagId: tagIds.length ? { [Op.in]: tagIds } : tagId };
+            if (userId !== undefined) {
+                tagWhere.userId = String(userId);
+            }
+            if (query.projectId !== undefined && query.projectId !== '') {
+                tagWhere.projectId = Number(query.projectId);
+            }
+            if (journalMode) {
+                // The query generator escapes values; no capped ID list or untrusted SQL.
+                const generator = (this.aiCdrRepository.sequelize.getQueryInterface() as any).queryGenerator;
+                const sql = generator.selectQuery(this.callTagRepository.getTableName(), {
+                    attributes: ['channelId'], where: tagWhere,
+                }).replace(/;\s*$/, '');
+                whereClause.channelId = { [Op.in]: sequelize.literal(`(${sql})`) };
+            } else {
+                const tagRows = await this.callTagRepository.findAll({
+                    where: tagWhere,
+                    attributes: ['channelId'],
+                    limit: 5000,
+                });
+                const channelIds = tagRows.map(r => r.channelId);
+                whereClause.channelId = {
+                    [Op.in]: channelIds.length ? channelIds : ['__no_matching_tag__'],
+                };
+            }
+        }
+
+
+        return { whereClause, csatWhere };
+    }
+
+    private previewSelectionWhere(value: any): any {
+        if (typeof value === 'string') return value;
+        if (!value || typeof value !== 'object' || value instanceof Date) return value;
+        if (Array.isArray(value)) return value.map(entry => this.previewSelectionWhere(entry));
+        if (value.val && typeof value.val === 'string') return sequelize.literal(value.val.replace(/"analytics"/g, '"previewAnalytics"'));
+        if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+        return Reflect.ownKeys(value).reduce((out: any, key) => {
+            out[typeof key === 'string' ? key.replace(/\$analytics\./g, '$previewAnalytics.') : key] = this.previewSelectionWhere(value[key]); return out;
+        }, {});
+    }
+
     async getJournalOptions(query: JournalQuery, isAdmin: boolean, realUserId: string) {
         if (!isAdmin && !realUserId) throw new HttpException('Missing account', HttpStatus.BAD_REQUEST);
         const userId = isAdmin ? (query.userId || undefined) : realUserId;
-        const dates = journalDateWhere(query.startDate, query.endDate);
+        // Ignore only this facet's own selection, so multiselect can still add people.
+        const { whereClause } = await this.cdrSelectionWhere({ ...query, people: undefined, search: query.search ?? '' } as JournalQuery, userId, true);
         const rows = await this.aiCdrRepository.findAll({
-            where: { ...(userId ? { userId: String(userId) } : {}), ...(dates ? { createdAt: dates } : {}) },
+            where: this.previewSelectionWhere(whereClause),
             attributes: ['userId', 'operatorId', 'assistantId', 'assistantName'],
-            group: ['userId', 'operatorId', 'assistantId', 'assistantName'],
+            include: [{ model: QualityPreviewAnalytics, as: 'previewAnalytics', attributes: [], required: false }],
+            group: ['AiCdr.userId', 'AiCdr.operatorId', 'AiCdr.assistantId', 'AiCdr.assistantName'],
             order: [['assistantName', 'ASC']],
             limit: 1000,
             raw: true,
@@ -337,20 +476,7 @@ export class AiCdrService {
             const option = journalOption(row);
             if (option) options.set(option.value, option);
         }
-        // Assistants remain selectable even when there were no calls in the selected period.
-        const assistants = await this.assistantRepository.findAll({
-            where: userId ? { userId: String(userId) } : {}, attributes: ['id', 'userId', 'name'], limit: 1000, raw: true,
-        });
-        // Historical identities (including removed robots) are independent of the selected dates.
-        const historical = await this.aiCdrRepository.findAll({
-            where: userId ? { userId: String(userId) } : {},
-            attributes: ['userId', 'operatorId', 'assistantId', 'assistantName'],
-            group: ['userId', 'operatorId', 'assistantId', 'assistantName'], order: [['assistantName', 'ASC']], limit: 1000, raw: true,
-        });
-        for (const row of [...historical, ...assistants.map(a => ({ userId: String(a.userId), assistantId: String(a.id), assistantName: a.name }))]) {
-            const option = journalOption(row); if (option) options.set(option.value, option);
-        }
-        return { people: [...options.values()].sort((a,b) => a.label.localeCompare(b.label)), limitReached: rows.length === 1000 || historical.length === 1000 || assistants.length === 1000 };
+        return { people: [...options.values()].sort((a, b) => a.label.localeCompare(b.label)), limitReached: rows.length === 1000 };
     }
 
     async get(query: GetAiCdrDto, isAdmin: boolean, realUserId: string, journalMode = false, qualityPreview = false) {
@@ -377,122 +503,7 @@ export class AiCdrService {
             }
 
             // Prepare the where clause
-            const searchConditions: any[] = [
-                {
-                    callerId: {
-                        [sequelize.Op.like]: `%${search}%`
-                    }
-                },
-                {
-                    assistantName: {
-                        [sequelize.Op.like]: `%${search}%`
-                    }
-                },
-                {
-                    channelId: {
-                        [sequelize.Op.like]: `%${search}%`
-                    }
-                },
-            ];
-
-            // Only search in associated analytics.summary when there's actual search text,
-            // otherwise Sequelize puts it in a subquery where the JOIN isn't available
-            if (search && search.trim() !== '') {
-                searchConditions.push({
-                    '$analytics.summary$': {
-                        [sequelize.Op.like]: `%${search}%`
-                    }
-                });
-            }
-
-            const whereClause: any = {
-                [sequelize.Op.or]: searchConditions
-            };
-
-            // Обработка случаев, когда указаны оба параметра startDate и endDate
-            if (journalMode) {
-                const dates = journalDateWhere(startDate, endDate);
-                if (dates) whereClause.createdAt = dates;
-                applyJournalSelection(whereClause, query as JournalQuery);
-            } else if (startDate && endDate) {
-                whereClause.createdAt = {
-                    // [sequelize.Op.gte]: sequelize.literal(`DATE('${startDate}')`),
-                    // [sequelize.Op.lte]: sequelize.literal(`DATE('${endDate}')`)
-                    [sequelize.Op.between]: [startDate + " 00:00", endDate + " 23:59"]
-                };
-            }
-            // Обработка случая, когда указан только startDate
-            else if (startDate) {
-                whereClause.createdAt = {
-                    [sequelize.Op.gte]: sequelize.literal(this.sqlDate(`'${startDate}'`))
-                };
-            }
-            // Обработка случая, когда указан только endDate
-            else if (endDate) {
-                whereClause.createdAt = {
-                    [sequelize.Op.lte]: sequelize.literal(this.sqlDate(`'${endDate}'`))
-                };
-            }
-
-            if (userId !== undefined) {
-                whereClause.userId = String(userId);
-            }
-
-            const assistantIds = Array.isArray(query.assistantId)
-                ? query.assistantId
-                : typeof query.assistantId === 'string'
-                    ? query.assistantId.split(',').map(id => id.trim()).filter(Boolean)
-                    : [];
-
-            if (assistantIds && assistantIds.length > 0) {
-                whereClause.assistantId = {
-                    [Op.in]: assistantIds
-                };
-            }
-
-            if (query.source) {
-                whereClause.source = query.source;
-            }
-
-            const { scores: csatScores, includeNone: includeNoCsat } = parseCsatFilter(query.csat);
-            const csatWhere = buildCsatWhereCondition(csatScores, includeNoCsat);
-            if (csatWhere) {
-                whereClause[sequelize.Op.and] = [...(whereClause[sequelize.Op.and] || []), csatWhere];
-            }
-
-            if (query.projectId !== undefined && query.projectId !== '') {
-                whereClause.projectId = Number(query.projectId);
-            }
-
-            const tagId = typeof query.tagId === 'string' ? query.tagId.trim() : '';
-            const tagIds = journalMode ? journalTags((query as JournalQuery).tagIds) : [];
-            if (tagId || tagIds.length) {
-                const tagWhere: Record<string, unknown> = { tagId: tagIds.length ? { [Op.in]: tagIds } : tagId };
-                if (userId !== undefined) {
-                    tagWhere.userId = String(userId);
-                }
-                if (query.projectId !== undefined && query.projectId !== '') {
-                    tagWhere.projectId = Number(query.projectId);
-                }
-                if (journalMode) {
-                    // The query generator escapes values; no capped ID list or untrusted SQL.
-                    const generator = (this.aiCdrRepository.sequelize.getQueryInterface() as any).queryGenerator;
-                    const sql = generator.selectQuery(this.callTagRepository.getTableName(), {
-                        attributes: ['channelId'], where: tagWhere,
-                    }).replace(/;\s*$/, '');
-                    whereClause.channelId = { [Op.in]: sequelize.literal(`(${sql})`) };
-                } else {
-                    const tagRows = await this.callTagRepository.findAll({
-                        where: tagWhere,
-                        attributes: ['channelId'],
-                        limit: 5000,
-                    });
-                    const channelIds = tagRows.map(r => r.channelId);
-                    whereClause.channelId = {
-                        [Op.in]: channelIds.length ? channelIds : ['__no_matching_tag__'],
-                    };
-                }
-            }
+            const { whereClause, csatWhere } = await this.cdrSelectionWhere(query, userId, journalMode);
 
             const sortField = query.sortField || 'createdAt';
             const sortOrder = query.sortOrder === 'ASC' ? 'ASC' : 'DESC';
@@ -535,17 +546,7 @@ export class AiCdrService {
             }
             orderClause = [...orderClause, ['id', sortOrder]];
 
-            const previewAlias = (value: any): any => {
-                if (typeof value === 'string') return value;
-                if (!value || typeof value !== 'object' || value instanceof Date) return value;
-                if (Array.isArray(value)) return value.map(previewAlias);
-                if (value.val && typeof value.val === 'string') return sequelize.literal(value.val.replace(/"analytics"/g, '"previewAnalytics"'));
-                if (Object.getPrototypeOf(value) !== Object.prototype) return value;
-                return Reflect.ownKeys(value).reduce((out: any, key) => {
-                    out[typeof key === 'string' ? key.replace(/\$analytics\./g, '$previewAnalytics.') : key] = previewAlias(value[key]); return out;
-                }, {});
-            };
-            const selectedWhere = qualityPreview ? previewAlias(whereClause) : whereClause;
+            const selectedWhere = qualityPreview ? this.previewSelectionWhere(whereClause) : whereClause;
             if (qualityPreview) orderClause = orderClause.map(entry => {
                 if (entry[0]?.val) return [sequelize.literal(entry[0].val.replace(/"analytics"/g, '"previewAnalytics"'))];
                 return entry;

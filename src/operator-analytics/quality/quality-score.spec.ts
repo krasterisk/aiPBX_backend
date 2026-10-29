@@ -18,6 +18,28 @@ const assessed = (values: Record<string, any>): Record<string, any> => ({
     _criterion_statuses: { 'default:greeting_quality': 'assessed', 'custom:stars': 'assessed' },
 });
 describe('canonical quality score', () => {
+    it.each([false, true])('scores every applied criterion for operator 203 (legacy=%s), skipping null', (legacy) => {
+        const custom = { greeting: false, introduction: false, clinic: false, name: false,
+            branch: true, appointment: null, offer: false, source: null };
+        const schema = Object.keys(custom).map(id => ({ id, type: 'boolean' }));
+        const metrics = { politeness_empathy: 100, speech_clarity_pace: 100, custom_metrics: custom,
+            _custom_meta: Object.fromEntries(schema.map(({ id, ...meta }) => [id, meta])),
+            ...(!legacy ? { _criterion_statuses: Object.fromEntries([
+                ['politeness_empathy', 'assessed'], ['speech_clarity_pace', 'assessed'],
+                ...Object.entries(custom).map(([id, value]) => [id, value === null ? 'not_applicable' : 'assessed']),
+            ]) } : {}) };
+        const card = createQualityScorecard({ id: 5,
+            visibleDefaultMetrics: ['politeness_empathy', 'speech_clarity_pace'], customMetricsSchema: schema,
+        }, '99', { legacy, metrics });
+        expect(calculateQualityScore(card, metrics)).toMatchObject({ score: 37.5, coverage: 1, assessed: 8, notApplicable: 2 });
+    });
+    it('keeps false and numeric zero in the mean but returns no score for all-null custom answers', () => {
+        const card = createQualityScorecard({ id: 5 }, '99', { legacy: true, metrics: {
+            _custom_meta: { check: { type: 'boolean' }, rating: { type: 'number', min: 0, max: 100 } },
+        } });
+        expect(calculateQualityScore(card, { custom_metrics: { check: false, rating: 0 } })).toMatchObject({ score: 0, assessed: 2 });
+        expect(calculateQualityScore(card, { custom_metrics: { check: null, rating: null } })).toMatchObject({ score: null, assessed: 0, applicable: 0 });
+    });
     it('normalizes explicit custom scales and weights, excluding CSAT, sentiment and business data', () => {
         const card = createQualityScorecard(project({ 'custom:stars': { included: true, weight: 3 } }), '99');
         const result = calculateQualityScore(
@@ -37,6 +59,9 @@ describe('canonical quality score', () => {
             })
         ).toEqual(expect.objectContaining({ score: 100, coverage: 1, notApplicable: 1 }));
         expect(calculateQualityScore(card, { ...base, _criterion_statuses: { greeting_quality: 'assessed' } })).toEqual(
+            expect.objectContaining({ score: 100, coverage: 1, notApplicable: 1 })
+        );
+        expect(calculateQualityScore(card, { ...base, _criterion_statuses: { greeting_quality: 'assessed', stars: 'missing' } })).toEqual(
             expect.objectContaining({ score: null, candidateScore: 100, coverage: 0.5, status: 'needs_review' })
         );
         expect(
@@ -54,7 +79,7 @@ describe('canonical quality score', () => {
         ).toBeNull();
     });
     it('does not turn unusable recordings or an all-N/A form into a perfect score', () => {
-        const card = createQualityScorecard(project(), '99');
+        const card = createQualityScorecard(project({ 'custom:stars': { included: false } }), '99');
         expect(
             calculateQualityScore(card, {
                 greeting_quality: null,
@@ -126,8 +151,8 @@ describe('canonical quality score', () => {
         expect(qualityHash({ a: 1, b: 2 })).toBe(qualityHash({ b: 2, a: 1 }));
         expect(qualityHash(createQualityScorecard(project(), '1'))).not.toBe(id);
     });
-    it('labels reconstructed history and never includes custom data implicitly in new scorecards', () => {
-        expect(createQualityScorecard(project(), '99').criteria[1].included).toBe(false);
+    it('includes scaled custom criteria in new scorecards and labels reconstructed history', () => {
+        expect(createQualityScorecard(project(), '99').criteria[1].included).toBe(true);
         const m = {
             greeting_quality: 100,
             custom_metrics: { stars: 4 },

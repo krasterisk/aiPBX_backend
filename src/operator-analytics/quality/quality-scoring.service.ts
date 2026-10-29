@@ -14,6 +14,7 @@ import {
     qualityHash,
     QualityScorecard,
     QualityScoreResult,
+    QUALITY_FORMULA_VERSION,
 } from './quality-score';
 import { isOperatorAnalyticsSource } from '../lib/analytics-source';
 
@@ -31,6 +32,35 @@ export class QualityScoringService {
 
     get enabled(): boolean {
         return process.env.QUALITY_SCORE_V2_ENABLED === 'true';
+    }
+
+    /** Upgrade the current projection, retaining the original answers, rubric scales and corrections. */
+    async refreshAppliedCriteria(channelId: string, userId: string): Promise<void> {
+        await this.analytics.sequelize.transaction(async (transaction) => {
+            const cdr = await this.cdrs.findOne({ where: { channelId, userId }, transaction, lock: transaction.LOCK.UPDATE });
+            if (!cdr) throw new NotFoundException('Quality record not found');
+            const analytics = await this.analytics.findOne({ where: { channelId }, transaction, lock: transaction.LOCK.UPDATE });
+            if (!analytics?.qualityRunId) return;
+            const previous = await this.runs.findOne({ where: { id: analytics.qualityRunId, channelId, userId }, transaction });
+            if (!previous || previous.result.formulaVersion === QUALITY_FORMULA_VERSION) return;
+            const revision = await this.cards.findOne({ where: { id: previous.scorecardRevisionId, userId }, transaction });
+            if (!revision) throw new NotFoundException('Quality scorecard not found');
+            const card: QualityScorecard = {
+                ...revision.snapshot,
+                formulaVersion: QUALITY_FORMULA_VERSION,
+                criteria: revision.snapshot.criteria.map(rule => ({
+                    ...rule,
+                    included: rule.origin === 'custom' && rule.normalization.kind !== 'none' ? true : rule.included,
+                })),
+            };
+            const raw = previous.rawSnapshot;
+            const result = calculateQualityScore(card, raw.metrics, raw.overrides ?? []);
+            const run = await this.saveRun({ userId, channelId, projectId: previous.projectId,
+                key: qualityHash({ policy: QUALITY_FORMULA_VERSION, previous: previous.id }),
+                previousRunId: previous.id, kind: previous.kind, card, raw, result }, transaction);
+            await analytics.update(this.projection(run), { transaction });
+            await this.writeValueProjection(run, transaction);
+        });
     }
 
     private async saveRun(

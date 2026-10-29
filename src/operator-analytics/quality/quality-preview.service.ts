@@ -6,7 +6,7 @@ import { OperatorAnalytics } from '../operator-analytics.model';
 import { OperatorProject } from '../operator-project.model';
 import { MetricOverride } from '../operator-metric-override.model';
 import { QualityScoringService } from './quality-scoring.service';
-import { createQualityScorecard, qualityHash, QualityScoreConfig } from './quality-score';
+import { createQualityScorecard, qualityHash, QualityScoreConfig, QUALITY_FORMULA_VERSION } from './quality-score';
 import { QualityPreviewAnalytics } from './quality-preview-analytics.model';
 import { QualityPreviewValue } from './quality-preview-values.model';
 import { QualityPreviewOverride } from './quality-preview-overrides.model';
@@ -65,7 +65,11 @@ export class QualityPreviewService {
         // Existing revisions remain frozen when project rules change. Source changes make a new revision.
         const sourceHash = qualityHash({ metrics: original.metrics, summary: original.summary, csat: original.csat,
             sentiment: original.sentiment, updatedAt: original.updatedAt });
-        if (existing?.metrics && (existing.metrics as any)._preview_source_hash === sourceHash) return existing;
+        if (existing?.metrics && (existing.metrics as any)._preview_source_hash === sourceHash) {
+            if (existing.qualityVersion === QUALITY_FORMULA_VERSION) return existing;
+            await this.scoring.refreshAppliedCriteria(channelId, String(cdr.userId));
+            return this.preview.findOne({ where: { channelId } });
+        }
         const project = cdr.projectId ? await this.projects.findOne({ where: { id: cdr.projectId, userId: String(cdr.userId) } }) : null;
         const config = project ? await this.configs.findOne({ where: { projectId: project.id, userId: String(cdr.userId) } }) : null;
         const sourceJson = JSON.stringify({ metrics: original.metrics, summary: original.summary, sentiment: original.sentiment, csat: original.csat });

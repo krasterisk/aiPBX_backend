@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 
-export const QUALITY_FORMULA_VERSION = 'quality-v2.1';
+export const QUALITY_FORMULA_VERSION = 'quality-v2.2';
 export type CriterionStatus = 'assessed' | 'not_applicable' | 'insufficient_evidence' | 'missing' | 'invalid';
 export interface CriterionRule {
     id: string;
@@ -167,14 +167,14 @@ export function createQualityScorecard(
                 : def.type === 'number' && Number.isFinite(def.min) && Number.isFinite(def.max) && def.max > def.min
                 ? { kind: 'linear', min: def.min, max: def.max, inverted: def.polarity === 'negative' }
                 : { kind: 'none' };
-        // Custom data is opt-in: business counts, money and free text are not implicit quality metrics.
+        // Every criterion with a score scale contributes, including custom checklists.
         criteria.push({
             id: def.id,
             origin: 'custom',
             name: def.name || def.id,
             type: def.type,
             weight: 1,
-            included: Boolean(options.legacy && normalization.kind !== 'none'),
+            included: normalization.kind !== 'none',
             normalization,
             critical: 'none',
         });
@@ -285,8 +285,11 @@ export function calculateQualityScore(
         const declared = correction
             ? correction.status ?? 'assessed'
             : metrics._criterion_statuses?.[`${rule.origin}:${rule.id}`] ?? metrics._criterion_statuses?.[rule.id];
-        let status: CriterionStatus =
-            declared ?? (card.provenance === 'legacy_derived' && value != null ? 'assessed' : 'missing');
+        let status: CriterionStatus = declared ?? (
+            rule.origin === 'custom' && value === null && !correction
+                ? 'not_applicable'
+                : card.provenance === 'legacy_derived' && value != null ? 'assessed' : 'missing'
+        );
         if (!['assessed', 'not_applicable', 'insufficient_evidence', 'missing', 'invalid'].includes(status))
             status = 'invalid';
         const normalized = status === 'assessed' ? normalizedValue(value, rule) : null;

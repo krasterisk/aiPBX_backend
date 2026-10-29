@@ -20,7 +20,9 @@ Rollback: restore the held previous frontend/backend images, retain additive col
 
 ## Canonical engine (prepared, global activation deferred)
 
-`quality-score.ts` is the only scoring calculator. Model answers are observations, not an overall score. Built-in metrics use their explicit scale; custom business metrics are excluded until configured. CSAT prediction, sentiment and business outcome are independent indicators.
+`quality-score.ts` is the only scoring calculator. Model answers are observations, not an overall score. Built-in metrics and custom criteria with a score scale contribute by default. Boolean false contributes zero, true contributes 100; a custom null without an explicit evidence status is excluded from both the score and coverage denominator. Missing keys and explicit missing/insufficient-evidence statuses remain distinct. Unmapped text or numbers without a defined scale cannot contribute. CSAT prediction, sentiment and business outcome are independent indicators.
+
+Formula quality-v2.2 corrects custom-criterion inclusion. Preview detail reads refresh an older current projection under a CDR lock and append an immutable revision, preserving the stored scales, raw answers, supervisor corrections and previous history. No AI request is made. The existing preview backfill runner also visits existing projections via `ensure`; run bounded batches after release to update journal list/sort projections before general use. Detail cards at `/calls` and `/dashboard/call-records` share the same endpoint. No production refresh or backfill is performed by editing this source.
 
 For included, assessed criteria, score = 100 × weighted mean of normalized answers. N/A is excluded from the applicable weight. Missing/invalid/insufficient answers reduce evidence coverage; they are never silently zero. Default minimum coverage is 80%. All-N/A, unusable recognition or no assessed criteria yields a null score. A critical flag is separate; explicit `fail` policy sets the score to zero only for an observed zero-valued violation. Unknown critical evidence requires review. Rounding belongs to presentation.
 

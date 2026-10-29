@@ -45,3 +45,17 @@ it('reads encoded historical objects while rejecting unsupported shapes without 
     expect(previewMetrics('bad json')).toEqual({});
     expect(previewMetrics([100])).toEqual({});
 });
+
+it('does not report a newly saved analysis complete until its quality projection is published', async () => {
+    const service = fixture();
+    service.aiAnalyticsRepository = { create: jest.fn(async () => ({ channelId: 'one' })), sequelize: { getDialect: () => 'postgres' } };
+    let publish!: () => void;
+    service.qualityPreview.ensure.mockReturnValue(new Promise<void>(resolve => { publish = resolve; }));
+    let complete = false;
+    const saved = service.persistAnalysisProjection({ channelId: 'one', metrics: {} }, '99', 5).then(() => { complete = true; });
+    await Promise.resolve(); await Promise.resolve();
+    expect(service.qualityPreview.ensure).toHaveBeenCalledWith('one', '99');
+    expect(complete).toBe(false);
+    publish(); await saved;
+    expect(complete).toBe(true);
+});

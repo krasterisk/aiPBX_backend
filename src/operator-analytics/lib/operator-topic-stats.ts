@@ -75,8 +75,8 @@ export function buildOperatorTopicStats(records: AiCdr[], taxonomy: TagDefinitio
 }
 
 /** JSON is the same read source used by the matrix, including legacy CDRs without tag rows. */
-export function topicCallCondition(dialect: string, tagId?: string, withoutTopic = false) {
-    const metrics = dialect === 'postgres' ? '"analytics"."metrics"' : '`analytics`.`metrics`';
+export function topicCallCondition(dialect: string, tagId?: string, withoutTopic = false, alias: 'analytics' | 'previewAnalytics' = 'analytics') {
+    const metrics = dialect === 'postgres' ? `"${alias}"."metrics"` : `\`${alias}\`.\`metrics\``;
     const tags = dialect === 'postgres'
         ? `CASE WHEN jsonb_typeof(${postgresJsonbCast(metrics)}->'_topics'->'tags') = 'array' THEN ${postgresJsonbCast(metrics)}->'_topics'->'tags' ELSE '[]'::jsonb END`
         : `CASE WHEN JSON_TYPE(JSON_EXTRACT(${metrics}, '$._topics.tags')) = 'ARRAY' THEN JSON_EXTRACT(${metrics}, '$._topics.tags') ELSE JSON_ARRAY() END`;

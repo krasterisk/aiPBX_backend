@@ -1,4 +1,5 @@
 import { QualityPreviewAnalytics } from '../operator-analytics/quality/quality-preview-analytics.model';
+import { currentQualityProjection } from '../operator-analytics/quality/current-quality-projection';
 import { journalOrderExpression } from './journal-order';
 import { postgresJsonbCast } from '../operator-analytics/lib/dashboard-aggregation';
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
@@ -518,7 +519,7 @@ export class AiCdrService {
 
             // Build order clause based on field type
             let orderClause: any[];
-            const journalOrder = qualityPreview ? journalOrderExpression(sortField, this.dialect) : null;
+            const journalOrder = qualityPreview ? journalOrderExpression(sortField, this.dialect, true) : null;
             const isAssociatedSort = Boolean(journalOrder) || sortField === 'csat' || sortField === 'sentiment' || sortField === 'scenarioSuccess';
             const isCsatFilter = Boolean(csatWhere);
             // subQuery: false needed when sorting/searching by JOINed fields
@@ -633,7 +634,7 @@ export class AiCdrService {
 
             const enrichedRows = rows.map(row => {
                 const json = row.toJSON() as any;
-                if (qualityPreview) { json.analytics = json.previewAnalytics; delete json.previewAnalytics; }
+                if (qualityPreview) { json.analytics = currentQualityProjection(json.previewAnalytics); delete json.previewAnalytics; }
                 json.transcription = transcriptionMap.get(row.channelId) || null;
                 if (!json.recordUrl) {
                     json.recordUrl = recordUrlMap.get(row.channelId) || json.recordUrl;

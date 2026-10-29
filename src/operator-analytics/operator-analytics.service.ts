@@ -1,5 +1,7 @@
 import { dashboardCallFacts, callOutcome, callDistributionCondition } from './lib/dashboard-call-facts';
 import { QualityPreviewService, previewObservation } from './quality/quality-preview.service';
+import { QualityPreviewAnalytics } from './quality/quality-preview-analytics.model';
+import { currentQualityProjection } from './quality/current-quality-projection';
 import { randomUUID } from 'crypto';
 import { qualityDashboard, qualityEvidence, qualityDistributionPredicate } from './quality/quality-dashboard';
 import { QualityScoringService } from './quality/quality-scoring.service';
@@ -1926,7 +1928,7 @@ export class OperatorAnalyticsService {
         search?: string;
         sortField?: string;
         sortOrder?: string;
-    }, isAdmin: boolean, realUserId: string) {
+    }, isAdmin: boolean, realUserId: string, qualityPreview = false) {
         const scoped = this.scopeProjectQuery(query);
         const where: any = {};
         const sentimentKey = this.parseSentimentFilter(query.sentiment);
@@ -1970,15 +1972,15 @@ export class OperatorAnalyticsService {
 
         if (query.tagId || isWithoutProject(query.withoutTopic)) {
             where[Op.and] = [...(where[Op.and] || []), topicCallCondition(
-                this.aiCdrRepository.sequelize.getDialect(), query.tagId, isWithoutProject(query.withoutTopic),
+                this.aiCdrRepository.sequelize.getDialect(), query.tagId, isWithoutProject(query.withoutTopic), qualityPreview ? 'previewAnalytics' : 'analytics',
             )];
         }
 
         const withoutOutcome = isWithoutProject(query.withoutOutcome);
         if (withoutOutcome && successFlag !== null) throw new HttpException('Conflicting outcome filters', HttpStatus.BAD_REQUEST);
         if (sentimentKey || successFlag !== null || withoutOutcome) {
-            const condition = this.qualityScoring?.enabled && this.aiCdrRepository.sequelize.getDialect() === 'postgres'
-                ? qualityDistributionPredicate({ sentiment: sentimentKey, success: successFlag, withoutOutcome })
+            const condition = (qualityPreview || this.qualityScoring?.enabled) && this.aiCdrRepository.sequelize.getDialect() === 'postgres'
+                ? qualityDistributionPredicate({ sentiment: sentimentKey, success: successFlag, withoutOutcome }, qualityPreview)
                 : callDistributionCondition(this.aiCdrRepository.sequelize.getDialect(), { sentiment: sentimentKey, success: successFlag, withoutOutcome });
             where[Op.and] = [...(where[Op.and] || []), Sequelize.literal(condition)];
         }
@@ -2006,7 +2008,7 @@ export class OperatorAnalyticsService {
         }
 
         applyAnalyticsSelection(where, scoped);
-        applyCallRecordFilters(where, scoped, this.aiCdrRepository.sequelize);
+        applyCallRecordFilters(where, scoped, this.aiCdrRepository.sequelize, qualityPreview);
         const sortField = query.sortField || 'createdAt';
         const sortOrder = query.sortOrder || 'DESC';
         const orderClause: any[] = [[sortField, sortOrder]];
@@ -2020,7 +2022,7 @@ export class OperatorAnalyticsService {
             order: orderClause,
             limit,
             offset,
-            include: [{ model: AiAnalytics, as: 'analytics' }]
+            include: [{ model: qualityPreview ? QualityPreviewAnalytics : AiAnalytics, as: qualityPreview ? 'previewAnalytics' : 'analytics' }]
         });
 
         // Attach transcription from operator_analytics records
@@ -2038,6 +2040,7 @@ export class OperatorAnalyticsService {
 
         const enrichedData = data.map(row => {
             const json = row.toJSON() as any;
+            if (qualityPreview) { json.analytics = currentQualityProjection(json.previewAnalytics); delete json.previewAnalytics; }
             json.callType = json.callType ?? 'incoming';
             const oa = oaMap.get(row.channelId);
             json.transcription = oa?.transcription || null;
@@ -2071,6 +2074,7 @@ export class OperatorAnalyticsService {
         isAdmin: boolean,
         realUserId: string | null,
         actorUserId?: string,
+        qualityPreview = false,
     ) {
         const scoped = this.scopeProjectQuery(query);
         const operatorName = query.operatorName?.trim() || '';
@@ -2096,8 +2100,8 @@ export class OperatorAnalyticsService {
             this.aiCdrRepository.sequelize,
         );
 
-        if (this.qualityScoring?.enabled) {
-            return qualityEvidence(this.aiCdrRepository.sequelize, filters, isAdmin, realUserId ?? '', query);
+        if (qualityPreview || this.qualityScoring?.enabled) {
+            return qualityEvidence(this.aiCdrRepository.sequelize, filters, isAdmin, realUserId ?? '', query, qualityPreview);
         }
 
         // Legacy compatibility path, retained until explicit v2 activation/backfill.
@@ -2170,12 +2174,12 @@ export class OperatorAnalyticsService {
             operatorName?: string; operatorId?: string; operatorExtension?: string;
         projectId?: number;
         withoutProject?: string | boolean;
-    }, isAdmin: boolean, realUserId: string) {
+    }, isAdmin: boolean, realUserId: string, qualityPreview = false) {
         const scoped = this.scopeProjectQuery(query);
         const where = buildDashboardCdrWhere(scoped, isAdmin, realUserId, (v) => this.likeOp(v), this.aiCdrRepository.sequelize);
-        if (this.qualityScoring?.enabled) {
+        if (qualityPreview || this.qualityScoring?.enabled) {
             const project = scoped.projectId ? await this.projectRepository.findByPk(scoped.projectId) : null;
-            return qualityDashboard(this.aiCdrRepository.sequelize, scoped, isAdmin, realUserId, project?.callTaxonomy ?? []);
+            return qualityDashboard(this.aiCdrRepository.sequelize, scoped, isAdmin, realUserId, project?.callTaxonomy ?? [], qualityPreview);
         }
         const numericKeys = [
             'greeting_quality', 'script_compliance', 'politeness_empathy',
@@ -3947,9 +3951,9 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
     private async persistAnalysisProjection(fields: Record<string, any>, userId: string, projectId?: number | null, existing?: AiAnalytics, cloneSource?: string) {
         if (!this.qualityScoring?.enabled && !existing?.qualityRunId) {
             const saved = existing ? await existing.update(fields) : await this.aiAnalyticsRepository.create(fields as any);
-            // Isolated best-effort shadow projection; it cannot fail or delay the legacy analysis result.
+            // Publish quality before callers observe completion; failures stay isolated from legacy data.
             if (this.qualityPreview && process.env.QUALITY_PREVIEW_ENABLED !== 'false' && this.aiAnalyticsRepository.sequelize.getDialect() === 'postgres')
-                void this.qualityPreview.ensure(fields.channelId, String(userId)).catch(() => this.logger.warn('Quality preview projection pending'));
+                await this.qualityPreview.ensure(fields.channelId, String(userId)).catch(() => this.logger.warn('Quality preview projection pending'));
             return saved;
         }
         let card = fields.metrics?._quality_card;

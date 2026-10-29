@@ -2,9 +2,12 @@ import { QueryTypes, Sequelize } from 'sequelize';
 import { DashboardCdrFilters, postgresJsonbCast } from '../lib/dashboard-aggregation';
 import { appendAnalyticsSelectionSql } from '../lib/analytics-selection';
 import { analyticsDate } from '../lib/analytics-date';
+import { QUALITY_FORMULA_VERSION } from './quality-score';
+import { journalValues, journalPeople, journalTags } from '../../ai-cdr/journal-selection';
+import { parseCsatFilter } from '../../ai-cdr/parse-csat-filter';
 
 /** Fixed SQL scope shared by summary and evidence. Values are always bound. */
-export function qualityReadScope(filters: DashboardCdrFilters, isAdmin: boolean, userId: string) {
+export function qualityReadScope(filters: DashboardCdrFilters, isAdmin: boolean, userId: string, preview = false) {
     const clauses = ['1=1'];
     const replacements: Record<string, any> = {};
     if (!isAdmin || filters.userId) {
@@ -37,6 +40,30 @@ export function qualityReadScope(filters: DashboardCdrFilters, isAdmin: boolean,
     }
     appendAnalyticsSelectionSql('postgres', 'c', filters, clauses, replacements);
     const raw = postgresJsonbCast('a.metrics');
+    const sources = journalValues(filters.sources, ['call', 'widget', 'playground', 'external-api', 'external-front']);
+    const types = journalValues(filters.callTypes, ['incoming', 'outgoing', 'internal']);
+    if (sources.length) { clauses.push('c.source IN (:qualitySources)'); replacements.qualitySources = sources; }
+    if (types.length) { clauses.push(`COALESCE(c."callType",'incoming') IN (:qualityTypes)`); replacements.qualityTypes = types; }
+    const people = journalPeople(filters.people);
+    if (people.length) clauses.push('(' + people.map((person, i) => {
+        const bind = (column: string, value: string) => {
+            const key = `qualityPerson${i}${column}`; replacements[key] = value;
+            return `c."${column}" = :${key}`;
+        };
+        const identity = person.operatorId ? bind('operatorId', person.operatorId) : person.assistantId ? bind('assistantId', person.assistantId)
+            : `${bind('assistantName', person.name!)} AND COALESCE(c."operatorId",'')='' AND COALESCE(c."assistantId",'') IN ('','0')`;
+        return `(${bind('userId', person.userId)} AND ${identity})`;
+    }).join(' OR ') + ')');
+    const selectedTags = journalTags(filters.tagIds);
+    if (selectedTags.length) {
+        replacements.qualityTags = selectedTags;
+        clauses.push(`EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(${raw}->'_topics'->'tags')='array' THEN ${raw}->'_topics'->'tags' ELSE '[]'::jsonb END) tag(value) WHERE tag.value IN (:qualityTags))`);
+    }
+    const { scores, includeNone } = parseCsatFilter(filters.csat);
+    if (scores.length || includeNone) {
+        replacements.qualityCsat = scores;
+        clauses.push('(' + [...(scores.length ? ['a.csat IN (:qualityCsat)'] : []), ...(includeNone ? ['a.csat IS NULL'] : [])].join(' OR ') + ')');
+    }
     const usable = `COALESCE(${raw}->'_quality'->>'quality', 'ok') NOT IN ('low','unusable')`;
     const cte = `WITH base AS MATERIALIZED (
         SELECT c."channelId", c."userId", c."createdAt", c.duration, c.cost, c."amountCurrency",
@@ -44,21 +71,21 @@ export function qualityReadScope(filters: DashboardCdrFilters, isAdmin: boolean,
           COALESCE(c."callType", 'incoming') AS type, a."qualityRunId", a."qualityScorecardId",
           a."qualityCoverage", a."qualityContextIncomplete", ${raw} AS metrics,
           ${usable} AS usable,
-          CASE WHEN a."qualityStatus"='scored' AND ${usable} THEN a."qualityScore" ELSE NULL END AS score,
+          CASE WHEN a."qualityStatus"='scored' AND ${usable} ${preview ? `AND a."qualityVersion"='${QUALITY_FORMULA_VERSION}'` : ''} THEN a."qualityScore" ELSE NULL END AS score,
           CASE WHEN ${usable} THEN COALESCE(a."qualitySummary"::jsonb->>'success', ${raw}->'scenario_analysis'->>'success', ${raw}->>'success') END AS success,
           CASE WHEN ${usable} THEN lower(COALESCE(a."qualitySummary"::jsonb->>'sentiment', a.sentiment, ${raw}->>'customer_sentiment')) END AS mood,
           CASE WHEN ${usable} THEN a.csat END AS csat
           , CASE WHEN a."qualitySummary"::jsonb ? 'successReason' THEN a."qualitySummary"::jsonb->>'successReason' ELSE ${raw}->'_assessments'->'success'->>'rationale' END AS "failureReason"
-        FROM "aiCdr" c LEFT JOIN "aiAnalytics" a ON a."channelId"=c."channelId"
+        FROM "aiCdr" c LEFT JOIN "${preview ? 'quality_preview_analytics' : 'aiAnalytics'}" a ON a."channelId"=c."channelId"
         WHERE ${clauses.join(' AND ')}
     )`;
     return { cte, replacements };
 }
 
 /** Correlated predicate for an already-authorized/paginated CDR query; never transfers period IDs. */
-export function qualityDistributionPredicate(filter: { sentiment?: string | null; success?: boolean | null; withoutOutcome?: boolean }): string {
+export function qualityDistributionPredicate(filter: { sentiment?: string | null; success?: boolean | null; withoutOutcome?: boolean }, preview = false): string {
     if (filter.withoutOutcome && typeof filter.success === 'boolean') throw new Error('Conflicting outcome filters');
-    if (filter.withoutOutcome && filter.sentiment) return `(${qualityDistributionPredicate({ withoutOutcome: true })} AND ${qualityDistributionPredicate({ sentiment: filter.sentiment })})`;
+    if (filter.withoutOutcome && filter.sentiment) return `(${qualityDistributionPredicate({ withoutOutcome: true }, preview)} AND ${qualityDistributionPredicate({ sentiment: filter.sentiment }, preview)})`;
     const metrics = postgresJsonbCast('q.metrics');
     const parts = [
         `q."channelId"="AiCdr"."channelId"`,
@@ -77,7 +104,7 @@ export function qualityDistributionPredicate(filter: { sentiment?: string | null
             }'`
         );
     if (filter.withoutOutcome) parts.push(`COALESCE(q."qualitySummary"::jsonb->>'success',${metrics}->'scenario_analysis'->>'success',${metrics}->>'success') IN ('true','false')`);
-    return `${filter.withoutOutcome ? 'NOT ' : ''}EXISTS (SELECT 1 FROM "aiAnalytics" q WHERE ${parts.join(' AND ')})`;
+    return `${filter.withoutOutcome ? 'NOT ' : ''}EXISTS (SELECT 1 FROM "${preview ? 'quality_preview_analytics' : 'aiAnalytics'}" q WHERE ${parts.join(' AND ')})`;
 }
 
 const counts = `count(*)::int AS "callsCount", count(score)::int AS "scoredCalls", avg(score) AS "averageScore", avg(duration) AS "averageDuration",
@@ -92,10 +119,11 @@ export async function qualityDashboard(
     filters: DashboardCdrFilters,
     isAdmin: boolean,
     userId: string,
-    taxonomy: Array<{ id: string; name: string }> = []
+    taxonomy: Array<{ id: string; name: string }> = [],
+    preview = false
 ) {
     if (db.getDialect() !== 'postgres') throw new Error('Quality v2 aggregate activation requires PostgreSQL');
-    const { cte, replacements } = qualityReadScope(filters, isAdmin, userId);
+    const { cte, replacements } = qualityReadScope(filters, isAdmin, userId, preview);
     const hourRange =
         filters.startDate && filters.endDate
             ? analyticsDate(filters.endDate, 'end').getTime() - analyticsDate(filters.startDate, 'start').getTime()
@@ -124,7 +152,7 @@ export async function qualityDashboard(
       } AS hourly,
       ${jsonRows(`SELECT v."metricId", v.origin, avg(COALESCE(v."numValue",CASE WHEN v."boolValue" THEN 100 WHEN v."boolValue"=false THEN 0 END)) AS value,
         v."strValue", count(*)::int AS n, avg(v."normalizedValue")*100 AS normalized
-        FROM base b JOIN operator_metric_values v ON v."channelId"=b."channelId" AND v."userId"=b."userId" AND v."qualityRunId"=b."qualityRunId"
+        FROM base b JOIN ${preview ? 'quality_preview_values' : 'operator_metric_values'} v ON v."channelId"=b."channelId" AND v."userId"=b."userId" AND v."qualityRunId"=b."qualityRunId"
         WHERE b.usable AND v."qualityStatus"='assessed' GROUP BY v."metricId",v.origin,v."strValue"`)} AS metrics,
       ${jsonRows(`SELECT tag, ${counts} FROM tagged GROUP BY tag`)} AS tags,
       ${jsonRows(
@@ -203,7 +231,7 @@ export async function qualityDashboard(
         averageDuration: total.averageDuration ?? 0,
         averageScore: total.averageScore,
         scoredCalls: total.scoredCalls,
-        qualityVersion: 'quality-v2.1',
+        qualityVersion: QUALITY_FORMULA_VERSION,
         scorecardRevisions: total.scorecardRevisions,
         historicalDerivedCalls: total.historicalDerivedCalls,
         successRate: total.successRate,
@@ -255,10 +283,11 @@ export async function qualityEvidence(
         evidencePageSize?: number;
         operatorName?: string;
         operatorId?: string;
-    }
+    },
+    preview = false
 ) {
     if (db.getDialect() !== 'postgres') throw new Error('Quality v2 evidence activation requires PostgreSQL');
-    const { cte, replacements } = qualityReadScope(filters, isAdmin, userId);
+    const { cte, replacements } = qualityReadScope(filters, isAdmin, userId, preview);
     const page = Math.max(1, Number(query.evidencePage) || 1),
         size = Math.max(1, Math.min(100, Number(query.evidencePageSize) || 20));
     Object.assign(replacements, { offset: (page - 1) * size, last: page * size, metricId: query.metricId ?? null });
@@ -266,8 +295,8 @@ export async function qualityEvidence(
     const sql = `${cte}, vals AS MATERIALIZED (
       SELECT v."channelId",v."metricId",v.origin,v."numValue",v."boolValue",v."strValue",v."normalizedValue", b."createdAt", r.result::jsonb AS result,
         row_number() OVER (PARTITION BY v.origin,v."metricId" ORDER BY COALESCE(v."normalizedValue"*100,v."numValue",CASE WHEN v."boolValue" THEN 100 WHEN v."boolValue"=false THEN 0 END) ${direction} NULLS LAST,b."createdAt" DESC,b."channelId") AS rn
-      FROM base b JOIN operator_metric_values v ON v."channelId"=b."channelId" AND v."userId"=b."userId" AND v."qualityRunId"=b."qualityRunId"
-      JOIN quality_analysis_runs r ON r.id=b."qualityRunId" AND r."userId"=b."userId"
+      FROM base b JOIN ${preview ? 'quality_preview_values' : 'operator_metric_values'} v ON v."channelId"=b."channelId" AND v."userId"=b."userId" AND v."qualityRunId"=b."qualityRunId"
+      JOIN ${preview ? 'quality_preview_runs' : 'quality_analysis_runs'} r ON r.id=b."qualityRunId" AND r."userId"=b."userId"
       WHERE b.usable AND v."qualityStatus"='assessed'
     ) SELECT
       (SELECT to_jsonb(t) FROM (SELECT count(*)::int AS "callsCount",count(score)::int AS "scoredCalls",avg(score) AS "averageScore" FROM base) t) AS totals,
@@ -283,7 +312,7 @@ export async function qualityEvidence(
         ...row.totals,
         operatorName: query.operatorName || 'all',
         ...(query.operatorId ? { operatorId: query.operatorId } : {}),
-        qualityVersion: 'quality-v2.1',
+        qualityVersion: QUALITY_FORMULA_VERSION,
         sampleCapped: false,
         metrics: row.metrics.map((m: any) => ({
             metricId: m.metricId,

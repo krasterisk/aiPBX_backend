@@ -72,7 +72,7 @@ export function buildDashboardCdrWhere(
 }
 
 /** Same optional call selections on every dashboard aggregate and its drilldown. */
-export function applyCallRecordFilters(where: any, query: DashboardCdrFilters, database?: Sequelize): void {
+export function applyCallRecordFilters(where: any, query: DashboardCdrFilters, database?: Sequelize, preview = false): void {
     if (!query.sources && !query.callTypes && !query.people && !query.tagIds && !query.csat) return;
     applyJournalSelection(where, query as any);
     const tags = journalTags(query.tagIds);
@@ -85,7 +85,7 @@ export function applyCallRecordFilters(where: any, query: DashboardCdrFilters, d
     }
     const { scores, includeNone } = parseCsatFilter(query.csat);
     if (scores.length || includeNone) {
-        const join = `SELECT 1 FROM ${quote('aiAnalytics')} a WHERE a.${quote('channelId')}=${quote('AiCdr')}.${quote('channelId')}`;
+        const join = `SELECT 1 FROM ${quote(preview ? 'quality_preview_analytics' : 'aiAnalytics')} a WHERE a.${quote('channelId')}=${quote('AiCdr')}.${quote('channelId')}`;
         const conditions = [...(scores.length ? [`EXISTS (${join} AND a.csat IN (${scores.join(',')}))`] : []), ...(includeNone ? [`NOT EXISTS (${join} AND a.csat IS NOT NULL)`] : [])];
         clauses.push(Sequelize.literal(`(${conditions.join(' OR ')})`));
     }

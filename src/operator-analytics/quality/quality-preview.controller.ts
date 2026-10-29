@@ -6,6 +6,8 @@ import { QualityPreviewService } from './quality-preview.service';
 import { QualityScoreConfig } from './quality-score';
 import { ApiResponse, ApiTags } from '@nestjs/swagger';
 import { QualityDetailDto, QualityHistoryDto, QualityRulesDto } from './quality-score.dto';
+import { QualityReadQueryDto } from './quality-read-query.dto';
+type QualityOwnerRequest = { vpbxUserId?: string; tokenUserId?: string; isAdmin?: boolean };
 
 @ApiTags('Quality preview')
 @Controller('quality-preview')
@@ -17,6 +19,18 @@ export class QualityPreviewController {
         const user = req.vpbxUserId || req.tokenUserId;
         if (!user) throw new BadRequestException('Missing authenticated owner');
         return String(user);
+    }
+    @Get('dashboard')
+    dashboard(@Query() query: QualityReadQueryDto, @Req() req: QualityOwnerRequest) {
+        return this.analyses.getDashboard(query, req.isAdmin === true, this.owner(req), true);
+    }
+    @Get('cdrs')
+    cdrs(@Query() query: QualityReadQueryDto, @Req() req: QualityOwnerRequest) {
+        return this.analyses.getCdrs(query, req.isAdmin === true, this.owner(req), true);
+    }
+    @Get('operator-evidence')
+    evidence(@Query() query: QualityReadQueryDto, @Req() req: QualityOwnerRequest) {
+        return this.analyses.getOperatorEvidence(query, req.isAdmin === true, this.owner(req), this.owner(req), true);
     }
     @Get('projects/:id/rules')
     @ApiResponse({ status: 200, type: QualityRulesDto })

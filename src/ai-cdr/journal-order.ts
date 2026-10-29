@@ -1,8 +1,11 @@
+import { QUALITY_FORMULA_VERSION } from '../operator-analytics/quality/quality-score';
 /** Static whitelist: ordering reads the published projection, never recalculates a score. */
-export function journalOrderExpression(field: string, dialect: string): string | null {
+export function journalOrderExpression(field: string, dialect: string, currentOnly = false): string | null {
     if (!['postgres', 'mysql'].includes(dialect)) return null;
     const col = (name: string) => (dialect === 'postgres' ? `"analytics"."${name}"` : `\`analytics\`.\`${name}\``);
-    if (field === 'qualityScore') return col('qualityScore');
+    if (field === 'qualityScore') return currentOnly
+        ? `CASE WHEN ${col('qualityVersion')}='${QUALITY_FORMULA_VERSION}' AND ${col('qualityStatus')}='scored' THEN ${col('qualityScore')} ELSE NULL END`
+        : col('qualityScore');
     const metrics = `(replace(("analytics"."metrics")::text, E'\\\\u0000', '')::jsonb)`;
     if (field === 'scenarioSuccess')
         return dialect === 'postgres'

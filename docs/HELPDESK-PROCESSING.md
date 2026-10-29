@@ -1,0 +1,17 @@
+# Scoped processing metadata for Helpdesk
+
+`POST /helpdesk/tools/bound-processing-summary` requires the existing `helpdesk:tools` API-key scope and an active ADMIN key owner. The selected cabinet must be a root account and own the selected project. Request fields: positive integer `cabinetId`, `projectId`; optional `period` (`YYYY-MM-DD/YYYY-MM-DD`, inclusive, at most 31 calendar days through today) and IANA `timeZone` (default UTC). An empty period means yesterday and today in that timezone.
+
+The response contains daily registered-request counts for completed, processing, balance errors and other errors. It explicitly distinguishes request counts from distinct nonempty recording links and warns that a stored link is not proof that audio is available. It does not return phone numbers, transcripts, audio, URLs or credentials. All database operations are fixed SELECTs with cabinet/project parameters; there is no transcription, analysis, billing mutation or network download.
+
+The optional estimate uses completed calls from the current project schema in the last seven days and the current tariff. It requires at least ten examples, complete currency conversion and an all-local-Whisper sample. Otherwise no price is invented. It is an estimate, not a quote for a fixed final amount: actual tokens, provider and future currency conversion determine charges. Local Whisper has no STT charge; external STT is billed separately. A failed balance request does not itself represent a retry queue. Sending the price request, receiving a top-up and actually running historical analysis are distinct actions with distinct approvals.
+
+Helpdesk can call this endpoint through its existing HTTP read connector. The connector injects cabinet, project and timezone from a confirmed client binding; the model supplies only the date-range query. This does not require replacing the Helpdesk runtime. Registering the read and using its stored key require the owner's permission.
+
+## Verification and release evidence
+
+Codex-direct, coordinator /root, no agents. Assigned source files are the new processing controller, aggregate/date helper, their tests, and the controller registration in `helpdesk.module.ts`; unrelated backend modules are preserved.
+
+50 focused Jest tests passed (including existing email/support context tests); TypeScript/Nest build passed; 12 isolated Linux checks passed against the containing production-based image. The installed module minus the new require/controller entry was byte-identical to the previous installed module. The guarded additive release preserved container configuration, all 1302 unrelated compiled runtime files and client project settings, and completed with a healthy backend. Production read guards returned 401 without a key, 403 outside the selected project and 400 for invalid dates. No historical processing or customer email was started by these checks.
+
+Runtime image: `sha256:c8c89815b53c1fcc46331cfe9c29a93b0efad83653f1d9c9d53cdfdc6dc09373`; base `sha256:e903ec3e1f9079ac20afd9c58f076a1970382651c165df426f46b15449554ccb`. Exact manifests, explicit deployment/access authorization and client-specific audit evidence remain in private release records, outside Git. The first deployment attempt refused active processing before any switch; the later idle attempt succeeded. This is focused endpoint qualification, not a claim of a new full-backend regression run or an independent review.

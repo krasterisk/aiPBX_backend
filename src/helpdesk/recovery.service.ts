@@ -34,7 +34,7 @@ export class RecoveryService implements OnModuleInit {
     }
     private envelope(q:RecoveryQuote,data:any){return {contract:RECOVERY_CONTRACT,clientId:q.owner,projectId:q.project,...data}}
     private async scope(owner:string,project:number,tx?:Transaction){
-        const [account]=await this.q('SELECT id,balance FROM users WHERE id=CAST(:owner AS integer) AND NOT banned AND vpbx_user_id IS NULL',{owner},tx);
+        const [account]=await this.q('SELECT id,balance FROM users WHERE id=CAST(:owner AS integer) AND banned IS NOT TRUE AND vpbx_user_id IS NULL',{owner},tx);
         const [p]=await this.q('SELECT * FROM operator_projects WHERE id=:project AND "userId"=:owner'+(tx?' FOR SHARE':''),{owner,project},tx);
         if(!account||!p)throw Error('recovery_scope_changed');return {account,project:p};
     }
@@ -157,7 +157,7 @@ export class RecoveryService implements OnModuleInit {
             await this.db.query(`UPDATE helpdesk_recovery_jobs j SET state=CASE WHEN EXISTS(SELECT 1 FROM helpdesk_recovery_items WHERE job_id=j.id AND state='running') THEN 'uncertain' ELSE 'prepared' END,stop_reason='worker_lease_expired',updated_at=now()
                 WHERE state='running' AND heartbeat_at<now()-interval '10 minutes'`);
             job=await this.db.transaction(async tx=>{
-                const [j]=await this.q(`SELECT j.* FROM helpdesk_recovery_jobs j WHERE (j.state IN ('queued','prepared') OR (j.state='waiting_balance' AND EXISTS(SELECT 1 FROM users WHERE id=CAST(j.owner_id AS integer) AND balance>0 AND NOT banned)))
+                const [j]=await this.q(`SELECT j.* FROM helpdesk_recovery_jobs j WHERE (j.state IN ('queued','prepared') OR (j.state='waiting_balance' AND EXISTS(SELECT 1 FROM users WHERE id=CAST(j.owner_id AS integer) AND balance>0 AND banned IS NOT TRUE)))
                     AND NOT EXISTS(SELECT 1 FROM helpdesk_recovery_jobs other WHERE other.id<>j.id AND other.owner_id=j.owner_id AND other.project_id=j.project_id
                     AND other.state IN ('running','uncertain','waiting_budget','waiting_balance','stale'))
                     ORDER BY (SELECT min(received_at) FROM helpdesk_recovery_items WHERE job_id=j.id),j.created_at FOR UPDATE OF j SKIP LOCKED LIMIT 1`,{},tx);
@@ -246,7 +246,7 @@ export class RecoveryService implements OnModuleInit {
             if(Number(j.spent_currency)+currencyCost>q.maxAmount+0.0000001){
                 await this.db.query("UPDATE helpdesk_recovery_jobs SET state='waiting_budget',stop_reason='confirmed_budget_exhausted',lease_owner=NULL,updated_at=now() WHERE id=:job",{transaction:tx,replacements:{job}});return false;
             }
-            const [wallet]=await this.q('SELECT balance FROM users WHERE id=CAST(:owner AS integer) AND NOT banned AND vpbx_user_id IS NULL FOR UPDATE',{owner:q.owner},tx);
+            const [wallet]=await this.q('SELECT balance FROM users WHERE id=CAST(:owner AS integer) AND banned IS NOT TRUE AND vpbx_user_id IS NULL FOR UPDATE',{owner:q.owner},tx);
             if(!wallet||Number(wallet.balance)<=0||Number(wallet.balance)<cost.usd){await this.db.query("UPDATE helpdesk_recovery_jobs SET state='waiting_balance',stop_reason='insufficient_balance',lease_owner=NULL,updated_at=now() WHERE id=:job",{transaction:tx,replacements:{job}});return false;}
             const external='recovery:'+candidate.recordingKey;
             const [paid]=await this.q("SELECT id FROM balance_ledger WHERE source='usage_analytics' AND \"externalId\"=:external",{external},tx);

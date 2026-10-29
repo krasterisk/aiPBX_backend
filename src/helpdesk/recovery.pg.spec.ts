@@ -75,6 +75,13 @@ integration('recovery PostgreSQL atomicity / concurrency / dates',()=>{
         expect(provider.prepareRecovery).toHaveBeenCalledTimes(3);expect((await select('SELECT * FROM balance_ledger')).length).toBe(3);
         await svc.enqueue('20',7,approval(q));await svc.tick();expect(provider.prepareRecovery).toHaveBeenCalledTimes(3);
     });
+    it('matches nullable legacy cabinet ban flags while rejecting banned or linked accounts',async()=>{
+        await db.query('UPDATE users SET banned=NULL WHERE id=20');
+        const q=await quote(),j=await svc.enqueue('20',7,approval(q));await svc.tick();
+        expect((await svc.status('20',7,j.job.id)).job.state).toBe('completed');expect(provider.prepareRecovery).toHaveBeenCalledTimes(3);
+        await db.query('UPDATE users SET banned=true WHERE id=20');await expect(quote()).rejects.toThrow('recovery_scope_changed');
+        await db.query('UPDATE users SET banned=false,vpbx_user_id=21 WHERE id=20');await expect(quote()).rejects.toThrow('recovery_scope_changed');
+    });
     it('does not process or charge a call completed after the quote',async()=>{
         const q=await quote();await db.query(`UPDATE operator_analytics SET status='completed' WHERE id=1`);
         const j=await svc.enqueue('20',7,approval(q));await svc.tick();expect(provider.prepareRecovery.mock.calls.map((c:any)=>c[2].recordId)).toEqual([2,3]);

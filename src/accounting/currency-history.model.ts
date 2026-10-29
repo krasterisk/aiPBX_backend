@@ -1,6 +1,6 @@
 import { Column, DataType, Model, Table } from 'sequelize-typescript';
 
-@Table({ tableName: 'currency_history' })
+@Table({ tableName: 'currency_history', updatedAt: false })
 export class CurrencyHistory extends Model<CurrencyHistory> {
     @Column({ type: DataType.INTEGER, primaryKey: true, autoIncrement: true })
     declare id: number;

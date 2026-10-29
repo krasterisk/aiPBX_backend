@@ -408,7 +408,7 @@ export class PaymentsService {
         const fxDate = new Date().toISOString().slice(0, 10);
         const rubPerUsd = amountUsd > 0 ? outSumm / amountUsd : 0;
 
-        await this.sequelize.transaction(
+        const credited = await this.sequelize.transaction(
             { isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE },
             async (transaction) => {
             const existing = await this.balanceLedgerRepository.findOne({
@@ -417,7 +417,10 @@ export class PaymentsService {
                 lock: transaction.LOCK.UPDATE,
             });
             if (existing) {
-                return;
+                if (String(existing.userId) !== String(ownerId) || existing.direction !== 'credit') {
+                    throw new HttpException('Conflicting Alfa payment', HttpStatus.CONFLICT);
+                }
+                return false;
             }
 
             const payment = await this.paymentsRepository.create(
@@ -436,22 +439,28 @@ export class PaymentsService {
                 { transaction },
             );
 
-            await this.usersService.updateUserBalance(String(ownerId), amountUsd, {
+            const balanceUpdated = await this.usersService.updateUserBalance(String(ownerId), amountUsd, {
                 source: 'alfa_bank',
                 externalId: invId,
                 paymentId: String(payment.id),
                 transaction,
             });
+            if (!balanceUpdated) {
+                throw new HttpException('Alfa balance credit failed', HttpStatus.INTERNAL_SERVER_ERROR);
+            }
 
             // На УСН без НДС авансовые СФ не требуются; включить через BILLING_CREATE_ADVANCE_INVOICE=true (ОСНО).
             if (process.env.BILLING_CREATE_ADVANCE_INVOICE === 'true') {
                 try {
-                    await this.invoiceService.createAdvanceAfterBankPayment({
-                        userId: Number(ownerId),
-                        amountRub: outSumm,
-                        paymentId: String(payment.id),
-                        externalTransactionId: invId,
-                        transaction,
+                    // A failed optional document must roll back to a savepoint, not abort the credit.
+                    await this.sequelize.transaction({ transaction }, async (savepoint) => {
+                        await this.invoiceService.createAdvanceAfterBankPayment({
+                            userId: Number(ownerId),
+                            amountRub: outSumm,
+                            paymentId: String(payment.id),
+                            externalTransactionId: invId,
+                            transaction: savepoint,
+                        });
                     });
                 } catch (e) {
                     this.logger.warn(`advance invoice: ${(e as Error).message}`);
@@ -459,19 +468,29 @@ export class PaymentsService {
             }
 
             if (rubPerUsd > 0) {
-                await this.currencyHistoryRepository
-                    .create(
-                        {
-                            atDate: fxDate,
-                            fromCurrency: 'USD',
-                            toCurrency: 'RUB',
-                            rate: rubPerUsd.toFixed(8),
-                        } as any,
-                        { transaction },
-                    )
-                    .catch(() => undefined);
+                // PostgreSQL errors abort the whole transaction even when caught in JS.
+                // Ignore duplicate daily snapshots in SQL; propagate every other database error.
+                await this.currencyHistoryRepository.bulkCreate(
+                    [{
+                        atDate: fxDate,
+                        fromCurrency: 'USD',
+                        toCurrency: 'RUB',
+                        rate: rubPerUsd.toFixed(8),
+                    } as any],
+                    { transaction, ignoreDuplicates: true },
+                );
             }
+            return true;
         });
+
+        // Never acknowledge a transaction that PostgreSQL silently rolled back after an aborted statement.
+        const committed = await this.balanceLedgerRepository.findOne({
+            where: { source: 'alfa_bank', externalId: invId },
+        });
+        if (!committed || String(committed.userId) !== String(ownerId) || committed.direction !== 'credit') {
+            throw new HttpException('Alfa credit was not persisted', HttpStatus.SERVICE_UNAVAILABLE);
+        }
+        if (!credited) return { ok: true };
 
         await this.logService.logAction(
             Number(ownerId),

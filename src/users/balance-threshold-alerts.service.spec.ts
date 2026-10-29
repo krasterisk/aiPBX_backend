@@ -1,3 +1,4 @@
+import { getTenantCurrency } from '../shared/tenant/tenant-currency';
 import { Test } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/sequelize';
 import { HttpException } from '@nestjs/common';
@@ -167,6 +168,7 @@ describe('BalanceThresholdAlertsService', () => {
                 80,
                 100,
                 undefined,
+                getTenantCurrency(),
             );
             expect(alertRow.update).toHaveBeenCalled();
             expect(invoiceService.issueInvoice).not.toHaveBeenCalled();
@@ -223,6 +225,7 @@ describe('BalanceThresholdAlertsService', () => {
                     invoiceNumber: 'AIPBX-00001',
                     amountMode: 'fixed',
                 }),
+                getTenantCurrency(),
             );
         });
     });

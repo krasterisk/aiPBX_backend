@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { usesRussianMailLocale } from './mailer-locale';
 import {
@@ -10,13 +10,16 @@ import {
 } from './billing-mail.templates';
 import { buildBillingMailAttachments } from './billing-mail.attachments';
 import { activationMail, resetPasswordMail, type AuthMailPurpose } from './auth-mail.templates';
+import { CurrencyService } from '../currency/currency.service';
+import { BillingMailMoney, USD_MAIL_MONEY } from './billing-mail.money';
+import { balanceCreditMail, BalanceCreditMailParams } from './balance-credit.template';
 
 @Injectable()
 export class MailerService {
     private transporter;
     private readonly logger = new Logger(MailerService.name);
 
-    constructor() {
+    constructor(@Optional() private readonly currencyService?: CurrencyService) {
 
         this.transporter = nodemailer.createTransport({
             from: `"AI PBX" <${process.env.MAIL_USER}>`,
@@ -28,6 +31,32 @@ export class MailerService {
                 pass: process.env.MAIL_PASS,
             },
         });
+    }
+
+    async resolveMoney(currency = 'USD'): Promise<BillingMailMoney> {
+        const code = currency.trim().toUpperCase();
+        if (code === 'USD') return USD_MAIL_MONEY;
+        if (!/^[A-Z]{3}$/.test(code) || !this.currencyService) throw new Error('Mail currency conversion unavailable');
+        const { rate } = await this.currencyService.convertFromUsd(1, code, true);
+        if (!Number.isFinite(rate) || rate <= 0) throw new Error('Invalid mail currency rate');
+        return { currency: code, rate };
+    }
+
+    async sendBalanceCreditNotification(to: string[], params: BalanceCreditMailParams, currency: string,
+        options: { preview?: boolean; rate?: number } = {}) {
+        if (!to.length) return { status: 'no_recipients' };
+        const money = Number.isFinite(options.rate) && options.rate > 0
+            ? { currency: currency.toUpperCase(), rate: options.rate } : await this.resolveMoney(currency);
+        const { subject, html, text } = balanceCreditMail(usesRussianMailLocale(), params, money);
+        const mail: nodemailer.SendMailOptions = {
+            from: `"AI PBX" <${process.env.MAIL_USER}>`, to: to.join(', '),
+            subject: options.preview ? `[Согласование] ${subject}` : subject,
+            html, text, attachments: buildBillingMailAttachments(),
+        };
+        // Administrator-only preview has no sender copy and no customer recipients.
+        const result = await this.transporter.sendMail(options.preview ? mail : this.withSenderMailboxCopy(mail));
+        if (result.rejected?.length) throw new Error('Balance credit email recipient rejected');
+        return { status: 'sent', messageId: result.messageId, accepted: result.accepted, rejected: result.rejected };
     }
 
     /** Копия в ящик отправителя (через BCC), чтобы письма сохранялись на MAIL_USER. */
@@ -130,9 +159,12 @@ export class MailerService {
             invoiceNumber?: string;
             amountMode?: 'fixed' | 'average_monthly';
         },
+        currency = 'USD',
     ) {
         if (!to || to.length === 0) return;
 
+        const money = await this.resolveMoney(currency).catch(() => null);
+        if (!money) { this.logger.warn('Balance email skipped: display currency unavailable'); return; }
         const invoice = invoiceAttachment?.path
             ? { amountMode: invoiceAttachment.amountMode ?? 'fixed' }
             : undefined;
@@ -141,6 +173,7 @@ export class MailerService {
             balance,
             limit,
             invoice,
+            money,
         );
 
         const mail: nodemailer.SendMailOptions = {
@@ -163,10 +196,12 @@ export class MailerService {
         }
     }
 
-    async sendCriticalBalanceNotification(to: string[], balance: number) {
+    async sendCriticalBalanceNotification(to: string[], balance: number, currency = 'USD') {
         if (!to || to.length === 0) return;
 
-        const { subject, html } = criticalBalanceMail(usesRussianMailLocale(), balance);
+        const money = await this.resolveMoney(currency).catch(() => null);
+        if (!money) { this.logger.warn('Balance email skipped: display currency unavailable'); return; }
+        const { subject, html } = criticalBalanceMail(usesRussianMailLocale(), balance, money);
 
         try {
             await this.transporter.sendMail(this.withSenderMailboxCopy({
@@ -182,10 +217,12 @@ export class MailerService {
         }
     }
 
-    async sendZeroBalanceNotification(to: string[], balance: number) {
+    async sendZeroBalanceNotification(to: string[], balance: number, currency = 'USD') {
         if (!to || to.length === 0) return;
 
-        const { subject, html } = zeroBalanceMail(usesRussianMailLocale(), balance);
+        const money = await this.resolveMoney(currency).catch(() => null);
+        if (!money) { this.logger.warn('Balance email skipped: display currency unavailable'); return; }
+        const { subject, html } = zeroBalanceMail(usesRussianMailLocale(), balance, money);
 
         try {
             await this.transporter.sendMail(this.withSenderMailboxCopy({
@@ -205,14 +242,17 @@ export class MailerService {
         to: string[],
         params: RunwayMailParams,
         invoiceAttachment?: { filename: string; path: string; invoiceNumber?: string },
+        currency = 'USD',
     ) {
         if (!to?.length) return;
 
+        const money = await this.resolveMoney(currency).catch(() => null);
+        if (!money) { this.logger.warn('Runway email skipped: display currency unavailable'); return; }
         const mailParams: RunwayMailParams = {
             ...params,
             invoiceNumber: invoiceAttachment?.invoiceNumber,
         };
-        const { subject, html } = runwayBalanceMail(usesRussianMailLocale(), mailParams);
+        const { subject, html } = runwayBalanceMail(usesRussianMailLocale(), mailParams, money);
 
         const mail: nodemailer.SendMailOptions = {
             from: `"AI PBX" <${process.env.MAIL_USER}>`,

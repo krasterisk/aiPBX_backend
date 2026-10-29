@@ -1,4 +1,5 @@
-import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { Organization } from '../organizations/organizations.model';
+import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException, Optional } from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
 import { InjectConnection } from "@nestjs/sequelize";
 import { Sequelize, Transaction, Op } from "sequelize";
@@ -64,6 +65,7 @@ export class UsersService {
         private readonly currencyService: CurrencyService,
         private readonly ourOrganizationsService: OurOrganizationsService,
         private readonly balanceThresholdAlertsService: BalanceThresholdAlertsService,
+        @Optional() @InjectModel(Organization) private readonly organizationsRepository?: typeof Organization,
     ) {
     }
 
@@ -619,6 +621,56 @@ export class UsersService {
         return user;
     }
 
+    async getTenantDisplayName(userId: string): Promise<string> {
+        const ownerId = await this.resolveOwnerId(userId);
+        const organization = await this.organizationsRepository?.findOne({
+            where: { userId: ownerId }, attributes: ['name'], order: [['id', 'ASC']],
+        });
+        if (organization?.name?.trim()) return organization.name.trim();
+        const owner = await this.usersRepository.findByPk(ownerId, { attributes: ['username'] });
+        return owner?.username?.trim() || `Account ${ownerId}`;
+    }
+
+    async getBalanceCreditEmailData(ledgerId: number) {
+        // Query outside the credit transaction: an uncommitted or rolled-back entry cannot be emailed.
+        const credit = await this.balanceLedgerRepository.findByPk(ledgerId);
+        if (!credit || credit.direction !== 'credit') throw new Error('Committed balance credit not found');
+        const ownerId = Number(credit.userId);
+        const owner = await this.usersRepository.findByPk(ownerId);
+        if (!owner) throw new Error('Balance credit owner not found');
+        const alerts = await this.balanceThresholdAlertsService.listForOwner(ownerId);
+        const managers = await this.getTenantManagerEmails(ownerId);
+        const recipients = [...new Set([owner.email, ...alerts.flatMap(a => a.emails || []), ...managers]
+            .filter(Boolean).map(email => email.trim().toLowerCase()))].filter(Boolean);
+        const payment = credit.paymentId ? await this.paymentsRepository.findByPk(credit.paymentId) : null;
+        // Match GET /users/balance: legacy user.currency may still be USD on the RUB deployment.
+        const currency = getTenantCurrency();
+        return {
+            credit, recipients, currency,
+            rate: currency === 'RUB' && Number(payment?.fxRateRubUsd) > 0 ? Number(payment.fxRateRubUsd) : undefined,
+            params: {
+                clientName: await this.getTenantDisplayName(String(ownerId)),
+                personalAccountNumber: owner.personalAccountNumber || formatPersonalAccountNumber(ownerId),
+                amountUsd: Number(credit.amountUsd), balanceAfterUsd: Number(credit.balanceAfterUsd),
+                creditedAt: new Date(credit.getDataValue('createdAt')),
+                originalAmount: payment?.amountRub != null ? Number(payment.amountRub) : undefined,
+                originalCurrency: payment?.amountRub != null ? 'RUB' : undefined,
+            },
+        };
+    }
+
+    async sendBalanceCreditEmail(ledgerId: number) {
+        // Text/design approval gate: off by default, including manual calls.
+        if (process.env.BALANCE_CREDIT_EMAIL_ENABLED !== 'true') return { status: 'disabled' };
+        const data = await this.getBalanceCreditEmailData(ledgerId);
+        if (data.credit.meta?.balanceCreditEmailSentAt) return { status: 'already_sent' };
+        const result = await this.mailerService.sendBalanceCreditNotification(data.recipients, data.params, data.currency, { rate: data.rate });
+        if (result.status === 'sent') {
+            await data.credit.update({ meta: { ...(data.credit.meta || {}), balanceCreditEmailSentAt: new Date().toISOString() } });
+        }
+        return result;
+    }
+
     async updateUserBalance(id: string, amountToAdd: number, opts?: BalanceCreditOptions) {
         if (id === undefined || id === null || id === '' || amountToAdd === undefined || amountToAdd === null) {
             this.logger.warn('id or amount not found');
@@ -651,7 +703,7 @@ export class UsersService {
             const after = before + Number(amountToAdd);
             await user.update({ balance: after }, { transaction });
 
-            await this.balanceLedgerRepository.create(
+            const credit = await this.balanceLedgerRepository.create(
                 {
                     userId: String(ownerId),
                     direction: 'credit',
@@ -666,6 +718,14 @@ export class UsersService {
                 },
                 { transaction },
             );
+            if (process.env.BALANCE_CREDIT_EMAIL_ENABLED === 'true' && Number(amountToAdd) > 0) {
+                transaction.afterCommit(() => {
+                    // Release the credit connection and acknowledge the bank independently of SMTP.
+                    void this.sendBalanceCreditEmail(Number(credit.id)).catch(error => {
+                        this.logger.warn(`Balance credit email failed for ledger ${credit.id}: ${error.name}`);
+                    });
+                });
+            }
             return true;
         };
 
@@ -744,12 +804,12 @@ export class UsersService {
 
             if (!wasDepleted && !isDepleted && oldBalanceApprox > 3 && newBalance <= 3) {
                 const recipients = [...new Set([...allNotifyEmails, ...managerEmails, user.email])].filter(Boolean);
-                this.mailerService.sendCriticalBalanceNotification(recipients, newBalance);
+                this.mailerService.sendCriticalBalanceNotification(recipients, newBalance, getTenantCurrency());
             }
 
             if (!wasDepleted && oldBalanceApprox > 0 && isDepleted) {
                 const recipients = [...new Set([...allNotifyEmails, ...managerEmails, user.email])].filter(Boolean);
-                this.mailerService.sendZeroBalanceNotification(recipients, newBalance);
+                this.mailerService.sendZeroBalanceNotification(recipients, newBalance, getTenantCurrency());
             }
 
             return true;

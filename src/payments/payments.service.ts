@@ -504,8 +504,11 @@ export class PaymentsService {
             'critical',
         );
 
+        let clientName = `Account ${ownerId}`;
+        try { clientName = await this.usersService.getTenantDisplayName(String(ownerId)); }
+        catch { this.logger.warn(`Cannot resolve customer name for credited Alfa payment`); }
         await this.telegramService.sendMessage(
-            `✅ Alfa bank payment\nUser: ${ownerId}\n${outSumm} RUB → ${amountUsd} USD\nInvId: ${invId}`,
+            `✅ Alfa bank payment\nКлиент: ${clientName}\nUser: ${ownerId}\n${outSumm} RUB → ${amountUsd} USD\nInvId: ${invId}`,
         );
 
         return { ok: true };

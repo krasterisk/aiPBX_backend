@@ -1,3 +1,4 @@
+import { getTenantCurrency } from '../shared/tenant/tenant-currency';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { Op } from 'sequelize';
@@ -262,6 +263,7 @@ export class BalanceThresholdAlertsService {
                     newBalance,
                     alert.limitAmount,
                     invoiceAttachment,
+                    getTenantCurrency(),
                 );
             }
 

@@ -1,3 +1,4 @@
+import { BillingMailMoney, USD_MAIL_MONEY, formatBillingMoney } from './billing-mail.money';
 import {
     billingInvoiceAttachmentNote,
     billingThanksParagraph,
@@ -28,11 +29,12 @@ export function lowBalanceMail(
     balance: number,
     limit: number,
     invoice?: LowBalanceMailInvoice,
+    money: BillingMailMoney = USD_MAIL_MONEY,
 ) {
     const paymentUrl = resolvePaymentPageUrl();
     const metrics = billingMetricBox([
-        { label: isRu ? 'Текущий баланс' : 'Current balance', value: `$${balance.toFixed(2)}` },
-        { label: isRu ? 'Установленный порог' : 'Your threshold', value: `$${limit.toFixed(2)}` },
+        { label: isRu ? 'Текущий баланс' : 'Current balance', value: formatBillingMoney(balance, isRu, money) },
+        { label: isRu ? 'Установленный порог' : 'Your threshold', value: formatBillingMoney(limit, isRu, money) },
     ]);
     const hasInvoice = !!invoice;
     const invoiceNote = invoice
@@ -80,10 +82,10 @@ export function lowBalanceMail(
     };
 }
 
-export function criticalBalanceMail(isRu: boolean, balance: number) {
+export function criticalBalanceMail(isRu: boolean, balance: number, money: BillingMailMoney = USD_MAIL_MONEY) {
     const paymentUrl = resolvePaymentPageUrl();
     const metrics = billingMetricBox([
-        { label: isRu ? 'Текущий баланс' : 'Current balance', value: `$${balance.toFixed(2)}`, accent: true },
+        { label: isRu ? 'Текущий баланс' : 'Current balance', value: formatBillingMoney(balance, isRu, money), accent: true },
     ]);
 
     if (isRu) {
@@ -93,7 +95,7 @@ export function criticalBalanceMail(isRu: boolean, balance: number) {
                 isRu: true,
                 title: 'Низкий баланс',
                 intro:
-                    'Здравствуйте!<br/><br/>Напоминаем: на вашем счёте осталось менее $3. Пожалуйста, пополните баланс, чтобы избежать приостановки сервиса.',
+                    `Здравствуйте!<br/><br/>Напоминаем: на вашем счёте осталось менее ${formatBillingMoney(3, isRu, money)}. Пожалуйста, пополните баланс, чтобы избежать приостановки сервиса.`,
                 bodyHtml: `${billingNoticeParagraph(
                     'При нулевом балансе исходящие звонки и связанные функции будут временно недоступны.',
                     'warning',
@@ -109,7 +111,7 @@ export function criticalBalanceMail(isRu: boolean, balance: number) {
             isRu: false,
             title: 'Low balance reminder',
             intro:
-                'Hello,<br/><br/>This is a friendly reminder: your account balance is below $3. Please consider topping up to avoid any interruption to your service.',
+                `Hello,<br/><br/>This is a friendly reminder: your account balance is below ${formatBillingMoney(3, isRu, money)}. Please consider topping up to avoid any interruption to your service.`,
             bodyHtml: `${billingNoticeParagraph(
                 'When your balance reaches zero, outbound calls and related features will be temporarily unavailable.',
                 'warning',
@@ -119,10 +121,10 @@ export function criticalBalanceMail(isRu: boolean, balance: number) {
     };
 }
 
-export function zeroBalanceMail(isRu: boolean, balance: number) {
+export function zeroBalanceMail(isRu: boolean, balance: number, money: BillingMailMoney = USD_MAIL_MONEY) {
     const paymentUrl = resolvePaymentPageUrl();
     const metrics = billingMetricBox([
-        { label: isRu ? 'Текущий баланс' : 'Current balance', value: `$${balance.toFixed(2)}`, accent: true },
+        { label: isRu ? 'Текущий баланс' : 'Current balance', value: formatBillingMoney(balance, isRu, money), accent: true },
     ]);
 
     if (isRu) {
@@ -158,15 +160,15 @@ export function zeroBalanceMail(isRu: boolean, balance: number) {
     };
 }
 
-export function runwayBalanceMail(isRu: boolean, p: RunwayMailParams) {
+export function runwayBalanceMail(isRu: boolean, p: RunwayMailParams, money: BillingMailMoney = USD_MAIL_MONEY) {
     const paymentUrl = resolvePaymentPageUrl();
     const daysText = p.daysLeft.toFixed(1);
     const metrics = billingMetricBox([
         { label: isRu ? 'Прогноз (дней)' : 'Estimated runway (days)', value: `~${daysText}`, accent: true },
-        { label: isRu ? 'Текущий баланс' : 'Current balance', value: `$${p.balanceUsd.toFixed(2)}` },
+        { label: isRu ? 'Текущий баланс' : 'Current balance', value: formatBillingMoney(p.balanceUsd, isRu, money) },
         {
             label: isRu ? 'Средний расход в день' : 'Average daily spend',
-            value: `~$${p.dailyBurnUsd.toFixed(2)}`,
+            value: `~${formatBillingMoney(p.dailyBurnUsd, isRu, money)}`,
         },
         {
             label: isRu ? 'Период расчёта' : 'Calculation period',

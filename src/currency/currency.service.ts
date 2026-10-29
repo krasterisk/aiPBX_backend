@@ -90,6 +90,7 @@ export class CurrencyService {
     async convertFromUsd(
         amountUsd: number,
         currency: string,
+        strict = false,
     ): Promise<{ amount: number; rate: number }> {
         const usd = Number(amountUsd) || 0;
         const ccy = (currency || 'USD').toUpperCase();
@@ -101,6 +102,7 @@ export class CurrencyService {
         const rateUsd = await this.ratesRepository.findOne({ where: { currency: 'USD' } });
 
         if (!rateCurrency?.rate || !rateUsd?.rate) {
+            if (strict) throw new Error(`Cannot convert USD to ${ccy}: rates missing`);
             this.logger.warn(`Cannot convert USD→${ccy}: rates missing, returning USD amount`);
             return { amount: Math.round(usd * 100) / 100, rate: 1 };
         }

@@ -1,3 +1,4 @@
+import { getTenantCurrency } from '../shared/tenant/tenant-currency';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { Op } from 'sequelize';
@@ -53,7 +54,7 @@ export class BillingRunwayService {
 
         const owners = await this.usersRepo.findAll({
             where: { vpbx_user_id: null },
-            attributes: ['id', 'email', 'balance'],
+            attributes: ['id', 'email', 'balance', 'currency'],
         });
 
         let notified = 0;
@@ -187,6 +188,7 @@ export class BillingRunwayService {
                 dailyBurnUsd,
             },
             invoiceAttachment,
+            getTenantCurrency(),
         );
 
         await this.runwayNotifyRepo.upsert({

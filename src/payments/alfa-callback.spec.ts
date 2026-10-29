@@ -23,7 +23,7 @@ describe('Alfa callback committed credit acknowledgement', () => {
             currencyHistoryRepository: { bulkCreate: jest.fn().mockResolvedValue([]) },
             balanceLedgerRepository: { findOne: jest.fn().mockResolvedValueOnce(null).mockResolvedValue(credit) },
             sequelize: { transaction: jest.fn(async (_options, callback) => callback({ LOCK: { UPDATE: 'UPDATE' } })) },
-            usersService: { resolveOwnerId: jest.fn().mockResolvedValue(99), updateUserBalance: jest.fn().mockResolvedValue(true) },
+            usersService: { resolveOwnerId: jest.fn().mockResolvedValue(99), updateUserBalance: jest.fn().mockResolvedValue(true), getTenantDisplayName: jest.fn().mockResolvedValue('Customer organization') },
             configService: { get: jest.fn().mockReturnValue('test-secret') },
             currencyService: { convertToUsd: jest.fn().mockResolvedValue(50) },
             telegramService: { sendMessage: jest.fn() }, logService: { logAction: jest.fn() },
@@ -40,6 +40,7 @@ describe('Alfa callback committed credit acknowledgement', () => {
         expect(deps.currencyHistoryRepository.bulkCreate).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ ignoreDuplicates: true }));
         expect(deps.balanceLedgerRepository.findOne).toHaveBeenLastCalledWith({ where: { source: 'alfa_bank', externalId: body.InvId } });
         expect(deps.telegramService.sendMessage).toHaveBeenCalledTimes(1);
+        expect(deps.telegramService.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Клиент: Customer organization'));
     });
     it('propagates an FX database error without acknowledgement or success notification', async () => {
         deps.currencyHistoryRepository.bulkCreate.mockRejectedValue(new Error('column missing'));

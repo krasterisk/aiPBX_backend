@@ -367,6 +367,7 @@ describe('UsersService', () => {
             expect(mockMailerService.sendCriticalBalanceNotification).toHaveBeenCalledWith(
                 ['user@test.com'],
                 2.5,
+                'USD',
             );
         });
 
@@ -381,6 +382,7 @@ describe('UsersService', () => {
             expect(mockMailerService.sendCriticalBalanceNotification).toHaveBeenCalledWith(
                 expect.arrayContaining(['user@test.com', 'manager@tenant.com']),
                 2.5,
+                'USD',
             );
         });
 
@@ -397,6 +399,7 @@ describe('UsersService', () => {
             expect(mockMailerService.sendZeroBalanceNotification).toHaveBeenCalledWith(
                 expect.arrayContaining(['admin@test.com', 'user@test.com']),
                 -1,
+                'USD',
             );
         });
 

@@ -13,7 +13,9 @@ import { operatorIdentityFields, operatorIdentityKey, operatorGroupIdentity } fr
 import { Inject, Injectable, Logger, HttpException, HttpStatus, forwardRef, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { resolveTopicScheme, topicSchemeBaseline } from './lib/topic-scheme';
-import { ForeignKeyConstraintError } from 'sequelize';
+import { ForeignKeyConstraintError, Transaction, Op as RecoveryOp } from 'sequelize';
+import { PreparedRecovery, RecoveryCandidate, recoveryRecordHash } from '../helpdesk/recovery-contract';
+import { recoveryReserved } from '../helpdesk/recovery-fence';
 import { OperatorAnalytics, AnalyticsSource, AnalyticsStatus } from './operator-analytics.model';
 import { OperatorApiToken } from './operator-api-token.model';
 import { OperatorProject } from './operator-project.model';
@@ -924,6 +926,9 @@ export class OperatorAnalyticsService {
 
         const url = this.sanitizeUrl(rawUrl);
         try {
+            if(await recoveryReserved(this.analyticsRepository.sequelize,record)) {
+                await record.update({status:AnalyticsStatus.ERROR,errorMessage:'Reserved by approved historical recovery'});return;
+            }
             await this.checkBalance(record.userId);
 
             this.logger.log(`Background: downloading file from URL: ${url}`);
@@ -1055,6 +1060,61 @@ export class OperatorAnalyticsService {
         }
     }
 
+    /** Compute once for an approved recovery; no customer debit or result publication. */
+    async prepareRecovery(owner:string,projectId:number,candidate:RecoveryCandidate):Promise<PreparedRecovery> {
+        const record=await this.analyticsRepository.findByPk(candidate.recordId);
+        if(!record||String(record.userId)!==owner||record.projectId!==projectId||record.status!==AnalyticsStatus.PROCESSING)throw Error('recovery_scope_or_record_changed');
+        if(recoveryRecordHash(record.get({plain:true}))!==candidate.recordHash)throw Error('recovery_record_identity_changed');
+        await this.checkBalance(owner);
+        const response=await axios.get(this.sanitizeUrl(record.recordUrl),this.getRecordingDownloadConfig());
+        const buffer=Buffer.from(response.data),audioHash=computeAudioSha256(buffer);
+        await this.persistAudioSha256(record,audioHash);
+        if(await this.findCompletedDuplicate(owner,projectId,audioHash,record.id))throw Error('recovery_completed_duplicate');
+        const others=await this.analyticsRepository.findOne({where:{userId:owner,projectId,id:{[RecoveryOp.ne]:record.id},
+            status:AnalyticsStatus.PROCESSING,[RecoveryOp.or]:[{recordUrl:record.recordUrl},{audioSha256:audioHash}]},attributes:['id']});
+        if(others)throw Error('recovery_busy_before_provider');
+        const project=await this.projectRepository.findOne({where:{id:projectId,userId:owner}});
+        if(!project)throw Error('recovery_project_changed');
+        const schemaVersion=project.currentSchemaVersion??null;
+        const {sttResult,billableSttDuration,llmTranscription,channelDiarizedJson,diarizationSource}=await this.transcribePossiblyStereo(buffer,record.filename,record.language||'auto','whisper');
+        if(sttResult.provider!=='whisper')throw Error('recovery_unquoted_provider');
+        if(await this.rejectIfUnusable(record,sttResult))throw Error('recovery_unusable_recording');
+        const sttQuality=this.assessSttQuality(sttResult);
+        const analysis=await this.analyzeTranscription(llmTranscription,undefined,project,sttQuality.quality==='low'?sttQuality:undefined,this.analysisLlmOptions(channelDiarizedJson,diarizationSource));
+        const {metrics,customMetricsResult,usage,diarizedText,analysisConfidence,insufficientContent,assessments,customMeta,customMetricsInvalid,modelName,topicTagIds}=analysis;
+        const finalQuality=combineTranscriptionQuality(sttQuality,{analysis_confidence:analysisConfidence,insufficient_content:insufficientContent});
+        const transcript=channelDiarizedJson||alignDiarizedTimestamps(diarizedText,sttResult.segments)||sttResult.text;
+        const merged=this.enrichStoredMetrics(customMetricsResult?{...metrics,custom_metrics:customMetricsResult}:metrics,finalQuality,
+            {assessments,customMeta,model:modelName,schemaVersion,customInvalid:customMetricsInvalid,promptVersion:PROMPT_VERSION,
+                topicsBlock:this.buildTopicsBlock(sttResult.text,project,[],topicTagIds),diarizationSource:this.resolveDiarizationSource(channelDiarizedJson,diarizedText,diarizationSource)});
+        const units=usage?.total_tokens||0,{inTokens:textTokensIn,outTokens:textTokensOut}=this.extractTokenSplit(usage),channelId=String(record.id);
+        return {recordId:record.id,owner,project:projectId,receivedAt:candidate.receivedAt,audioHash,transcript,duration:sttResult.duration,provider:'whisper',billableSeconds:billableSttDuration,units,schemaVersion,
+            recordFields:{transcription:transcript,duration:sttResult.duration,sttProvider:'whisper',schemaVersion,promptVersion:PROMPT_VERSION,
+                transcriptionQuality:finalQuality.quality,transcriptionConfidence:finalQuality.confidence,qualityReasons:finalQuality.reasons,detectedLanguage:sttResult.language||null},
+            cdrFields:{channelId,projectId,userId:owner,duration:Math.round(sttResult.duration),tokens:units,assistantName:record.operatorName||'Unknown Operator',
+                ...operatorIdentityFields(record),callerId:record.clientPhone||'',callType:parseCallType(record.callType),source:record.source===AnalyticsSource.API?OPERATOR_CDR_SOURCE.EXTERNAL_API:OPERATOR_CDR_SOURCE.EXTERNAL_FRONT,recordUrl:record.recordUrl},
+            analysisFields:{channelId,metrics:merged,summary:metrics.summary||'',sentiment:metrics.customer_sentiment||'',csat:metrics.csat||null,tokens:units},
+            billingFields:{channelId,type:'analytic',userId:owner,description:'Approved missed call recovery',totalTokens:units,textTokens:units,textTokensIn,textTokensOut,audioTokens:0},tagIds:topicTagIds};
+    }
+
+    /** Primary result projections share the caller's ledger/item transaction. */
+    async commitRecovery(p:PreparedRecovery,cost:{usd:number;analysis:number;stt:number},fx:number,currency:string,tx:Transaction):Promise<void>{
+        const createdAt=new Date(p.receivedAt),now=new Date(),amount=Math.round(cost.usd*fx*1e4)/1e4;
+        await this.aiCdrRepository.create({...p.cdrFields,cost:cost.usd,costCurrency:currency,amountCurrency:amount,createdAt}as any,{transaction:tx});
+        await this.aiCdrRepository.sequelize.query('UPDATE "aiCdr" SET "processedAt"=now() WHERE "channelId"=:channel AND "userId"=:owner AND "projectId"=:project',
+            {replacements:{receivedAt:p.receivedAt,channel:String(p.recordId),owner:p.owner,project:p.project},transaction:tx});
+        await this.persistAnalysisProjection({...p.analysisFields,cost:cost.usd,createdAt},p.owner,p.project,undefined,undefined,tx);
+        await this.billingRecordRepository.create({...p.billingFields,totalCost:cost.usd,textCost:cost.analysis,sttCost:cost.stt,
+            currency,amountCurrency:amount,fxRateUsdToCurrency:fx,fxRateSource:'rates',fxCapturedAt:now}as any,{transaction:tx});
+        const record=await this.analyticsRepository.findByPk(p.recordId,{transaction:tx,lock:tx.LOCK.UPDATE});
+        if(!record||String(record.userId)!==p.owner||record.projectId!==p.project)throw Error('recovery_scope_changed');
+        await record.update({...p.recordFields,status:AnalyticsStatus.COMPLETED,errorMessage:null},{transaction:tx});
+        await this.analyticsRepository.sequelize.query('UPDATE operator_analytics SET "ingestedAt"=COALESCE("ingestedAt","createdAt"),"createdAt"=:receivedAt,"processedAt"=now() WHERE id=:id AND "userId"=:owner AND "projectId"=:project',
+            {replacements:{receivedAt:p.receivedAt,id:p.recordId,owner:p.owner,project:p.project},transaction:tx});
+        await this.writeMetricValues(String(p.recordId),p.owner,p.project,p.schemaVersion,p.analysisFields.metrics,tx);
+        await this.writeAutoCallTags(String(p.recordId),p.owner,p.project,p.tagIds,tx);
+    }
+
     async createProcessingRecord(
         filename: string,
         userId: string,
@@ -1097,6 +1157,10 @@ export class OperatorAnalyticsService {
 
             const audioSha256 = computeAudioSha256(buffer);
             await this.persistAudioSha256(record, audioSha256);
+
+            if(await recoveryReserved(this.analyticsRepository.sequelize,{userId:record.userId,projectId:record.projectId,recordUrl:record.recordUrl,audioSha256})) {
+                await record.update({status:AnalyticsStatus.ERROR,errorMessage:'Reserved by approved historical recovery'});return AnalyticsStatus.ERROR;
+            }
 
             if (this.dedupByHashEnabled && record.projectId) {
                 const duplicate = await this.findCompletedDuplicate(
@@ -1178,6 +1242,7 @@ export class OperatorAnalyticsService {
                 totalTokens,
                 billableSttDuration,
                 sttResult.provider,
+                record,
             );
 
             await record.update({
@@ -2656,6 +2721,7 @@ export class OperatorAnalyticsService {
         userId: string | null,
         projectId: number | null,
         tagIds: string[],
+        transaction?:Transaction,
     ): Promise<void> {
         if (!tagIds.length) return;
         try {
@@ -2667,12 +2733,13 @@ export class OperatorAnalyticsService {
                     tagId,
                     source: 'auto' as const,
                 })),
-                { ignoreDuplicates: true },
+                { ignoreDuplicates: true,...(transaction?{transaction}:{}) },
             );
         } catch (e) {
             this.logger.warn(
                 `call_tags auto-write failed for channel ${channelId}: ${(e as Error).message}`,
             );
+            if(transaction)throw e;
         }
     }
 
@@ -3944,11 +4011,11 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
      * Best-effort: never throws (JSON remains the source of truth).
      * Idempotent per channel (clears prior rows first) so regenerate stays consistent.
      */
-    private async persistAnalysisProjection(fields: Record<string, any>, userId: string, projectId?: number | null, existing?: AiAnalytics, cloneSource?: string) {
+    private async persistAnalysisProjection(fields: Record<string, any>, userId: string, projectId?: number | null, existing?: AiAnalytics, cloneSource?: string, transaction?:Transaction) {
         if (!this.qualityScoring?.enabled && !existing?.qualityRunId) {
-            const saved = existing ? await existing.update(fields) : await this.aiAnalyticsRepository.create(fields as any);
+            const saved = existing ? (transaction?await existing.update(fields,{transaction}):await existing.update(fields)) : (transaction?await this.aiAnalyticsRepository.create(fields as any,{transaction}):await this.aiAnalyticsRepository.create(fields as any));
             // Isolated best-effort shadow projection; it cannot fail or delay the legacy analysis result.
-            if (this.qualityPreview && process.env.QUALITY_PREVIEW_ENABLED !== 'false' && this.aiAnalyticsRepository.sequelize.getDialect() === 'postgres')
+            if (!transaction && this.qualityPreview && process.env.QUALITY_PREVIEW_ENABLED !== 'false' && this.aiAnalyticsRepository.sequelize.getDialect() === 'postgres')
                 void this.qualityPreview.ensure(fields.channelId, String(userId)).catch(() => this.logger.warn('Quality preview projection pending'));
             return saved;
         }
@@ -3968,7 +4035,8 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         delete fields.metrics._quality_card;
         delete fields.metrics._quality_operation;
         delete fields.metrics._quality_input;
-        const run = await this.qualityScoring.writeAnalysis({ userId: String(userId), projectId, channelId: fields.channelId, operationId, card, fields, inputSnapshot });
+        const input={ userId: String(userId), projectId, channelId: fields.channelId, operationId, card, fields, inputSnapshot };
+        const run = transaction?await this.qualityScoring.writeAnalysis(input,transaction):await this.qualityScoring.writeAnalysis(input);
         this.persistedQualityMetrics.add(fields.metrics);
         return run;
     }
@@ -3979,6 +4047,7 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         projectId: number | null,
         schemaVersion: number | null,
         metrics: Record<string, any>,
+        transaction?:Transaction,
     ): Promise<void> {
         if (this.persistedQualityMetrics.has(metrics)) return;
         try {
@@ -4012,12 +4081,13 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
                 }
             }
 
-            await this.metricValueRepository.destroy({ where: { channelId } });
+            await this.metricValueRepository.destroy({ where: { channelId },...(transaction?{transaction}:{}) });
             if (rows.length) {
-                await this.metricValueRepository.bulkCreate(rows as any);
+                if(transaction)await this.metricValueRepository.bulkCreate(rows as any,{transaction});else await this.metricValueRepository.bulkCreate(rows as any);
             }
         } catch (e) {
             this.logger.warn(`metric_values dual-write failed for channel ${channelId}: ${(e as Error).message}`);
+            if(transaction)throw e;
         }
     }
 
@@ -4176,7 +4246,9 @@ Return JSON: { "result": <value>, "explanation": "<brief explanation in the conv
         totalTokens: number,
         durationSeconds: number = 0,
         sttProvider?: string,
+        recoveryFenceRecord?:OperatorAnalytics,
     ): Promise<{ totalCost: number; llmCost: number; sttCost: number }> {
+        if(recoveryFenceRecord&&await recoveryReserved(this.analyticsRepository.sequelize,recoveryFenceRecord))throw Error('Reserved by approved historical recovery');
         const price = await this.pricesRepository.findOne({ where: { userId: Number(userId) } });
         if (!price) {
             this.logger.warn(`Price not found for userId: ${userId}, using default rate`);

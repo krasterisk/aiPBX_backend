@@ -23,6 +23,8 @@ import { HelpdeskToolsController } from './helpdesk-tools.controller';
 
 import { HelpdeskEmailContextController } from './helpdesk-email-context.controller';
 import { HelpdeskProcessingController } from './helpdesk-processing.controller';
+import { RecoveryController } from './recovery.controller';
+import { RecoveryService } from './recovery.service';
 import { HelpdeskTopicSchemeController } from './helpdesk-topic-scheme.controller';
 import { HelpdeskEmailContextService } from './helpdesk-email-context.service';
 import { User } from '../users/users.model';
@@ -52,8 +54,9 @@ import { OperatorAnalyticsModule } from '../operator-analytics/operator-analytic
         forwardRef(() => AuthModule),
         forwardRef(() => OperatorAnalyticsModule),
     ],
-    controllers: [HelpdeskController, HelpdeskToolsController, HelpdeskEmailContextController, HelpdeskTopicSchemeController, HelpdeskProcessingController],
+    controllers: [HelpdeskController, HelpdeskToolsController, HelpdeskEmailContextController, HelpdeskTopicSchemeController, HelpdeskProcessingController, RecoveryController],
     providers: [
+        RecoveryService,
         HelpdeskEmailContextService,
         HelpdeskService,
         HelpdeskAlfawebhookService,

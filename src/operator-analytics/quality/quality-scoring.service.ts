@@ -82,7 +82,7 @@ export class QualityScoringService {
         fields: Record<string, any>;
         inputSnapshot?: Record<string, any> | null;
         initialOverrides?: any[];
-    }) {
+    }, outerTransaction?:Transaction) {
         const userId = String(input.userId),
             projectId = input.projectId ?? null;
         const operationKey = qualityHash({
@@ -91,7 +91,7 @@ export class QualityScoringService {
             operation: input.operationId,
             kind: 'analysis',
         });
-        return this.analytics.sequelize.transaction(async (transaction) => {
+        const write=async (transaction:Transaction) => {
             const cdr = await this.cdrs.findOne({
                 where: { channelId: input.channelId, userId },
                 transaction,
@@ -178,7 +178,8 @@ export class QualityScoringService {
             })) as any, { transaction });
             await this.writeValueProjection(run, transaction);
             return run;
-        });
+        };
+        return outerTransaction?write(outerTransaction):this.analytics.sequelize.transaction(write);
     }
 
     private projection(run: QualityAnalysisRun) {

@@ -166,6 +166,15 @@ suite('quality storage: real PostgreSQL migration and transactions', () => {
         expect(await QualityAnalysisRun.count()).toBe(2);
         expect((await values.findOne({ where: { origin: 'default' } })).normalizedValue).toBe(0);
     });
+    it('keeps quality rows inside the caller settlement transaction on rollback',async()=>{
+        await expect(db.transaction(async transaction=>{
+            await service.writeAnalysis({userId:'99',projectId:5,channelId:'one',operationId:'recovery-outer',card:card(),fields:{metrics:metrics(100),summary:'Synthetic'}},transaction);
+            expect(await QualityAnalysisRun.count({transaction})).toBe(1);
+            throw Error('synthetic settlement rollback');
+        })).rejects.toThrow('synthetic settlement rollback');
+        expect(await QualityAnalysisRun.count()).toBe(0);
+        expect(await analytics.count()).toBe(0);expect(await values.count()).toBe(0);
+    });
     it('rolls back score, history and raw answer together if a read projection write fails', async () => {
         const first = await write(100);
         const fault = jest.spyOn(values, 'bulkCreate').mockRejectedValueOnce(new Error('synthetic projection failure'));

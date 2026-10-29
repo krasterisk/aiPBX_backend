@@ -116,6 +116,19 @@ integration('recovery PostgreSQL atomicity / concurrency / dates',()=>{
         const q=await quote();const j=await svc.enqueue('20',7,approval(q));await svc.tick();await svc.tick();
         expect(provider.prepareRecovery).toHaveBeenCalledTimes(1);expect((await svc.status('20',7,j.job.id)).job.state).toBe('uncertain');expect((await select('SELECT * FROM balance_ledger')).length).toBe(0);
     });
+    it('can checkpoint before the next provider by locking its pending item, without a paid attempt',async()=>{
+        const q=await quote(),j=await svc.enqueue('20',7,approval(q));const hold=await db.transaction();
+        await db.query("SELECT record_id FROM helpdesk_recovery_items WHERE job_id=:job AND state='pending'ORDER BY received_at,record_id LIMIT 1 FOR UPDATE",{transaction:hold,replacements:{job:j.job.id}});
+        const running=svc.tick();
+        try{
+            for(let i=0;i<30;i++){
+                if((await svc.status('20',7,j.job.id)).job.state==='running')break;
+                await new Promise(resolve=>setTimeout(resolve,10));
+            }
+            await new Promise(resolve=>setTimeout(resolve,100));expect(provider.prepareRecovery).not.toHaveBeenCalled();expect((await select('SELECT * FROM balance_ledger')).length).toBe(0);
+        }finally{await hold.rollback()}
+        await running;expect(provider.prepareRecovery).toHaveBeenCalledTimes(3);expect((await svc.status('20',7,j.job.id)).job.state).toBe('completed');
+    });
     it('stops at the confirmed budget without a debit or provider replay',async()=>{
         const q=await quote(0.1),j=await svc.enqueue('20',7,approval(q));await svc.tick();await svc.tick();
         expect(provider.prepareRecovery).toHaveBeenCalledTimes(1);expect((await svc.status('20',7,j.job.id)).job.state).toBe('waiting_budget');expect((await select('SELECT * FROM balance_ledger')).length).toBe(0);

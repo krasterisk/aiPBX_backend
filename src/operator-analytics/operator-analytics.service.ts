@@ -1113,6 +1113,14 @@ export class OperatorAnalyticsService {
             {replacements:{receivedAt:p.receivedAt,id:p.recordId,owner:p.owner,project:p.project},transaction:tx});
         await this.writeMetricValues(String(p.recordId),p.owner,p.project,p.schemaVersion,p.analysisFields.metrics,tx);
         await this.writeAutoCallTags(String(p.recordId),p.owner,p.project,p.tagIds,tx);
+        // The journal reads its isolated derived projection. It must see only a
+        // committed result; projection failures must never replay paid work.
+        if(this.qualityPreview&&process.env.QUALITY_PREVIEW_ENABLED!=='false'&&this.analyticsRepository.sequelize.getDialect()==='postgres'){
+            tx.afterCommit(()=>{
+                void this.qualityPreview.ensure(String(p.recordId),p.owner)
+                    .catch(()=>this.logger.warn('Recovery journal projection pending'));
+            });
+        }
     }
 
     async createProcessingRecord(

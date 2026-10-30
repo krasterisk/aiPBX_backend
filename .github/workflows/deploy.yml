@@ -77,6 +77,9 @@ jobs:
 
   # ─── Step 2: Deploy backend to servers ───────
   deploy:
+    permissions:
+      contents: read
+      actions: read
     name: Deploy Backend (${{ matrix.server }})
     needs: [quality, prepare]
     runs-on: ubuntu-latest
@@ -94,6 +97,15 @@ jobs:
       - name: Build immutable backend image on Actions
         if: matrix.server == 'aipbxru_production'
         run: python3 .github/scripts/backend-image-artifact.py build
+      - name: Publish private backend image artifact
+        if: matrix.server == 'aipbxru_production'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-image-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/backend-image-release/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
       - name: Prepare temporary SSH access request
         if: matrix.server == 'aipbxru_production'
         env:
@@ -121,6 +133,7 @@ jobs:
           PRODUCTION_USER: ${{ secrets.SERVER_USER }}
           PRODUCTION_TARGET: ${{ matrix.server }}
           PRODUCTION_SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/backend-image-artifact.py upload
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1

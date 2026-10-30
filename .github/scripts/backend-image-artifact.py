@@ -11,6 +11,9 @@ import sys
 import tempfile
 import time
 import gzip
+import urllib.request
+import urllib.error
+import urllib.parse
 
 if not __debug__:
     raise RuntimeError('Release validation requires Python assertions enabled')
@@ -51,9 +54,9 @@ def validate(meta, revision, version):
     assert 0 < meta['compressedBytes'] < 8 * 1024 ** 3
 
 
-def run(args):
+def run(args, input=None):
     for attempt in range(3 if args[0] in ['ssh', 'scp'] else 1):
-        result = subprocess.run(args, capture_output=True, text=True, timeout=1200)
+        result = subprocess.run(args, input=input, capture_output=True, text=True, timeout=1200)
         if result.returncode == 0: return result.stdout
         fatal = any(s in result.stderr for s in ['Permission denied', 'Host key verification failed', 'REMOTE HOST IDENTIFICATION', 'invalid format'])
         if args[0] not in ['ssh', 'scp'] or result.returncode != 255 or fatal or attempt == 2:
@@ -80,6 +83,72 @@ def build():
     print('Backend image built and exported; credentials and environment files excluded')
 
 
+def validate_signed_url(url):
+    parsed = urllib.parse.urlsplit(url)
+    assert parsed.scheme == 'https' and parsed.username is None and parsed.password is None and parsed.port in (None, 443)
+    assert parsed.hostname and parsed.hostname.endswith(('.blob.core.windows.net', '.githubusercontent.com', '.actions.githubusercontent.com'))
+
+
+def artifact_url():
+    assert os.environ['GITHUB_REPOSITORY'] == 'krasterisk/aiPBX_backend'
+    run_id, attempt = os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_RUN_ATTEMPT']; release_dir(run_id, attempt)
+    base = 'https://api.github.com/repos/krasterisk/aiPBX_backend'
+    headers = {'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'], 'Accept': 'application/vnd.github+json', 'Cache-Control': 'no-cache'}
+    with urllib.request.urlopen(urllib.request.Request(base + '/actions/runs/' + run_id + '/artifacts?per_page=100', headers=headers), timeout=30) as response: items = json.load(response)['artifacts']
+    found = [a for a in items if a['name'] == 'backend-image-release-' + run_id + '-' + attempt and not a['expired']]
+    assert len(found) == 1 and found[0]['workflow_run']['head_sha'] == os.environ['GITHUB_SHA']
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs): return None
+    try:
+        urllib.request.build_opener(NoRedirect()).open(urllib.request.Request(base + '/actions/artifacts/' + str(found[0]['id']) + '/zip', headers=headers), timeout=30)
+    except urllib.error.HTTPError as error:
+        assert error.code == 302
+        url = error.headers['Location']; validate_signed_url(url); return url
+    raise RuntimeError('Expected a short-lived artifact download redirect')
+
+
+PULL_CODE = r'''
+import sys,json,pathlib,os,subprocess,urllib.request,urllib.parse,zipfile,stat,hashlib,re,fcntl
+if not __debug__:raise RuntimeError('Validation must be enabled')
+d=json.load(sys.stdin);p=pathlib.Path(d['directory']);assert re.fullmatch(r'/app/aipbx-backend-releases/\d+-\d+',str(p))
+u=urllib.parse.urlsplit(d['url']);assert u.scheme=='https' and u.username is None and u.password is None and u.port in (None,443) and u.hostname.endswith(('.blob.core.windows.net','.githubusercontent.com','.actions.githubusercontent.com'))
+assert not p.parent.is_symlink()
+if not p.parent.exists():
+ subprocess.run(['sudo','-n','mkdir','-m','700',str(p.parent)],check=True)
+ subprocess.run(['sudo','-n','chown',str(os.getuid())+':'+str(os.getgid()),str(p.parent)],check=True)
+assert p.parent.stat().st_uid==os.getuid();p.mkdir(mode=0o700,exist_ok=True);assert not p.is_symlink() and p.stat().st_uid==os.getuid();os.chmod(p,0o700)
+for n in ['download.zip.tmp','image.tar.gz.tmp','release.json.tmp','image.tar.gz','release.json','.transfer.lock']:assert not (p/n).is_symlink()
+lock=os.open(p/'.transfer.lock',os.O_CREAT|os.O_WRONLY,0o600);fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+temporary=p/'download.zip.tmp'
+try:
+ with urllib.request.urlopen(d['url'],timeout=90) as source,temporary.open('wb') as output:
+  total=0
+  while True:
+   chunk=source.read(1024*1024)
+   if not chunk:break
+   total+=len(chunk);assert total<8*1024**3;output.write(chunk)
+ with zipfile.ZipFile(temporary) as z:
+  assert len(z.infolist())==2 and set(z.namelist())=={'image.tar.gz','release.json'}
+  assert all(not stat.S_ISLNK(i.external_attr>>16) for i in z.infolist())
+  assert z.getinfo('release.json').file_size<65536 and z.getinfo('image.tar.gz').file_size<8*1024**3
+  m=json.loads(z.read('release.json'));assert m['sourceSha']==d['revision'] and m['version']==d['version'] and re.fullmatch('[0-9a-f]{64}',m['archiveSha256'])
+  h=hashlib.sha256();size=0
+  with z.open('image.tar.gz') as source,(p/'image.tar.gz.tmp').open('wb') as output:
+   while True:
+    chunk=source.read(1024*1024)
+    if not chunk:break
+    h.update(chunk);size+=len(chunk);output.write(chunk)
+  assert h.hexdigest()==m['archiveSha256'] and size==m['compressedBytes']
+  (p/'release.json.tmp').write_text(json.dumps(m))
+  for name in ['image.tar.gz','release.json']:os.chmod(p/(name+'.tmp'),0o600);os.replace(p/(name+'.tmp'),p/name)
+ print('Private HTTPS artifact received; revision/version/SHA verified')
+except Exception as error:
+ raise RuntimeError('Private artifact transfer failed: '+type(error).__name__) from None
+finally:
+ if temporary.exists() and not temporary.is_symlink():temporary.unlink()
+'''
+
+
 def upload():
     host, user = os.environ['PRODUCTION_HOST'], os.environ['PRODUCTION_USER']
     validate_destination(host, user, os.environ['PRODUCTION_TARGET'])
@@ -91,12 +160,11 @@ def upload():
         for file, value in [(key, os.environ['PRODUCTION_SSH_KEY'].replace('\r\n', '\n').strip() + '\n'), (known, host + ' ' + HOST_PUBLIC_KEY + '\n')]:
             fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, 'w') as stream: stream.write(value)
-        options = ['-4', '-i', str(key), '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'HostKeyAlgorithms=ssh-ed25519', '-o', 'UserKnownHostsFile=' + str(known), '-o', 'ConnectTimeout=10', '-o', 'IPQoS=none']
+        options = ['-4', '-i', str(key), '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'HostKeyAlgorithms=ssh-ed25519', '-o', 'UserKnownHostsFile=' + str(known), '-o', 'ConnectTimeout=10', '-o', 'IPQoS=none', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3']
         remote = user + '@' + host
-        code = 'import pathlib,os;p=pathlib.Path(' + repr(str(target)) + ');p.parent.mkdir(mode=0o700,exist_ok=True);assert not p.parent.is_symlink();p.mkdir(mode=0o700,exist_ok=True);assert not p.is_symlink() and p.stat().st_uid==os.getuid();assert all(not (p/n).is_symlink() for n in ["image.tar.gz","release.json"]);os.chmod(p,0o700)'
-        run(['ssh', *options, remote, 'python3 -c ' + shlex.quote(code)])
-        run(['scp', *options, str(root / 'image.tar.gz'), str(root / 'release.json'), remote + ':' + str(target) + '/'])
-    print('Verified SSH transfer complete; temporary credentials removed')
+        payload = {'directory': str(target), 'url': artifact_url(), 'revision': os.environ['GITHUB_SHA'], 'version': json.loads((root / 'release.json').read_text())['version']}
+        run(['ssh', *options, remote, 'python3 -c ' + shlex.quote(PULL_CODE)], input=json.dumps(payload))
+    print('Verified private HTTPS transfer complete; temporary SSH files removed')
 
 
 def verify(folder, revision):

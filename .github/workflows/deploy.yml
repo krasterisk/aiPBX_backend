@@ -33,6 +33,7 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npm test
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 
   # ─── Step 2: Determine which servers to deploy ──
   prepare:
@@ -88,6 +89,11 @@ jobs:
       - name: Checkout bounded SSH access helper
         if: matrix.server == 'aipbxru_production'
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build immutable backend image on Actions
+        if: matrix.server == 'aipbxru_production'
+        run: python3 .github/scripts/backend-image-artifact.py build
       - name: Prepare temporary SSH access request
         if: matrix.server == 'aipbxru_production'
         env:
@@ -108,6 +114,14 @@ jobs:
           PRODUCTION_HOST: ${{ secrets.SERVER_HOST }}
           PRODUCTION_TARGET: ${{ matrix.server }}
         run: python3 .github/scripts/production-ssh-access.py wait
+      - name: Upload verified backend image
+        if: matrix.server == 'aipbxru_production'
+        env:
+          PRODUCTION_HOST: ${{ secrets.SERVER_HOST }}
+          PRODUCTION_USER: ${{ secrets.SERVER_USER }}
+          PRODUCTION_TARGET: ${{ matrix.server }}
+          PRODUCTION_SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: python3 .github/scripts/backend-image-artifact.py upload
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
@@ -141,10 +155,17 @@ jobs:
             # Чтобы PDF счетов не терялись при --force-recreate, на сервере в docker-compose.production.yml
             # для backend стоит примонтировать volume на каталог static/org-documents (или весь static).
             echo "Building and deploying backend..."
-            sudo docker compose -f docker-compose.production.yml --env-file .env.production up -d \
+            if [[ "${{ matrix.server }}" == "aipbxru_production" ]]; then
+              RELEASE_DIR="/app/aipbx-backend-releases/${{ github.run_id }}-${{ github.run_attempt }}"
+              python3 /app/aiPBX_backend/.github/scripts/backend-image-artifact.py verify "$RELEASE_DIR" "${{ github.sha }}"
+              sudo docker compose -f docker-compose.production.yml -f "$RELEASE_DIR/runtime.override.yml" --env-file .env.production up -d \
+                --no-build --no-deps --force-recreate backend
+            else
+              sudo docker compose -f docker-compose.production.yml --env-file .env.production up -d \
               --build \
               --no-deps \
               --force-recreate backend
+            fi
 
             # ── Start GPU services (only on aipbxnet / deploy:1) ──
             # VRAM budget (GTX 1080 Ti, 11GB):
@@ -203,9 +224,13 @@ jobs:
 
             # ── Cleanup ──
             # Удаляем все неиспользуемые образы (не только dangling)
-            sudo docker image prune -a -f
-            # Чистим build cache, оставляя 2GB для кэширования
-            sudo docker builder prune -f --keep-storage=2GB
+            if [[ "${{ matrix.server }}" == "aipbxru_production" ]]; then
+              python3 /app/aiPBX_backend/.github/scripts/backend-image-artifact.py check "$RELEASE_DIR" "${{ github.sha }}"
+              python3 /app/aiPBX_backend/.github/scripts/backend-image-artifact.py cleanup "$RELEASE_DIR"
+            else
+              sudo docker image prune -a -f
+              sudo docker builder prune -f --keep-storage=2GB
+            fi
             # Логируем состояние диска для мониторинга
             echo "Docker disk usage after cleanup:"
             sudo docker system df

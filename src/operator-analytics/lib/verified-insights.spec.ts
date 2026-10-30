@@ -1,5 +1,5 @@
 import { insightWindows } from './insight-periods';
-import { verifiedInsights, verifiedRecommendations } from './verified-insights';
+import { verifiedInsights } from './verified-insights';
 import type { InsightPeriodData, InsightMetricGroup } from './insight-evidence';
 
 const periods = { current: { startDate: '2026-10-01', endDate: '2026-10-31' }, previous: { startDate: '2026-09-01', endDate: '2026-09-30' } };
@@ -30,14 +30,14 @@ describe('verified insights', () => {
         const facts = verifiedInsights(data([group({ rule, category: 'да', n: 12, normalized: null, lowIds: ['yes'] }), group({ rule, category: 'нет', n: 8, normalized: null, lowIds: ['no'] })]), null, periods, {});
         expect(facts[0].evidence).toMatchObject({ value: 60, unit: 'percent', distribution: { да: 12, нет: 8 }, channelIds: ['yes'] });
     });
-    it('does not force a minimum and rejects model-generated figures, foreign IDs and reliability disclosures', () => {
+    it('does not compare periods when criterion meaning or business context changed', () => {
+        const now = data([group({ normalized: 40, definition: { instruction: 'Только новая запись' } })]);
+        const old = data([group({ normalized: 95, definition: { instruction: 'Все обращения' } })]);
+        expect(verifiedInsights(now, old, periods, {}).some(f => f.type === 'trend')).toBe(false);
+    });
+    it('does not force a minimum or publish statistical candidates as recommendations', () => {
         expect(verifiedInsights(data([group({ normalized: 80, category: null, trueCount: 0, rule: { ...group().rule, type: 'number' } })]), null, periods, {})).toEqual([]);
-        const facts = verifiedInsights(data(), null, periods, {}), factId = facts[0].evidence.factId;
-        for (const item of [{ factId: 'foreign', recommendation: 'Проверить диалоги' }, { factId, recommendation: 'Потери составили 95%' }, { factId, recommendation: 'Звонки ненадёжны из-за распознавания' }]) {
-            expect(() => verifiedRecommendations({ insights: [item] }, facts)).toThrow();
-        }
-        expect(verifiedRecommendations({ insights: [] }, facts)).toEqual([]);
-        expect(verifiedRecommendations({ insights: [{ factId, actionId: 'review' }] }, facts)[0].observation).toBe(facts[0].observation);
+        expect(verifiedInsights(data(), null, periods, {})[0].recommendation).toBe('');
     });
 });
 

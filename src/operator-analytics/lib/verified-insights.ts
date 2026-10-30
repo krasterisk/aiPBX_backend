@@ -3,13 +3,15 @@ import type { InsightMetricGroup, InsightPeriodData } from './insight-evidence';
 import type { InsightWindow } from './insight-periods';
 import type { CriterionRule } from '../quality/quality-score';
 
-export const VERIFIED_INSIGHTS_VERSION = 'verified-insights-1';
+export const VERIFIED_INSIGHTS_VERSION = 'verified-insights-2-actionable';
 export interface InsightBasis {
     factId: string; metricId: string; origin: string; metric: string;
     value: number; unit: 'points' | 'percent'; assessed: number; applicable: number;
     notApplicable: number; notRecorded: number; distribution: Record<string, number>;
     rule: CriterionRule; channelIds: string[]; previousChannelIds: string[];
     period: InsightWindow; previousPeriod?: InsightWindow; previousValue?: number; delta?: number;
+    callQuotes?: Array<{ channelId: string; period: 'current' | 'previous'; quote: string; applicabilityQuote?: string }>;
+    scopeRuleQuote?: string;
 }
 export interface VerifiedInsight {
     priority: 'high' | 'medium' | 'low'; type: 'gap' | 'strength' | 'trend' | 'outlier';
@@ -17,7 +19,7 @@ export interface VerifiedInsight {
 }
 export const digest = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const round = (v: number) => Number(v.toFixed(2));
-const stable = (rule: CriterionRule) => JSON.stringify([rule.type, rule.normalization, rule.weight, rule.included, rule.critical]);
+const stable = (rule: CriterionRule, definition?: unknown) => JSON.stringify([rule.name, rule.type, rule.normalization, rule.weight, rule.included, rule.critical, definition ?? null]);
 interface Metric {
     id: string; origin: string; rule: CriterionRule; policy: string;
     assessed: number; na: number; recorded: number; normalized: number | null;
@@ -26,7 +28,7 @@ interface Metric {
 function metrics(data: InsightPeriodData): Metric[] {
     const grouped = new Map<string, InsightMetricGroup[]>();
     for (const g of data.metrics) {
-        const key = `${g.origin}:${g.metricId}:${stable(g.rule)}`;
+        const key = `${g.origin}:${g.metricId}:${stable(g.rule, g.definition)}`;
         grouped.set(key, [...(grouped.get(key) || []), g]);
     }
     return [...grouped.values()].map(rows => {
@@ -42,7 +44,7 @@ function metrics(data: InsightPeriodData): Metric[] {
             } else if (r.category != null) distribution[r.category] = (distribution[r.category] || 0) + r.n;
         }
         const order = [...assessed].sort((a, b) => (a.normalized ?? Infinity) - (b.normalized ?? Infinity));
-        return { id: rows[0].metricId, origin: rows[0].origin, rule: rows[0].rule, policy: stable(rows[0].rule), assessed: n,
+        return { id: rows[0].metricId, origin: rows[0].origin, rule: rows[0].rule, policy: stable(rows[0].rule, rows[0].definition), assessed: n,
             na: rows.filter(r => r.status === 'not_applicable').reduce((n, r) => n + r.n, 0),
             recorded: rows.reduce((n, r) => n + r.n, 0), normalized: denom ? round(normalized.reduce((n, r) => n + r.normalized! * r.n, 0) / denom) : null,
             distribution, lowIds: [...new Set(order.flatMap(r => r.lowIds))].slice(0, 5),
@@ -59,7 +61,7 @@ export function verifiedInsights(current: InsightPeriodData, previous: InsightPe
         if (!ids.length) return;
         const name = names[m.id] || m.rule.name || m.id;
         facts.push({ priority: type === 'gap' ? 'high' : type === 'strength' ? 'low' : 'medium', type, title: `${name}: ${title}`, observation,
-            recommendation: type === 'gap' ? 'Проверить звонки-основания и разобрать с операторами применимые требования критерия.' : type === 'strength' ? 'Использовать звонки-основания как примеры для обучения.' : 'Сопоставить звонки-основания и проверить, какие действия операторов повлияли на результат.',
+            recommendation: '', // A statistical candidate is not a publishable supervisor recommendation.
             evidence: { factId: digest([m.origin, m.id, m.policy, type, value, observation, periods]).slice(0, 24), metricId: m.id, origin: m.origin, metric: name,
                 value: round(value), unit: 'points', assessed: m.assessed, applicable: current.total - m.na,
                 notApplicable: m.na, notRecorded: Math.max(0, current.total - m.recorded), distribution: m.distribution, rule: m.rule,
@@ -72,11 +74,11 @@ export function verifiedInsights(current: InsightPeriodData, previous: InsightPe
         if (m.rule.included && m.normalized != null && (m.normalized <= 70 || m.normalized >= 90)) {
             const low = m.normalized <= 70;
             add(m, m.normalized, low ? 'gap' : 'strength', low ? 'зона внимания' : 'сильная сторона',
-                `Оценка критерия «${name}» — ${round(m.normalized)} из 100. Оценено ${m.assessed} из ${current.total - m.na} применимых звонков.`, low ? m.lowIds : m.highIds);
+                `По сохранённым оценкам критерий «${name}» — ${round(m.normalized)} из 100. Оценено ${m.assessed} из ${current.total - m.na} звонков без отметки «неприменимо».`, low ? m.lowIds : m.highIds);
         } else if (Object.keys(m.distribution).length) {
             const [category, n] = Object.entries(m.distribution).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
             // Exact category exemplars, not arbitrary recent calls.
-            const matching = current.metrics.filter(g => g.metricId === m.id && g.origin === m.origin && stable(g.rule) === m.policy && g.status === 'assessed' && g.category === category);
+            const matching = current.metrics.filter(g => g.metricId === m.id && g.origin === m.origin && stable(g.rule, g.definition) === m.policy && g.status === 'assessed' && g.category === category);
             if (n / m.assessed >= .5) add(m, n * 100 / m.assessed, 'outlier', 'распределение ответов',
                 `Ответ «${category}»: ${n} из ${m.assessed} оценённых звонков (${round(n * 100 / m.assessed)}%).`, matching.flatMap(g => g.lowIds).slice(0, 5), { unit: 'percent' });
         }
@@ -85,7 +87,7 @@ export function verifiedInsights(current: InsightPeriodData, previous: InsightPe
             for (const [category, n] of Object.entries(m.distribution)) {
                 const prior = old.distribution[category] || 0, delta = round(100 * n / m.assessed - 100 * prior / old.assessed);
                 if (Math.abs(delta) < 10 || !prior) continue;
-                const matching = (data: InsightPeriodData) => data.metrics.filter(g => g.metricId === m.id && g.origin === m.origin && stable(g.rule) === m.policy && g.status === 'assessed' && g.category === category).flatMap(g => g.lowIds).slice(0, 5);
+                const matching = (data: InsightPeriodData) => data.metrics.filter(g => g.metricId === m.id && g.origin === m.origin && stable(g.rule, g.definition) === m.policy && g.status === 'assessed' && g.category === category).flatMap(g => g.lowIds).slice(0, 5);
                 add(m, 100 * n / m.assessed, 'trend', 'изменилось распределение ответов',
                     `Доля ответа «${category}»: ${round(100 * prior / old.assessed)}% → ${round(100 * n / m.assessed)}% (${delta > 0 ? '+' : ''}${delta} п.п.). Оценено ${old.assessed} и ${m.assessed} звонков.`, matching(current),
                     { unit: 'percent', previousValue: round(100 * prior / old.assessed), delta, previousPeriod: periods.previous, previousChannelIds: matching(previous) });
@@ -111,23 +113,7 @@ export function verifiedInsights(current: InsightPeriodData, previous: InsightPe
     }
     // No forced minimum. Stable order puts actionable gaps before strengths.
     const rank = { high: 0, medium: 1, low: 2 };
-    return facts.sort((a, b) => rank[a.priority] - rank[b.priority] || a.evidence.factId.localeCompare(b.evidence.factId));
-}
-
-export function insightActions(fact: VerifiedInsight): Record<string, string> {
-    return { review: fact.recommendation,
-        checklist: `Уточнить чек-лист по критерию «${fact.evidence.metric}» и проверить его применение на звонках-основаниях.`,
-        coaching: `Разобрать с операторами звонки-основания по критерию «${fact.evidence.metric}» и согласовать дальнейшие действия.` };
-}
-
-/** No generated prose, numerical claims or IDs can cross this allowlist boundary. */
-export function verifiedRecommendations(raw: unknown, candidates: VerifiedInsight[]): VerifiedInsight[] {
-    if (!raw || typeof raw !== 'object' || !Array.isArray((raw as any).insights)) throw new Error('Invalid insight selection');
-    const selected: VerifiedInsight[] = [];
-    for (const item of (raw as any).insights) {
-        const fact = candidates.find(c => c.evidence.factId === item?.factId);
-        if (!fact || selected.some(c => c.evidence.factId === fact.evidence.factId) || Object.keys(item).some(k => !['factId', 'actionId'].includes(k)) || !Object.prototype.hasOwnProperty.call(insightActions(fact), item.actionId)) throw new Error('Unverified insight recommendation');
-        selected.push({ ...fact, recommendation: insightActions(fact)[item.actionId] });
-    }
-    return selected.slice(0, 6);
+    return facts.sort((a, b) => rank[a.priority] - rank[b.priority] ||
+        (a.type === 'gap' && b.type === 'gap' ? a.evidence.value - b.evidence.value : 0) ||
+        `${a.evidence.origin}:${a.evidence.metricId}:${a.type}:${a.observation}`.localeCompare(`${b.evidence.origin}:${b.evidence.metricId}:${b.type}:${b.observation}`));
 }

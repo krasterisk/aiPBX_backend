@@ -1,6 +1,10 @@
 export const DEEPSEEK_RETRY_DELAYS_MS = [5_000, 15_000] as const;
 export const DEEPSEEK_STREAM_LIMITS = { firstTokenMs: 15_000, idleMs: 15_000, totalMs: 60_000 } as const;
 
+export function resolveInsightsDeepSeekModel(value = process.env.ANALYTICS_INSIGHTS_DEEPSEEK_MODEL): string {
+    return value?.trim() || 'deepseek-v4-pro';
+}
+
 export interface AnalyticsCompletion {
     content: string;
     model: string;

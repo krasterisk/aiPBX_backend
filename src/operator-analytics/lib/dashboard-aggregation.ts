@@ -30,6 +30,7 @@ export function buildDashboardCdrWhere(
     realUserId: string,
     likeOp: (value: string) => Record<string, string>,
     database?: Sequelize,
+    qualityPreview = false,
 ): Record<string, unknown> {
     const where: Record<string, unknown> = {};
 
@@ -67,7 +68,7 @@ export function buildDashboardCdrWhere(
     }
 
     applyAnalyticsSelection(where, query);
-    applyCallRecordFilters(where, query, database);
+    applyCallRecordFilters(where, query, database, qualityPreview);
     return where;
 }
 

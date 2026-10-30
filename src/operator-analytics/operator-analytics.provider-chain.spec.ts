@@ -1,5 +1,6 @@
+jest.mock('glob', () => ({ globSync: () => [] }));
 import { OperatorAnalyticsService } from './operator-analytics.service';
-import { AnalyticsProvidersUnavailableError } from './lib/analytics-provider-chain';
+import { AnalyticsProvidersUnavailableError, resolveInsightsDeepSeekModel } from './lib/analytics-provider-chain';
 
 function completion(content = '{"ok":true}', model = 'gpt-5-nano') {
     return { model, usage: { total_tokens: 20 }, choices: [{ message: { content }, finish_reason: 'stop' }] };
@@ -11,6 +12,7 @@ function fixture() {
     service.analyticsModel = 'gpt-5-nano';
     service.fallbackModel = 'qwen3.5:9b';
     service.deepSeekModel = 'deepseek-flash';
+    service.insightsDeepSeekModel = resolveInsightsDeepSeekModel('deepseek-v4-pro');
     const primary = jest.fn(), nano = jest.fn(), qwen = jest.fn();
     service.deepSeekClient = { chat: { completions: { create: primary } } };
     service.openAiClient = { chat: { completions: { create: nano } } };
@@ -19,6 +21,45 @@ function fixture() {
 }
 
 describe('OperatorAnalyticsService provider chain', () => {
+    it('uses the insight env default and trims an explicit model value', () => {
+        expect(resolveInsightsDeepSeekModel('')).toBe('deepseek-v4-pro');
+        expect(resolveInsightsDeepSeekModel('   ')).toBe('deepseek-v4-pro');
+        expect(resolveInsightsDeepSeekModel(' deepseek-v4-pro ')).toBe('deepseek-v4-pro');
+        expect(resolveInsightsDeepSeekModel(' deepseek-flash ')).toBe('deepseek-flash');
+    });
+
+    it('reads the dedicated environment parameter', () => {
+        const original = process.env.ANALYTICS_INSIGHTS_DEEPSEEK_MODEL;
+        try {
+            process.env.ANALYTICS_INSIGHTS_DEEPSEEK_MODEL = ' configured-insight-model ';
+            expect(resolveInsightsDeepSeekModel()).toBe('configured-insight-model');
+        } finally {
+            if (original == null) delete process.env.ANALYTICS_INSIGHTS_DEEPSEEK_MODEL;
+            else process.env.ANALYTICS_INSIGHTS_DEEPSEEK_MODEL = original;
+        }
+    });
+
+    it('routes insights to Pro and the next analysis to Flash without changing shared client configuration', async () => {
+        const { service, primary, nano, qwen } = fixture();
+        primary.mockImplementation(async (params: any) => (async function* () {
+            yield { model: params.model, choices: [{ delta: { content: '{"ok":true}' }, finish_reason: 'stop' }] };
+        })());
+        expect((await service.chatWithFallback([], { purpose: 'insights' })).model).toBe('deepseek-v4-pro');
+        expect((await service.chatWithFallback([])).model).toBe('deepseek-flash');
+        expect(primary.mock.calls.map(call => call[0].model)).toEqual(['deepseek-v4-pro', 'deepseek-flash']);
+        for (const [params] of primary.mock.calls) expect(params.thinking).toEqual({ type: 'disabled' });
+        expect(nano).not.toHaveBeenCalled(); expect(qwen).not.toHaveBeenCalled();
+    });
+
+    it('retains the configured reserve chain when the insight-specific model fails', async () => {
+        const { service, primary, nano, qwen } = fixture();
+        primary.mockRejectedValue({ status: 404 });
+        nano.mockResolvedValue(completion());
+        expect((await service.chatWithFallback([], { purpose: 'insights' })).model).toBe('gpt-5-nano');
+        expect(primary.mock.calls[0][0].model).toBe('deepseek-v4-pro');
+        expect(primary).toHaveBeenCalledTimes(1); expect(qwen).not.toHaveBeenCalled();
+    });
+
     it('streams DeepSeek with disabled thinking/JSON mode and preserves model/usage', async () => {
         const { service, primary, nano, qwen } = fixture();
         primary.mockImplementation(async () => (async function* () {

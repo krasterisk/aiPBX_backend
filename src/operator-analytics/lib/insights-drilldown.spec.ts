@@ -28,7 +28,7 @@ describe('insights-drilldown', () => {
             likeOp: (v) => ({ like: v }),
         });
 
-        expect(result).toEqual([baseInsight]);
+        expect(result[0].evidence.channelIds).toEqual([]);
         expect(aiCdrRepository.findAll).toHaveBeenCalledWith(
             expect.objectContaining({
                 attributes: ['channelId'],

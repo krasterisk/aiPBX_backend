@@ -1,7 +1,7 @@
-import { WhereOptions } from 'sequelize';
+import { Op, Sequelize, WhereOptions } from 'sequelize';
 import type { AiCdr } from '../../ai-cdr/ai-cdr.model';
 import type { OperatorInsight, OperatorInsightEvidence } from './insights-schema';
-import { buildDashboardCdrWhere } from './dashboard-aggregation';
+import { buildDashboardCdrWhere, DashboardCdrFilters } from './dashboard-aggregation';
 
 const EXEMPLAR_LIMIT = 5;
 
@@ -18,7 +18,9 @@ export async function enrichInsightsWithChannelIds(
     insights: OperatorInsight[],
     deps: {
         aiCdrRepository: { findAll: (opts: object) => Promise<AiCdr[]> };
-        query: {
+        database?: Sequelize;
+        qualityPreview?: boolean;
+        query: DashboardCdrFilters & {
             userId?: string;
             startDate?: string;
             endDate?: string;
@@ -39,6 +41,8 @@ export async function enrichInsightsWithChannelIds(
         deps.isAdmin,
         deps.realUserId ?? '',
         deps.likeOp,
+        deps.database,
+        deps.qualityPreview,
     ) as WhereOptions<AiCdr>;
 
     return Promise.all(insights.map(async (insight) => {
@@ -48,7 +52,7 @@ export async function enrichInsightsWithChannelIds(
             insight.type,
             deps,
         );
-        if (!channelIds.length) return insight;
+        // Never retain model-supplied IDs without checking the authorized selection.
         return {
             ...insight,
             evidence: {
@@ -66,12 +70,13 @@ async function findExemplarChannelIds(
     deps: {
         aiCdrRepository: { findAll: (opts: object) => Promise<AiCdr[]> };
         likeOp: (value: string) => Record<string, string>;
+        qualityPreview?: boolean;
     },
 ): Promise<string[]> {
     const where: WhereOptions<AiCdr> = { ...baseWhere };
     const operator = evidence.operators?.[0];
     if (operator) {
-        Object.assign(where, { assistantName: deps.likeOp(`%${operator}%`) });
+        (where as any)[Op.and] = [...((where as any)[Op.and] || []), { assistantName: deps.likeOp(`%${operator}%`) }];
     }
 
     // analytics lives on aiAnalytics (HasOne), not as a column on aiCdr
@@ -79,7 +84,7 @@ async function findExemplarChannelIds(
         where,
         attributes: ['channelId'],
         include: [{
-            association: 'analytics',
+            association: deps.qualityPreview ? 'previewAnalytics' : 'analytics',
             attributes: ['metrics'],
             required: false,
         }],
@@ -87,11 +92,12 @@ async function findExemplarChannelIds(
         order: [['createdAt', 'DESC']],
     });
 
-    let ordered = rows;
+    const normalized = deps.qualityPreview ? rows.map(row => ({ channelId: row.channelId, analytics: row.previewAnalytics } as AiCdr)) : rows;
+    let ordered = normalized;
     if (evidence.metric) {
         const metricKey = evidence.metric;
         const lowIsBad = insightType === 'gap' || insightType === 'outlier' || insightType === 'quality';
-        ordered = [...rows].sort((a, b) => {
+        ordered = [...normalized].sort((a, b) => {
             const av = readMetricValue(a, metricKey) ?? (lowIsBad ? 999 : -1);
             const bv = readMetricValue(b, metricKey) ?? (lowIsBad ? 999 : -1);
             return lowIsBad ? av - bv : bv - av;

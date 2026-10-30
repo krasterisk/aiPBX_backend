@@ -6,6 +6,7 @@ import { QualityPreviewService } from './quality-preview.service';
 import { QualityScoreConfig } from './quality-score';
 import { ApiResponse, ApiTags } from '@nestjs/swagger';
 import { QualityDetailDto, QualityHistoryDto, QualityRulesDto } from './quality-score.dto';
+import { QualityInsightsQueryDto } from './quality-insights-query.dto';
 import { QualityReadQueryDto } from './quality-read-query.dto';
 type QualityOwnerRequest = { vpbxUserId?: string; tokenUserId?: string; isAdmin?: boolean };
 
@@ -23,6 +24,10 @@ export class QualityPreviewController {
     @Get('dashboard')
     dashboard(@Query() query: QualityReadQueryDto, @Req() req: QualityOwnerRequest) {
         return this.analyses.getDashboard(query, req.isAdmin === true, this.owner(req), true);
+    }
+    @Get('insights')
+    insights(@Query() query: QualityInsightsQueryDto, @Req() req: QualityOwnerRequest) {
+        return this.analyses.getInsights(query, req.isAdmin === true, this.owner(req), this.owner(req), true);
     }
     @Get('cdrs')
     cdrs(@Query() query: QualityReadQueryDto, @Req() req: QualityOwnerRequest) {

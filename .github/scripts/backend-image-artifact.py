@@ -107,9 +107,53 @@ def artifact_url():
     raise RuntimeError('Expected a short-lived artifact download redirect')
 
 
+TRANSFER_CODE = r'''
+import json,subprocess,time,urllib.request,urllib.error
+
+PROXY_NODE = r"""
+(async()=>{
+ let raw='';for await(const part of process.stdin)raw+=part;
+ const d=JSON.parse(raw),url=new URL(d.url),proxy=new URL(process.env.TELEGRAM_PROXY);
+ if(url.protocol!=='https:'||url.username||url.password||url.port&&url.port!=='443'||!['.blob.core.windows.net','.githubusercontent.com','.actions.githubusercontent.com'].some(s=>url.hostname.endsWith(s)))throw Error('Invalid artifact destination');
+ if(!['socks5:','socks5h:'].includes(proxy.protocol)||proxy.hostname!=='speech.krasterisk.ru'||proxy.port!=='45689')throw Error('Unapproved artifact proxy');
+ const {SocksProxyAgent}=await import('socks-proxy-agent'),https=require('https'),{Transform}=require('stream'),{pipeline}=require('stream/promises');
+ const agent=new SocksProxyAgent(proxy),timer=setTimeout(()=>process.exit(1),900000);let bytes=0;
+ try{
+  const source=await new Promise((resolve,reject)=>{const request=https.get(url,{agent,rejectUnauthorized:true},response=>{if(response.statusCode!==200){response.resume();reject(Error('Artifact HTTP status'));}else resolve(response);});request.setTimeout(30000,()=>request.destroy(Error('Artifact socket timeout')));request.on('error',reject);});
+  await pipeline(source,new Transform({transform(chunk,encoding,callback){bytes+=chunk.length;callback(bytes>=8*1024**3?Error('Artifact size limit'):null,chunk);}}),process.stdout);
+ }finally{clearTimeout(timer);agent.destroy();}
+})().catch(()=>{process.stderr.write('Verified HTTPS proxy transfer failed\n');process.exitCode=1;});
+"""
+
+def receive_direct(url,target):
+ begin=time.monotonic();total=0
+ with urllib.request.urlopen(url,timeout=15) as source,target.open('wb') as output:
+  while True:
+   chunk=source.read(1024*1024)
+   if not chunk:break
+   total+=len(chunk);assert total<8*1024**3,'Artifact size limit'
+   elapsed=time.monotonic()-begin
+   if elapsed>25 and total/elapsed<1024*1024:raise TimeoutError('Direct artifact path too slow')
+   output.write(chunk)
+
+def receive_proxy(url,target):
+ # Existing RU backend holds the previously approved proxy configuration. No token or environment is copied.
+ with target.open('wb') as output:
+  result=subprocess.run(['sudo','-n','docker','exec','-i','app-backend-1','node','-e',PROXY_NODE],
+   input=json.dumps({'url':url}).encode(),stdout=output,stderr=subprocess.DEVNULL,timeout=930)
+  assert result.returncode==0,'Artifact proxy transfer failed'
+
+def receive_artifact(url,target):
+ try:receive_direct(url,target)
+ except (TimeoutError,urllib.error.URLError,ConnectionError):
+  print('Direct artifact path unavailable or too slow; using the approved verified HTTPS proxy',flush=True)
+  receive_proxy(url,target)
+'''
+
 PULL_CODE = r'''
 import sys,json,pathlib,os,subprocess,urllib.request,urllib.parse,zipfile,stat,hashlib,re,fcntl
 if not __debug__:raise RuntimeError('Validation must be enabled')
+''' + TRANSFER_CODE + r'''
 d=json.load(sys.stdin);p=pathlib.Path(d['directory']);assert re.fullmatch(r'/app/aipbx-backend-releases/\d+-\d+',str(p))
 u=urllib.parse.urlsplit(d['url']);assert u.scheme=='https' and u.username is None and u.password is None and u.port in (None,443) and u.hostname.endswith(('.blob.core.windows.net','.githubusercontent.com','.actions.githubusercontent.com'))
 assert not p.parent.is_symlink()
@@ -121,12 +165,7 @@ for n in ['download.zip.tmp','image.tar.gz.tmp','release.json.tmp','image.tar.gz
 lock=os.open(p/'.transfer.lock',os.O_CREAT|os.O_WRONLY,0o600);fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
 temporary=p/'download.zip.tmp'
 try:
- with urllib.request.urlopen(d['url'],timeout=90) as source,temporary.open('wb') as output:
-  total=0
-  while True:
-   chunk=source.read(1024*1024)
-   if not chunk:break
-   total+=len(chunk);assert total<8*1024**3;output.write(chunk)
+ receive_artifact(d['url'],temporary)
  with zipfile.ZipFile(temporary) as z:
   assert len(z.infolist())==2 and set(z.namelist())=={'image.tar.gz','release.json'}
   assert all(not stat.S_ISLNK(i.external_attr>>16) for i in z.infolist())

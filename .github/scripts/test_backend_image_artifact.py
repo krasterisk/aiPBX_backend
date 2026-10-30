@@ -79,4 +79,43 @@ class BackendReleaseTest(unittest.TestCase):
             self.assertFalse(any(p.name.startswith('backend-release-') for p in Path(folder).iterdir()))
 
 
+    def test_transport_falls_back_only_on_network_failures_not_integrity_errors(self):
+        from unittest.mock import Mock, patch
+        compile(release.PULL_CODE, '<remote-artifact-transfer>', 'exec')
+        scope = {}; exec(release.TRANSFER_CODE, scope)
+        direct, proxy = Mock(), Mock()
+        with patch.dict(scope, receive_direct=direct, receive_proxy=proxy):
+            scope['receive_artifact']('https://example.blob.core.windows.net/x', Path('test-output'))
+            proxy.assert_not_called()
+            direct.side_effect = TimeoutError('slow')
+            scope['receive_artifact']('https://example.blob.core.windows.net/x', Path('test-output'))
+            proxy.assert_called_once()
+            proxy.reset_mock(); direct.side_effect = AssertionError('size/integrity')
+            with self.assertRaises(AssertionError): scope['receive_artifact']('https://example.blob.core.windows.net/x', Path('test-output'))
+            proxy.assert_not_called()
+
+    def test_direct_transfer_aborts_a_slow_path_before_spending_the_ssh_lease(self):
+        import io, tempfile
+        from unittest.mock import patch
+        scope = {}; exec(release.TRANSFER_CODE, scope)
+        with tempfile.TemporaryDirectory() as folder, patch.object(scope['urllib'].request, 'urlopen', return_value=io.BytesIO(b'x' * 1048576)), patch.object(scope['time'], 'monotonic', side_effect=[0,30]):
+            with self.assertRaises(TimeoutError): scope['receive_direct']('https://example.blob.core.windows.net/x', Path(folder)/'download')
+
+    def test_proxy_refuses_unapproved_endpoints_and_never_writes_a_capability_to_logs(self):
+        import os, json, subprocess
+        scope = {}; exec(release.TRANSFER_CODE, scope)
+        cases = [
+            ('https://example.blob.core.windows.net/x?sig=private-capability','socks5://unapproved.example:45689'),
+            ('https://127.0.0.1/private?sig=private-capability','socks5://speech.krasterisk.ru:45689'),
+            ('http://example.blob.core.windows.net/private','socks5://speech.krasterisk.ru:45689'),
+        ]
+        for url, proxy in cases:
+            with self.subTest(url=url):
+                result=subprocess.run(['node','-e',scope['PROXY_NODE']],input=json.dumps({'url':url}).encode(),capture_output=True,env={**os.environ,'TELEGRAM_PROXY':proxy},timeout=15)
+                self.assertNotEqual(result.returncode,0);self.assertEqual(result.stdout,b'')
+                self.assertNotIn(b'private-capability',result.stderr);self.assertNotIn(proxy.encode(),result.stderr)
+        self.assertIn('rejectUnauthorized:true',scope['PROXY_NODE'])
+        self.assertIn('archiveSha256',release.PULL_CODE)
+        self.assertNotIn('GITHUB_TOKEN',release.TRANSFER_CODE)
+
 if __name__ == '__main__': unittest.main()
